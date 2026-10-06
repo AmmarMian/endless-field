@@ -109,7 +109,19 @@ async function main(): Promise<void> {
   const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
   const motes = new Motes(gpu, globals.uniforms);
   const windTrail = new WindTrail(gpu, globals.uniforms);
-  const birds = new Birds(gpu, globals.uniforms);
+  const input = new Input(canvas);
+  const audio = new Audio();
+  stage("planting trees and flowers…");
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds] = await Promise.all([
+    track(Trees.load(gpu, globals.uniforms)),
+    track(FlowerBeds.load(gpu, globals.uniforms, life.buffer)),
+    track(Water.load(gpu, globals.uniforms)),
+    track(Undergrowth.load(gpu, globals.uniforms, life.buffer)),
+    track(Sunflowers.load(gpu, globals.uniforms)),
+    track(Lanterns.load(gpu, globals.uniforms)),
+    track(Torii.load(gpu, globals.uniforms)),
+    track(Birds.load(gpu, globals.uniforms)),
+  ]);
   birds.onTakeoff = (at, n) => {
     const fx = camera.target[0] - camera.position[0];
     const fz = camera.target[2] - camera.position[2];
@@ -119,18 +131,6 @@ async function main(): Promise<void> {
     const pan = (dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1));
     audio.birds(n, pan, d);
   };
-  const input = new Input(canvas);
-  const audio = new Audio();
-  stage("planting trees and flowers…");
-  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii] = await Promise.all([
-    track(Trees.load(gpu, globals.uniforms)),
-    track(FlowerBeds.load(gpu, globals.uniforms, life.buffer)),
-    track(Water.load(gpu, globals.uniforms)),
-    track(Undergrowth.load(gpu, globals.uniforms, life.buffer)),
-    track(Sunflowers.load(gpu, globals.uniforms)),
-    track(Lanterns.load(gpu, globals.uniforms)),
-    track(Torii.load(gpu, globals.uniforms)),
-  ]);
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
   let explore = false;
@@ -164,7 +164,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, birds.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, ...birds.draws, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
   );
 
 

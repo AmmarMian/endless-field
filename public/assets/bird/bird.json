@@ -1,0 +1,18 @@
+{
+  "vertexBytes": 75280,
+  "indexCount": 21792,
+  "variants": [
+    {
+      "name": "perched",
+      "firstIndex": 0,
+      "indexCount": 7932
+    },
+    {
+      "name": "flying",
+      "firstIndex": 7932,
+      "indexCount": 13860
+    }
+  ],
+  "shoulder": 0.022,
+  "credit": "Modeled in Blender (tools/blender/model_bird.py)"
+}

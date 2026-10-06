@@ -1,114 +1,94 @@
-// Small meadow birds: a faceted body, tail and two-jointed wings built in the vertex shader.
-// The CPU sets each bird's pose (position, heading, pitch, flap angle, wing spread).
+// Meadow birds (model: tools/blender/model_bird.py): painted plumage from vertex colours.
+// Wings flap about the shoulder; the outer hand bends further than the arm.
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
 
 struct Bird {
   // xyz = position, w = heading (yaw)
   pos: vec4f,
-  // x = flap angle, y = wing spread (0 folded .. 1 open), z = pitch, w = seed
+  // x = flap angle, y = wing spread, z = pitch, w = seed
   pose: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<storage, read> birds: array<Bird>;
 
+override SHOULDER: f32 = 0.022;
+const SCALE = 1.35;
+
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) world: vec3f,
   @location(1) normal: vec3f,
-  @location(2) @interpolate(flat) part: u32,
-  @location(3) @interpolate(flat) seed: f32,
+  @location(2) albedo: vec3f,
+  @location(3) ao: f32,
+  @location(4) @interpolate(flat) part: u32,
 }
 
-const SCALE = 1.7;
-
-fn bodyVertex(i: u32) -> vec3f {
-  // 8 faces between nose/tail-end and a ring of back, right, belly, left.
-  let ring = array<vec3f, 4>(vec3f(0.0, 0.04, 0.0), vec3f(0.035, 0.0, 0.01), vec3f(0.0, -0.035, 0.0), vec3f(-0.035, 0.0, 0.01));
-  let face = i / 3u;
-  let k = i % 3u;
-  let tip = select(vec3f(0.0, 0.01, 0.13), vec3f(0.0, 0.005, -0.1), face >= 4u);
-  let r = face % 4u;
-  if (k == 0u) {
-    return tip;
-  }
-  let a = select(r, (r + 1u) % 4u, (k == 1u) != (face >= 4u));
-  let b = select((r + 1u) % 4u, r, (k == 1u) != (face >= 4u));
-  return select(ring[b], ring[a], k == 1u);
-}
-
-/** Wing point: `u` along the span (0 root .. 1 tip), `v` across the chord (0 front .. 1 back). */
-fn wingPoint(u: f32, v: f32, side: f32, flap: f32, spread: f32) -> vec3f {
-  let span = 0.22 * mix(0.25, 1.0, spread);
-  let chord = mix(0.07, 0.03, u) ;
-  // Two joints: the hand bends further than the arm.
-  let arm = min(u, 0.5) * span;
-  let hand = max(u - 0.5, 0.0) * span;
-  let a1 = flap;
-  let a2 = flap * 1.5;
-  var p = vec3f(arm * cos(a1) + hand * cos(a2), arm * sin(a1) + hand * sin(a2), 0.03 - v * chord - u * 0.05 * (1.0 - spread));
-  // Folded wings lie back along the body.
-  p = mix(vec3f(0.03, 0.02, 0.02 - u * 0.13 - v * 0.02), p, spread);
-  return vec3f(p.x * side, p.y + 0.012, p.z);
+fn rotZ(v: vec2f, a: f32) -> vec2f {
+  let c = cos(a);
+  let s = sin(a);
+  return vec2f(v.x * c - v.y * s, v.x * s + v.y * c);
 }
 
 @vertex
-fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, @location(3) e: vec4f, @builtin(instance_index) ii: u32) -> VOut {
   let b = birds[ii];
-  var local: vec3f;
-  var part = 0u;
-  if (vi < 24u) {
-    local = bodyVertex(vi);
-  } else if (vi < 27u) {
-    let tail = array<vec3f, 3>(vec3f(0.0, 0.01, -0.07), vec3f(-0.045, 0.0, -0.17), vec3f(0.045, 0.0, -0.17));
-    local = tail[vi - 24u];
-    part = 1u;
-  } else {
-    // Two wings x two segments x two triangles.
-    let w = vi - 27u;
-    let side = select(1.0, -1.0, w >= 12u);
-    let q = w % 12u;
-    let seg = f32(q / 6u);
-    let c = q % 6u;
-    let uv = array<vec2f, 6>(vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0), vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0))[c];
-    local = wingPoint((seg + uv.x) * 0.5, uv.y, side, b.pose.x, b.pose.y);
-    part = 2u;
+  let part = u32(round(p.w));
+  var lp = p.xyz;
+  var ln = n.xyz;
+  if (part == 3u && t.x != 0.0) {
+    // Wing: rotate about the shoulder (an axis along the body); the hand bends further.
+    let side = sign(t.x);
+    let d = abs(t.x);
+    let a = b.pose.x * (smoothstep(0.0, 0.012, d) + 0.6 * smoothstep(0.035, 0.075, d)) * side;
+    let pivot = vec2f(side * SHOULDER, 0.008);
+    let r = rotZ(lp.xy - pivot, a) + pivot;
+    lp = vec3f(r, lp.z);
+    ln = vec3f(rotZ(ln.xy, a), ln.z);
   }
-  local *= SCALE;
-  // Pitch about x, then heading about y.
-  let cp = cos(b.pose.z);
-  let sp = sin(b.pose.z);
-  local = vec3f(local.x, local.y * cp + local.z * sp, -local.y * sp + local.z * cp);
+  lp *= SCALE;
+  // Pitch about x (positive dips the head), then heading about y.
+  let cp = cos(-b.pose.z);
+  let sp = sin(-b.pose.z);
+  lp = vec3f(lp.x, lp.y * cp + lp.z * sp, -lp.y * sp + lp.z * cp);
+  ln = vec3f(ln.x, ln.y * cp + ln.z * sp, -ln.y * sp + ln.z * cp);
   let cy = cos(b.pos.w);
   let sy = sin(b.pos.w);
-  local = vec3f(local.x * cy + local.z * sy, local.y, -local.x * sy + local.z * cy);
-  let world = b.pos.xyz + local;
+  lp = vec3f(lp.x * cy + lp.z * sy, lp.y, -lp.x * sy + lp.z * cy);
+  ln = vec3f(ln.x * cy + ln.z * sy, ln.y, -ln.x * sy + ln.z * cy);
+  let world = b.pos.xyz + lp;
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.world = world;
-  out.normal = vec3f(0.0, 1.0, 0.0);
+  out.normal = ln;
+  // Painted colours are sRGB; a little per-bird variation in warmth.
+  let warm = 0.92 + 0.16 * fract(b.pose.w * 7.3);
+  out.albedo = pow(e.rgb, vec3f(2.2)) * vec3f(warm, 1.0, 2.0 - warm);
+  out.ao = e.a;
   out.part = part;
-  out.seed = b.pose.w;
   return out;
 }
 
 @fragment
-fn fs_main(frag: VOut) -> @location(0) vec4f {
+fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   let s = SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor);
-  var n = normalize(cross(dpdx(frag.world), dpdy(frag.world)));
-  let v = normalize(G.camPos - frag.world);
-  if (dot(n, v) < 0.0) {
+  var n = normalize(frag.normal);
+  if (!front) {
     n = -n;
   }
-  // Warm brown sparrow tones, paler underneath; wings a little darker.
-  let tone = fract(frag.seed * 7.3);
-  var base = mix(vec3f(0.32, 0.22, 0.14), vec3f(0.42, 0.33, 0.24), tone);
-  base = mix(base, vec3f(0.62, 0.56, 0.48), smoothstep(0.2, -0.6, n.y) * f32(frag.part == 0u));
-  base *= select(1.0, 0.75, frag.part == 2u);
+  let v = normalize(G.camPos - frag.world);
   let l = G.sunDir;
-  var col = base * (ambientSky(n, s) * 0.8 + G.sunColor * (max(dot(n, l), 0.0) * 0.8 + 0.06));
+  // Soft wrapped light for down and feathers; thin wing and tail feathers glow when backlit.
+  let wrap = clamp((dot(n, l) + 0.35) / 1.35, 0.0, 1.0);
+  let thin = select(0.0, 0.5, frag.part == 3u || frag.part == 4u);
+  let back = pow(clamp(dot(-v, l), 0.0, 1.0), 4.0) * thin;
+  var col = frag.albedo * (ambientSky(n, s) * 0.75 * frag.ao + G.sunColor * (wrap * 0.85 + back));
+  if (frag.part == 2u) {
+    // Eyes: a bright wet glint.
+    let h = normalize(l + v);
+    col += G.sunColor * pow(max(dot(n, h), 0.0), 80.0) * 2.0;
+  }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
 }
-

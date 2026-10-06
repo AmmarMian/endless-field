@@ -1,4 +1,4 @@
-import { draw, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
+import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import birdShader from "../shaders/birds.wgsl";
 import type { Vec3 } from "../engine/camera";
 import { ecology } from "./ecology";
@@ -57,25 +57,53 @@ function goodGround(x: number, z: number): boolean {
  * Flocks of small birds feeding in the meadow. They hop and peck until the wind passes through
  * them, then burst up together, wheel around and settle somewhere further off.
  */
+interface Manifest {
+  vertexBytes: number;
+  indexCount: number;
+  shoulder: number;
+  variants: { name: string; firstIndex: number; indexCount: number }[];
+}
+
 export class Birds {
-  readonly draw: Draw;
+  /** Perched and flying poses. */
+  readonly draws: Draw[];
   private readonly flocks: Flock[] = [];
   private readonly buffer: StorageBuffer;
   private readonly data = new Float32Array(MAX * 8);
-  private count = 0;
+  /** Instances: perched birds first, then flying ones. */
+  private perched = 0;
+  private flying = 0;
   /** Called with the flock's position when it takes off. */
   onTakeoff: ((at: Vec3, n: number) => void) | null = null;
 
-  constructor(gpu: Gpu, globals: SharedUniforms) {
-    this.buffer = storage(gpu, MAX * 32, "read");
-    this.draw = draw(gpu, {
-      label: "birds",
-      shader: birdShader,
-      vertices: 51,
-      cull: "none",
-      depth: { compare: "greater" },
-      set: { G: globals, birds: this.buffer },
+  private constructor(draws: Draw[], buffer: StorageBuffer) {
+    this.draws = draws;
+    this.buffer = buffer;
+  }
+
+  static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/bird"): Promise<Birds> {
+    const [manifest, bin] = await Promise.all([
+      fetch(`${base}/bird.json`).then((r) => r.json() as Promise<Manifest>),
+      fetch(`${base}/bird.bin`).then((r) => r.arrayBuffer()),
+    ]);
+    const geo = geometry(gpu, {
+      label: "bird",
+      buffers: [{ data: new Uint8Array(bin, 0, manifest.vertexBytes), attributes: { p: "float16x4", n: "snorm8x4", t: "float16x2", e: "unorm8x4" } }],
+      indices: new Uint32Array(bin, manifest.vertexBytes, manifest.indexCount),
     });
+    const buffer = storage(gpu, MAX * 32, "read");
+    const draws = manifest.variants.map((v) =>
+      draw(gpu, {
+        label: `bird-${v.name}`,
+        shader: birdShader,
+        geometry: geo.slice({ firstIndex: v.firstIndex, indexCount: v.indexCount }),
+        cull: "none",
+        depth: { compare: "greater" },
+        constants: { SHOULDER: manifest.shoulder },
+        set: { G: globals, birds: buffer },
+      }),
+    );
+    return new Birds(draws, buffer);
   }
 
   /** A fresh feeding spot `near..far` meters from (x, z), away from `avoid`. */
@@ -146,7 +174,8 @@ export class Birds {
       }
     }
 
-    let o = 0;
+    const perched: number[] = [];
+    const flying: number[] = [];
     for (const f of this.flocks) {
       const near = Math.hypot(f.home[0] - wind[0], f.home[2] - wind[2]);
       if (!f.airborne && near < STARTLE + 4 && windAlt < 6) {
@@ -230,8 +259,9 @@ export class Birds {
         // Birds roost at night (fade out by shrinking into the ground).
         const show = 1 - night;
         if (show > 0.05) {
-          this.data.set([b.pos[0], b.pos[1] + 0.02 * 1.7 * (1 - b.spread) + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed], o);
-          o += 8;
+          // Perched models stand on their feet; flying ones are centred on the body.
+          if (b.state === 0) perched.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, 0, 0, b.pitch, b.seed);
+          else flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed);
         }
       }
       if (f.airborne && landed === f.birds.length && f.air > 2) {
@@ -241,11 +271,16 @@ export class Birds {
       // Give up circling after a while and settle wherever the goal is.
       if (f.airborne && f.air > 30) this.settle(f, f.birds[0].goal);
     }
-    this.count = o / 8;
-    if (o) this.buffer.write(this.data.subarray(0, o));
+    this.perched = perched.length / 8;
+    this.flying = flying.length / 8;
+    this.data.set(perched, 0);
+    this.data.set(flying, perched.length);
+    const n = perched.length + flying.length;
+    if (n) this.buffer.write(this.data.subarray(0, n));
   }
 
   encode(pass: FramePass): void {
-    if (this.count) pass.draw(this.draw, { instances: this.count });
+    if (this.perched) pass.draw(this.draws[0], { instances: this.perched });
+    if (this.flying) pass.draw(this.draws[1], { instances: this.flying, firstInstance: this.perched });
   }
 }

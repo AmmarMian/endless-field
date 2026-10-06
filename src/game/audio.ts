@@ -275,6 +275,107 @@ export class Audio {
     [62, 66, 69, 74, 78].forEach((n, i) => this.bell(n + 12, t + i * 0.11, 0.12));
   }
 
+  private surface: { grass: GainNode; leaves: GainNode; water: GainNode } | null = null;
+
+  /** A looping noise bed through a filter, flickered by a random-ish amplitude flutter. */
+  private bed(type: BiquadFilterType, freq: number, q: number, flutterHz: number, flutterDepth: number): GainNode {
+    const ctx = this.ctx!;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer(3 + Math.random() * 2);
+    src.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const flutter = ctx.createGain();
+    flutter.gain.value = 1 - flutterDepth;
+    for (const hz of [flutterHz, flutterHz * 1.37, flutterHz * 0.61]) {
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = hz;
+      const amt = ctx.createGain();
+      amt.gain.value = flutterDepth / 3;
+      lfo.connect(amt).connect(flutter.gain);
+      lfo.start();
+    }
+    const out = ctx.createGain();
+    out.gain.value = 0;
+    src.connect(f).connect(flutter).connect(out).connect(this.master);
+    out.connect(this.reverb);
+    src.start();
+    return out;
+  }
+
+  /**
+   * The land answers the wind: grass hisses as it is combed, leaves rustle when the wind runs
+   * through a canopy, water chatters under it. Each in [0, 1], scaled by speed and closeness.
+   */
+  setSurroundings(grass: number, leaves: number, water: number, speed: number): void {
+    if (!this.ctx) return;
+    if (!this.surface) {
+      this.surface = {
+        grass: this.bed("bandpass", 2600, 0.6, 3.1, 0.6),
+        leaves: this.bed("highpass", 4200, 0.5, 11, 0.9),
+        water: this.bed("bandpass", 700, 1.2, 5.3, 0.8),
+      };
+    }
+    const t = this.ctx.currentTime;
+    const k = 0.35 + speed * 0.65;
+    this.surface.grass.gain.setTargetAtTime(grass * k * 0.09, t, 0.25);
+    this.surface.leaves.gain.setTargetAtTime(leaves * k * 0.08, t, 0.2);
+    this.surface.water.gain.setTargetAtTime(water * k * 0.1, t, 0.4);
+  }
+
+  /** A flock bursting up: a flurry of wingbeats and a few alarmed chirps, panned to the flock. */
+  birds(n: number, pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime;
+    const near = Math.max(0.15, Math.min(1, 12 / Math.max(distance, 1)));
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    panner.connect(this.master);
+    // Wingbeats: short filtered noise bursts at ~14 Hz per bird, staggered.
+    const buf = this.noiseBuffer(1);
+    for (let i = 0; i < n; i++) {
+      const start = t0 + Math.random() * 0.35;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 900 + Math.random() * 700;
+      f.Q.value = 0.8;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      const beats = 10 + Math.floor(Math.random() * 6);
+      for (let k = 0; k < beats; k++) {
+        const bt = start + k / (13 + Math.random() * 3);
+        const amp = 0.09 * near * (1 - k / beats);
+        g.gain.setValueAtTime(0, bt);
+        g.gain.linearRampToValueAtTime(amp, bt + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, bt + 0.06);
+      }
+      src.connect(f).connect(g).connect(panner);
+      src.start(start, Math.random() * 0.2);
+      src.stop(start + 1.3);
+    }
+    // A few chirps: quick downward sine sweeps.
+    for (let i = 0; i < 3; i++) {
+      const ct = t0 + 0.05 + Math.random() * 0.5;
+      const osc = ctx.createOscillator();
+      const base = 3800 + Math.random() * 1500;
+      osc.frequency.setValueAtTime(base, ct);
+      osc.frequency.exponentialRampToValueAtTime(base * 0.7, ct + 0.07);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, ct);
+      g.gain.linearRampToValueAtTime(0.03 * near, ct + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, ct + 0.09);
+      osc.connect(g).connect(panner);
+      g.connect(this.reverb);
+      osc.start(ct);
+      osc.stop(ct + 0.1);
+    }
+  }
+
   /** Called each frame with speed in [0, 1]. */
   update(speed: number, altitude: number): void {
     if (!this.ctx) return;

@@ -9,23 +9,25 @@ import { Renderer } from "./engine/renderer";
 import { loadTexture } from "./engine/textures";
 import { Audio } from "./game/audio";
 import { Input } from "./game/input";
-import { PetalStream } from "./game/petals";
+import { Motes } from "./game/motes";
+import { Birds } from "./world/birds";
+import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
 import { FreeCam } from "./game/freecam";
-import { Flowers, PALETTES } from "./world/flowers";
+import { Flowers } from "./world/flowers";
 import { Grass } from "./world/grass";
 import { LifeMap } from "./world/life";
 import { Terrain } from "./world/terrain";
 import { Fireflies } from "./world/fireflies";
 import { Water } from "./world/water";
-import { setWorldSeed, mountainZone, riverCenter, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
+import { setWorldSeed, mountainZone, riverCenter, riverInfo, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
 import { biome } from "./world/biome";
 import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
 import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
-import { SUNFLOWERS, Sunflowers, gradeSunflowerField } from "./world/sunflowers";
+import { SUNFLOWERS, Sunflowers, gradeSunflowerField, sunflowerField } from "./world/sunflowers";
 import { Lanterns } from "./world/lanterns";
 import { Torii } from "./world/torii";
 import { Rain } from "./world/rain";
@@ -105,7 +107,20 @@ async function main(): Promise<void> {
   const grass = new Grass(gpu, globals.uniforms, life.buffer, mountains, settings.grass);
   const flowers = new Flowers(gpu, globals.uniforms);
   const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
-  const stream = new PetalStream(gpu, globals.uniforms);
+  const motes = new Motes(gpu, globals.uniforms);
+  const windTrail = new WindTrail(gpu, globals.uniforms);
+  // Seeds the wind lets fall take root: a small patch of new growth where each lands.
+  const birds = new Birds(gpu, globals.uniforms);
+  birds.onTakeoff = (at, n) => {
+    const fx = camera.target[0] - camera.position[0];
+    const fz = camera.target[2] - camera.position[2];
+    const dx = at[0] - camera.position[0];
+    const dz = at[2] - camera.position[2];
+    const d = Math.hypot(dx, dz) || 1;
+    const pan = (dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1));
+    audio.birds(n, pan, d);
+  };
+  motes.onSeed = (x, z) => life.bloom(x, z, 1.8 + Math.random(), 2.5, 0.6);
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
@@ -148,11 +163,10 @@ async function main(): Promise<void> {
   seasonEl.id = "season";
   (document.getElementById("hud") ?? document.body).append(seasonEl);
   let seasonTimer = 0;
-  stream.add(player.pos, PALETTES[0]);
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, birds.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
   );
 
 
@@ -215,7 +229,8 @@ async function main(): Promise<void> {
         freecam.pitch = 0;
       } else {
         player.teleport([x, y + 1.7, z], yaw);
-        stream.regroup(player.pos);
+        motes.reset();
+        windTrail.reset();
       }
     },
   );
@@ -243,6 +258,7 @@ async function main(): Promise<void> {
     camera,
     lanterns,
     renderer,
+    birds,
     sunflowers,
     beds,
     height: terrainHeight,
@@ -267,7 +283,6 @@ async function main(): Promise<void> {
   let fpsFrames = 0;
   let fps = 0;
   let windAngle = 0.6;
-  let lastTrail: [number, number] = [player.pos[0], player.pos[2]];
 
   // Smoothed simulation step: frame-time spikes do not jerk the camera or the stream.
   let dtSmooth = 1 / 60;
@@ -344,7 +359,8 @@ async function main(): Promise<void> {
         freecam.exit();
         // The wind picks up where you were exploring.
         player.teleport(freecam.pos, freecam.yaw);
-        stream.regroup(player.pos);
+        motes.reset();
+        windTrail.reset();
       }
       controlsEl.textContent = explore ? EXPLORE_HINT : WIND_HINT;
       controlsEl.classList.add("show");
@@ -451,9 +467,9 @@ async function main(): Promise<void> {
         }
       }
 
-      const touched = flowers.update(dt, player.pos[0], player.pos[1], player.pos[2], 2.4 + Math.min(stream.count, 60) * 0.02 + player.gust);
+      const touched = flowers.update(dt, player.pos[0], player.pos[1], player.pos[2], 2.4 + player.gust);
       for (const f of touched) {
-        stream.add([f.x, f.y + f.height, f.z], f.color);
+        motes.puff([f.x, f.y + f.height, f.z], f.color);
         life.bloom(f.x, f.z, 9 + Math.random() * 4);
         audio.bloom();
         if (current.seasonMode === "cycle") season = (season + 0.02) % 4;
@@ -462,13 +478,29 @@ async function main(): Promise<void> {
         life.bloom(c.x, c.z, 34, 7);
         audio.cluster();
       }
-      stream.update(dt, player.pos, player.forward, player.gust);
-      // Once carrying collected petals, the stream leaves a faint wake of new growth.
-      if (stream.count > 1 && player.altitude < 6) {
-        if (Math.hypot(player.pos[0] - lastTrail[0], player.pos[2] - lastTrail[1]) > 2.5) {
-          lastTrail = [player.pos[0], player.pos[2]];
-          life.bloom(player.pos[0], player.pos[2], 2.5 + Math.min(stream.count, 40) * 0.06, 0.8, 0.45);
+      const eco = ecology(player.pos[0], player.pos[2]);
+      const [riverDist, , riverHw] = riverInfo(player.pos[0], player.pos[2]);
+      motes.update(dt, player.pos, player.forward, player.speed, player.gust, {
+        altitude: player.altitude,
+        forest: Math.min(1, eco.forest * 1.4),
+        river: 1 - Math.min(1, Math.max(0, (riverDist - riverHw) / 4)),
+        sunflowers: sunflowerField(player.pos[0], player.pos[2]) > 0.3 ? 1 : 0,
+        season: seasonWeightsTs(season),
+        night,
+        rain,
+      }, [Math.cos(windAngle), Math.sin(windAngle)]);
+      windTrail.update(dt, player.pos, player.speed, player.gust);
+      birds.update(dt, player.pos, player.altitude, night);
+      {
+        const low = 1 - Math.min(1, Math.max(0, (player.altitude - 1.5) / 4));
+        let leafy = 0;
+        for (const tr of trees.near(player.pos[0], player.pos[2], 8)) {
+          const d = Math.hypot(tr.x - player.pos[0], tr.z - player.pos[2]);
+          leafy = Math.max(leafy, 1 - d / 8);
         }
+        const over = sunflowerField(player.pos[0], player.pos[2]) > 0.3 ? 0.8 : 1;
+        const water = 1 - Math.min(1, Math.max(0, (riverDist - riverHw) / 6));
+        audio.setSurroundings(low * (1 - water) * over, leafy, water * low, Math.min(1, player.speed / 21));
       }
     }
 
@@ -478,7 +510,7 @@ async function main(): Promise<void> {
     } else if (explore) {
       freecam.apply(camera);
     } else {
-      player.updateCamera(camera, dt, stream.length(player.gust));
+      player.updateCamera(camera, dt, 2 + Math.sqrt(motes.carried) * 0.4);
     }
     camera.aspect = renderer.aspect;
     camera.update();
@@ -572,7 +604,11 @@ async function main(): Promise<void> {
       torii.encode(pass);
       undergrowth.encode(pass);
       flowers.encode(pass);
-      if (!explore) stream.encode(pass);
+      if (!explore) {
+        motes.encode(pass);
+        windTrail.encode(pass);
+      }
+      birds.encode(pass);
       if (!debug.hide.water) water.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);
       flowers.encodeGlow(pass);
@@ -581,7 +617,7 @@ async function main(): Promise<void> {
       precipitation.encode(pass, rain);
     }, spans);
 
-    petalsEl.textContent = explore ? (freecam.fly ? "free roam · flying" : "free roam") : stream.count > 1 ? `${stream.count} petals` : "";
+    petalsEl.textContent = explore ? (freecam.fly ? "free roam · flying" : "free roam") : "";
     cpuMs = cpuMs * 0.9 + (performance.now() - frameStart) * 0.1;
     fpsAccum += time.deltaTime;
     fpsFrames++;

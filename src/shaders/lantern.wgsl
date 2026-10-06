@@ -5,14 +5,6 @@ import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.w
 import { rotateYaw } from "./lib/tree.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
-// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
-// buffer cannot be sampled after the pass, so depth is written out as a colour too).
-struct SceneOut {
-  @location(0) color: vec4f,
-  @location(1) depth: vec4f,
-}
-
-
 struct Lantern {
   // xyz = base, w = scale
   root: vec4f,
@@ -48,7 +40,8 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
   return out;
 }
 
-fn fs_mainColor(frag: VOut, front: bool) -> vec4f {
+@fragment
+fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   let s = SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor);
   var n = normalize(frag.normal);
   if (!front) {
@@ -92,9 +85,4 @@ fn fs_mainColor(frag: VOut, front: bool) -> vec4f {
   col = col + stone * vec3f(1.0, 0.58, 0.24) * G.night * 0.9 * lampS * (1.0 - smoothstep(0.55, 0.85, frag.e.x)) * smoothstep(0.35, 0.6, frag.e.x) * ao;
   col = applyFog(col, wp, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
-}
-
-@fragment
-fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> SceneOut {
-  return SceneOut(fs_mainColor(frag, front), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

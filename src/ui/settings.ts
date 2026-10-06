@@ -24,13 +24,11 @@ export interface Settings {
   music: boolean;
   /** Screen style: a painted or photographic look over the final image. */
   filter: Filter;
-  /** Wide-aperture lens: foreground and background blur around what is in the middle. */
-  dof: boolean;
   /** World seed: 0 is the original landscape; any other value generates a different one. */
   seed: number;
 }
 
-export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "night" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter" | "dof">> = {
+export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "night" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter">> = {
   low: { renderScale: 0.6, grass: "low", drawDistance: 0.7, bloom: false },
   medium: { renderScale: 0.8, grass: "medium", drawDistance: 0.9, bloom: true },
   high: { renderScale: 1, grass: "high", drawDistance: 1, bloom: true },
@@ -43,7 +41,7 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "medium" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: true, weather: "auto", filter: "none", dof: true };
+  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: true, weather: "auto", filter: "none" };
 }
 
 export function loadSettings(): Settings {
@@ -86,7 +84,6 @@ const PAGES: Page[] = [
     icon: "◐",
     rows: [
       { k: "filter", label: "Film simulation", type: "choice", options: [["none", "Natural"], ["painterly", "Painterly"], ["watercolor", "Watercolor"], ["film", "Film"], ["miniature", "Miniature"], ["ink", "Ink wash"]] },
-      { k: "dof", label: "Depth of field", type: "toggle" },
       { k: "bloom", label: "Bloom", type: "toggle" },
     ],
   },
@@ -143,7 +140,7 @@ const PAGES: Page[] = [
 ];
 
 /** Keys whose change does not turn the quality preset into "custom". */
-const FREE_KEYS = ["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter", "dof"];
+const FREE_KEYS = ["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter"];
 
 /**
  * Settings, styled as a camera menu: tabbed pages of rows, each value stepped with ‹ ›.

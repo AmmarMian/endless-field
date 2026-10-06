@@ -6,14 +6,6 @@ import { Blade, fieldColor } from "./lib/field.wgsl";
 import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky } from "./lib/atmosphere.wgsl";
 
-// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
-// buffer cannot be sampled after the pass, so depth is written out as a colour too).
-struct SceneOut {
-  @location(0) color: vec4f,
-  @location(1) depth: vec4f,
-}
-
-
 override NSEG: u32 = 5u;
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -157,7 +149,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   return out;
 }
 
-fn fs_mainColor(frag: VOut, front: bool) -> vec4f {
+@fragment
+fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   let s = sky();
   let v = normalize(G.camPos - frag.world);
   // Rounded blade: bend the normal across the width, then blend toward the ground normal
@@ -186,9 +179,4 @@ fn fs_mainColor(frag: VOut, front: bool) -> vec4f {
   col = col + albedo * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, 1.0);
-}
-
-@fragment
-fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> SceneOut {
-  return SceneOut(fs_mainColor(frag, front), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

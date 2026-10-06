@@ -21,7 +21,6 @@ export class WindTrail {
       shader: trailShader,
       vertices: (SAMPLES - 1) * 6,
       blend: "additive",
-      colors: [null, { writeMask: [] }],
       cull: "none",
       depth: { compare: "greater", write: false },
       set: { G: globals, path: this.buffer, T: { count: 0, strength: 0, step: STEP, flow: 0 } },

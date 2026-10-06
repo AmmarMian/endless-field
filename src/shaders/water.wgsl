@@ -6,14 +6,6 @@ import { riverCenter, riverHalfWidth, riverInfo, riverSpeed, riverWater, terrain
 import { SkyParams, applyFog, skyColor } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
-// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
-// buffer cannot be sampled after the pass, so depth is written out as a colour too).
-struct SceneOut {
-  @location(0) color: vec4f,
-  @location(1) depth: vec4f,
-}
-
-
 struct WaterParams {
   center: vec2f,
   extent: f32,
@@ -91,7 +83,8 @@ fn waveHeight(p: vec2f, s: f32, t: f32, detail: f32) -> f32 {
     + simplex2d((p - vec2f(s * 1.5, 0.0)) * 7.0 + vec2f(-t * 0.6, t * 0.9)) * 0.05) * detail;
 }
 
-fn fs_mainColor(frag: VOut) -> vec4f {
+@fragment
+fn fs_main(frag: VOut) -> @location(0) vec4f {
   if (frag.dist > 1.6 || abs(frag.across) > 1.6) {
     discard;
   }
@@ -223,9 +216,4 @@ fn fs_mainColor(frag: VOut) -> vec4f {
 
   col = applyFog(col, p, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
-}
-
-@fragment
-fn fs_main(frag: VOut) -> SceneOut {
-  return SceneOut(fs_mainColor(frag), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

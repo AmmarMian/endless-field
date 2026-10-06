@@ -16,7 +16,6 @@ export class Rain {
         vertices: 6,
         depth: { compare: "greater", write: false },
         blend: "additive",
-        colors: [null, { writeMask: [] }],
         set: { G: globals },
       }),
     ];

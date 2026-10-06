@@ -96,7 +96,6 @@ export class Motes {
       shader: moteShader,
       vertices: 6,
       cull: "none",
-      colors: [null, { writeMask: [] }],
       depth: { compare: "greater" },
       multisample: { alphaToCoverage: true },
       set: { G: globals, motes: this.buffer },

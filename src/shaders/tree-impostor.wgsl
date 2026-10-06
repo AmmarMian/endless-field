@@ -5,14 +5,6 @@ import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway, windGust } from "./lib/tree.wgsl";
 
-// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
-// buffer cannot be sampled after the pass, so depth is written out as a colour too).
-struct SceneOut {
-  @location(0) color: vec4f,
-  @location(1) depth: vec4f,
-}
-
-
 struct ImpostorParams {
   frames: f32,
   cols: f32,
@@ -92,7 +84,8 @@ fn atlasUv(frame: f32, uv: vec2f) -> vec2f {
   return (vec2f(col, row) + clamp(uv, vec2f(0.002), vec2f(0.998))) / vec2f(imp.cols, imp.rows);
 }
 
-fn fs_mainColor(frag: VOut) -> vec4f {
+@fragment
+fn fs_main(frag: VOut) -> @location(0) vec4f {
   if (!lodKeep(frag.lodFade, frag.pos.xy)) {
     discard;
   }
@@ -130,9 +123,4 @@ fn fs_mainColor(frag: VOut) -> vec4f {
   var col = rgb * (ambientSky(n, s) * 0.6 + G.sunColor * (wrapDiffuse(n, l, 0.5) + back) * 0.8);
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
-}
-
-@fragment
-fn fs_main(frag: VOut) -> SceneOut {
-  return SceneOut(fs_mainColor(frag), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

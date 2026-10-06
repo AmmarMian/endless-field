@@ -11,14 +11,6 @@ import { bedColor, bedMask } from "./lib/beds.wgsl";
 import { LANTERN_COLOR, PATH_WIDTH, lanternFirst, lanternTerm, pathDistance } from "./lib/path.wgsl";
 import { SF_ROW, SF_ROW_PHASE, sunflowerField, sunflowerLocal } from "./lib/sunflowers.wgsl";
 
-// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
-// buffer cannot be sampled after the pass, so depth is written out as a colour too).
-struct SceneOut {
-  @location(0) color: vec4f,
-  @location(1) depth: vec4f,
-}
-
-
 struct GridParams {
   center: vec2f,
   radius: f32,
@@ -133,7 +125,8 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   return out;
 }
 
-fn fs_mainColor(frag: VOut) -> vec4f {
+@fragment
+fn fs_main(frag: VOut) -> @location(0) vec4f {
   let s = sky();
   let xz = frag.world.xz;
   let dist = length(G.camPos - frag.world);
@@ -284,9 +277,4 @@ fn fs_mainColor(frag: VOut) -> vec4f {
   col = col + albedo * lampLight(frag.world);
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
-}
-
-@fragment
-fn fs_main(frag: VOut) -> SceneOut {
-  return SceneOut(fs_mainColor(frag), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

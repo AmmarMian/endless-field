@@ -3,11 +3,6 @@
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
 
-struct SceneOut {
-  @location(0) color: vec4f,
-  @location(1) depth: vec4f,
-}
-
 struct Bird {
   // xyz = position, w = heading (yaw)
   pos: vec4f,
@@ -98,7 +93,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   return out;
 }
 
-fn fs_mainColor(frag: VOut) -> vec4f {
+@fragment
+fn fs_main(frag: VOut) -> @location(0) vec4f {
   let s = SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor);
   var n = normalize(cross(dpdx(frag.world), dpdy(frag.world)));
   let v = normalize(G.camPos - frag.world);
@@ -116,7 +112,3 @@ fn fs_mainColor(frag: VOut) -> vec4f {
   return vec4f(col, 1.0);
 }
 
-@fragment
-fn fs_main(frag: VOut) -> SceneOut {
-  return SceneOut(fs_mainColor(frag), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
-}

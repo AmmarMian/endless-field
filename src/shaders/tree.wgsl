@@ -5,14 +5,6 @@ import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway, windGust } from "./lib/tree.wgsl";
 
-// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
-// buffer cannot be sampled after the pass, so depth is written out as a colour too).
-struct SceneOut {
-  @location(0) color: vec4f,
-  @location(1) depth: vec4f,
-}
-
-
 struct TreeParams {
   height: f32,
   leafTint: f32,
@@ -154,7 +146,8 @@ fn perturb(n: vec3f, world: vec3f, uv: vec2f, tn: vec3f) -> vec3f {
   return normalize(tg * invmax * tn.x - bt * invmax * tn.y + n * tn.z);
 }
 
-fn fs_barkColor(frag: VOut, front: bool) -> vec4f {
+@fragment
+fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   if (!lodKeep(frag.lodFade, frag.pos.xy)) {
     discard;
   }
@@ -177,7 +170,8 @@ fn fs_barkColor(frag: VOut, front: bool) -> vec4f {
   return vec4f(col, 1.0);
 }
 
-fn fs_leavesColor(frag: VOut, front: bool) -> vec4f {
+@fragment
+fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   if (!lodKeep(frag.lodFade, frag.pos.xy)) {
     discard;
   }
@@ -218,14 +212,4 @@ fn fs_leavesColor(frag: VOut, front: bool) -> vec4f {
   col = col + albedo * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
-}
-
-@fragment
-fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> SceneOut {
-  return SceneOut(fs_barkColor(frag, front), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
-}
-
-@fragment
-fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> SceneOut {
-  return SceneOut(fs_leavesColor(frag, front), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

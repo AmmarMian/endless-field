@@ -108,6 +108,7 @@ export class Flowers {
       shader: glowShader,
       vertices: 6,
       blend: "additive",
+      colors: [null, { writeMask: [] }],
       depth: { compare: "greater", write: false },
       set: { G: globals, flowers: this.instances },
     });

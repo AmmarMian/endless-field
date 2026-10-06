@@ -3,6 +3,14 @@
 import { Globals, TRAIL_LEN } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
 
+// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
+// buffer cannot be sampled after the pass, so depth is written out as a colour too).
+struct SceneOut {
+  @location(0) color: vec4f,
+  @location(1) depth: vec4f,
+}
+
+
 struct Flower {
   // xyz = root, w = bloom (0 closed bud .. 1 open)
   root: vec4f,
@@ -161,8 +169,7 @@ fn vs_main(@location(0) a: vec4f, @builtin(instance_index) ii: u32) -> VOut {
   return out;
 }
 
-@fragment
-fn fs_main(frag: VOut) -> @location(0) vec4f {
+fn fs_mainColor(frag: VOut) -> vec4f {
   let s = sky();
   let v = normalize(G.camPos - frag.world);
   var n = normalize(frag.normal);
@@ -180,4 +187,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   col = col + frag.emissive;
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
+}
+
+@fragment
+fn fs_main(frag: VOut) -> SceneOut {
+  return SceneOut(fs_mainColor(frag), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

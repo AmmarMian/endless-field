@@ -86,9 +86,11 @@ async function main(): Promise<void> {
   });
 
   const globals = new Globals(gpu, GOLDEN_HOUR);
+  const camera = new Camera();
   const renderer = new Renderer(gpu, canvas, globals.uniforms, {
     renderScale: settings.renderScale,
     msaa: true,
+    near: camera.near,
   });
   const life = new LifeMap(gpu);
   stage("shaping the hills…");
@@ -104,7 +106,6 @@ async function main(): Promise<void> {
   const flowers = new Flowers(gpu, globals.uniforms);
   const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
   const stream = new PetalStream(gpu, globals.uniforms);
-  const camera = new Camera();
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
@@ -185,6 +186,7 @@ async function main(): Promise<void> {
     grass.setQuality(s.grass);
     audio.setMusic(s.music);
     renderer.setStyle(Math.max(0, FILTERS.indexOf(s.filter)));
+    renderer.setDepthOfField(s.dof);
   };
   const panel = new SettingsPanel(settings, applySettings);
   const worldMap = new WorldMap(
@@ -557,6 +559,7 @@ async function main(): Promise<void> {
     }
     lanterns.animate(dt, globals.lamps, t);
     renderer.setPost({ time: t, exposure: atmExposure * (1 - canopy * 0.45) });
+    renderer.updateFocus(dt);
     audio.update(explore ? 0.15 : (player.speed - 7.5) / 13.5, explore ? 2 : player.altitude);
 
     renderer.render(frame, (pass) => {

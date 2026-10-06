@@ -7,6 +7,14 @@ import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./l
 import { lodKeep, rotateYaw } from "./lib/tree.wgsl";
 import { seasonHash, seasonWeights } from "./lib/season.wgsl";
 
+// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
+// buffer cannot be sampled after the pass, so depth is written out as a colour too).
+struct SceneOut {
+  @location(0) color: vec4f,
+  @location(1) depth: vec4f,
+}
+
+
 struct Plant {
   root: vec4f,
   info: vec4f,
@@ -126,8 +134,7 @@ fn vs_main(
   return out;
 }
 
-@fragment
-fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
+fn fs_mainColor(frag: VOut, front: bool) -> vec4f {
   if (!lodKeep(frag.lodFade, frag.pos.xy)) {
     discard;
   }
@@ -198,4 +205,9 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   col = col + albedo * vec3f(1.0, 0.75, 0.35) * petalLike * G.night * 0.14;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
+}
+
+@fragment
+fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> SceneOut {
+  return SceneOut(fs_mainColor(frag, front), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

@@ -12,12 +12,15 @@ import {
   type SharedUniforms,
   type Surface,
   type Target,
+  type Texture,
   type TimerSpan,
 } from "vgpu";
 import skyShader from "../shaders/sky.wgsl";
 import downShader from "../shaders/post-down.wgsl";
 import upShader from "../shaders/post-up.wgsl";
 import compositeShader from "../shaders/post-composite.wgsl";
+import dofShader from "../shaders/post-dof.wgsl";
+import focusShader from "../shaders/post-focus.wgsl";
 import shaftsShader from "../shaders/post-shafts.wgsl";
 
 const HDR: GPUTextureFormat = "rgba16float";
@@ -26,6 +29,8 @@ const BLOOM_LEVELS = 5;
 export interface RendererOptions {
   renderScale: number;
   msaa: boolean;
+  /** Camera near plane (m), to turn reversed-Z depth into distance. */
+  near: number;
 }
 
 type Size = [number, number];
@@ -49,6 +54,11 @@ export class Renderer {
   private readonly composite: Effect;
   private readonly shafts: Target;
   private readonly shaftsFx: Effect;
+  private readonly focus: Target;
+  private readonly focusFx: Effect;
+  private readonly dof: Target;
+  private readonly dofFx: Effect;
+  private dofOn = false;
   private renderScale: number;
   private bloomOn = true;
   private bloomStrength = 0.1;
@@ -57,10 +67,11 @@ export class Renderer {
     this.renderScale = opts.renderScale;
     this.output = surface(gpu, canvas, { dpr: [1, 2] });
     const sceneSize = scaled(this.output.size, this.renderScale);
-    this.scene = target(gpu, { size: sceneSize, format: HDR, depth: "depth32float", msaa: opts.msaa, label: "scene" });
+    // Colour plus a depth copy (attachment 1, reversed-Z) that the depth of field can sample.
+    this.scene = target(gpu, { size: sceneSize, colors: [{ format: HDR }, { format: "r16float" }], depth: "depth32float", msaa: opts.msaa, label: "scene" });
     // Drawn last with an `equal` test against the cleared far depth (0 in reversed-Z), so the
     // cloud shader only runs on pixels nothing else covered.
-    this.sky = draw(gpu, { label: "sky", shader: skyShader, depth: { compare: "equal", write: false }, set: { G: globals } });
+    this.sky = draw(gpu, { label: "sky", shader: skyShader, depth: { compare: "equal", write: false }, colors: [null, { writeMask: [] }], set: { G: globals } });
 
     const linear = sampler(gpu, {
       minFilter: "linear",
@@ -95,6 +106,18 @@ export class Renderer {
     this.shaftsFx = effect(gpu, shaftsShader, {
       label: "shafts",
       set: { bright: this.down[0], samp: linear, params: { sunUv: [0.5, 0.5], strength: 0, decay: 0.965 } },
+    });
+    // Depth of field: a 1x1 autofocus state (eased by alpha blending) and the lens blur.
+    this.focus = target(gpu, { size: [1, 1], format: HDR, label: "focus" });
+    this.focusFx = effect(gpu, focusShader, {
+      label: "focus",
+      blend: "alpha",
+      set: { depthTex: this.sceneDepth, params: { near: opts.near, rate: 0.1, pad0: 0, pad1: 0 } },
+    });
+    this.dof = target(gpu, { size: sceneSize, format: HDR, label: "dof" });
+    this.dofFx = effect(gpu, dofShader, {
+      label: "dof",
+      set: { scene: this.scene, depthTex: this.sceneDepth, focusTex: this.focus, samp: linear, params: { near: opts.near, ...this.lensParams(), pad: 0 } },
     });
     this.composite = effect(gpu, compositeShader, {
       label: "composite",
@@ -133,12 +156,37 @@ export class Renderer {
       this.upFx[i].set({ coarse, fine: this.down[i], params: { texel: coarse.texelSize } });
     }
     this.shaftsFx.set({ bright: this.down[0] });
-    this.composite.set({ scene: this.scene, bloom: this.up[0], shafts: this.shafts, params: this.screenParams() });
+    this.dof.resize(sceneSize);
+    this.focusFx.set({ depthTex: this.sceneDepth });
+    this.dofFx.set({ scene: this.scene, depthTex: this.sceneDepth, params: this.lensParams() });
+    this.composite.set({ scene: this.dofOn ? this.dof : this.scene, bloom: this.up[0], shafts: this.shafts, params: this.screenParams() });
   }
 
   private screenParams(): { texel: [number, number]; aspect: number } {
     const s = this.scene.size;
     return { texel: [1 / s[0], 1 / s[1]], aspect: s[0] / s[1] };
+  }
+
+  /** The scene's depth copy (colour attachment 1, resolved). */
+  private get sceneDepth(): Texture {
+    return this.scene.colors[1];
+  }
+
+  /** Lens strength scales with resolution so the look holds at any render scale. */
+  private lensParams(): { aperture: number; maxCoc: number } {
+    const k = this.scene.size[1] / 1080;
+    return { aperture: 40 * k, maxCoc: 13 * k };
+  }
+
+  /** Wide-aperture depth of field, focused on whatever is in the middle of the frame. */
+  setDepthOfField(on: boolean): void {
+    this.dofOn = on;
+    this.composite.set({ scene: on ? this.dof : this.scene });
+  }
+
+  /** Eases the autofocus toward the middle of the frame (call once per frame). */
+  updateFocus(dt: number): void {
+    this.focusFx.set({ params: { rate: 1 - Math.exp(-dt * 3) } });
   }
 
   /** Screen style: 0 none, 1 painterly, 2 watercolor, 3 film, 4 miniature, 5 ink. */
@@ -182,6 +230,10 @@ export class Renderer {
       for (let i = BLOOM_LEVELS - 2; i >= 0; i--) frame.pass(this.up[i], this.upFx[i]);
     }
     frame.pass(this.shafts, this.shaftsFx);
+    if (this.dofOn) {
+      frame.pass({ target: this.focus, clear: false }, (pass) => pass.draw(this.focusFx));
+      frame.pass(this.dof, this.dofFx);
+    }
     frame.pass({ target: this.output, timer: spans?.post }, (pass) => pass.draw(this.composite));
   }
 }

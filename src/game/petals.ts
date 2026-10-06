@@ -34,6 +34,7 @@ export class PetalStream {
       label: "petals",
       shader: petalShader,
       vertices: 72,
+      colors: [null, { writeMask: [] }],
       depth: { compare: "greater" },
       multisample: { alphaToCoverage: true },
       set: { G: globals, petals: this.buffer },

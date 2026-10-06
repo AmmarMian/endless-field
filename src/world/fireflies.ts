@@ -18,6 +18,7 @@ export class Fireflies {
       vertices: 6,
       instances: GRID * GRID,
       blend: "additive",
+      colors: [null, { writeMask: [] }],
       depth: { compare: "greater", write: false },
       set: { G: globals, F: { centerCell: [0, 0], gridSize: GRID, cellSize: CELL }, mtnTex: mountains.texture, mtnSamp: mountains.sampler },
     });

@@ -4,6 +4,14 @@ import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { LifeCell, lifeIndex, lifeKey } from "./lib/field.wgsl";
 
+// Scene pass outputs: colour, plus reversed-Z depth for depth of field (an MSAA depth
+// buffer cannot be sampled after the pass, so depth is written out as a colour too).
+struct SceneOut {
+  @location(0) color: vec4f,
+  @location(1) depth: vec4f,
+}
+
+
 struct Plant {
   // xyz = root, w = scale
   root: vec4f,
@@ -95,8 +103,7 @@ fn vs_main(
   return out;
 }
 
-@fragment
-fn fs_main(frag: VOut) -> @location(0) vec4f {
+fn fs_mainColor(frag: VOut) -> vec4f {
   let s = SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor);
   let texel = textureSample(albedoTex, samp, frag.uv);
   let dims = vec2f(textureDimensions(albedoTex));
@@ -123,4 +130,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   col = col + base * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
+}
+
+@fragment
+fn fs_main(frag: VOut) -> SceneOut {
+  return SceneOut(fs_mainColor(frag), vec4f(frag.pos.z, 0.0, 0.0, 1.0));
 }

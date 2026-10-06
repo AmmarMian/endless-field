@@ -233,7 +233,7 @@ body {
 #map .map-frame {
   position: relative;
   width: min(92vw, 150vh);
-  aspect-ratio: 360 / 263;
+  aspect-ratio: 3200 / 2000;
   max-height: 74vh;
   border-radius: 12px;
   overflow: hidden;

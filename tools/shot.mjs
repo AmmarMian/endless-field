@@ -44,6 +44,7 @@ const stats = await page.evaluate(async () => {
     error: err && !err.hidden ? err.textContent : null,
     grass: ef?.grassCounts ? await ef.grassCounts() : null,
     stats: document.getElementById("stats")?.textContent ?? "",
+    mode: document.getElementById("petals")?.textContent ?? "",
   };
 });
 console.log(JSON.stringify(stats));

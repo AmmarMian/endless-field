@@ -1,5 +1,6 @@
 import { draw, type Draw, type FramePass, type Gpu, type SharedUniforms } from "vgpu";
 import fireflyShader from "../shaders/fireflies.wgsl";
+import type { MountainSet } from "./mountains";
 
 const CELL = 3;
 const GRID = 44;
@@ -8,7 +9,7 @@ const GRID = 44;
 export class Fireflies {
   readonly draw: Draw;
 
-  constructor(gpu: Gpu, globals: SharedUniforms) {
+  constructor(gpu: Gpu, globals: SharedUniforms, mountains: MountainSet) {
     this.draw = draw(gpu, {
       label: "fireflies",
       shader: fireflyShader,
@@ -16,7 +17,7 @@ export class Fireflies {
       instances: GRID * GRID,
       blend: "additive",
       depth: { compare: "greater", write: false },
-      set: { G: globals, F: { centerCell: [0, 0], gridSize: GRID, cellSize: CELL } },
+      set: { G: globals, F: { centerCell: [0, 0], gridSize: GRID, cellSize: CELL }, mtnTex: mountains.texture, mtnSamp: mountains.sampler },
     });
   }
 

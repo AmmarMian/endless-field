@@ -15,8 +15,10 @@ import { LifeMap } from "./world/life";
 import { Terrain } from "./world/terrain";
 import { Fireflies } from "./world/fireflies";
 import { Water } from "./world/water";
-import { riverCenter, riverHalfWidth, riverWater, terrainHeight } from "./world/height";
+import { mountainZone, riverCenter, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
+import { biome } from "./world/biome";
 import { Trees } from "./world/trees";
+import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -26,7 +28,7 @@ const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
 const WIND_HINT = "move the mouse to steer · hold click or space to gust · shift to rise · ctrl to dive · M free roam";
-const EXPLORE_HINT = "free roam · click to look around · WASD move · shift sprint · V fly (space / C up and down) · M back to the wind";
+const EXPLORE_HINT = "free roam · click to look around · WASD / ZQSD move · shift sprint · V fly (space / C up and down) · M back to the wind";
 
 const params = new URLSearchParams(location.search);
 
@@ -56,11 +58,16 @@ async function main(): Promise<void> {
     msaa: true,
   });
   const life = new LifeMap(gpu);
-  const pebbles = await loadTexture(gpu, "/assets/textures/pebbles.jpg", { srgb: true });
-  const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles);
-  const grass = new Grass(gpu, globals.uniforms, life.buffer, settings.grass);
+  const [pebbles, rock, scree, mountains] = await Promise.all([
+    loadTexture(gpu, "/assets/textures/pebbles.jpg", { srgb: true }),
+    loadTexture(gpu, "/assets/textures/rock_diff.jpg", { srgb: true }),
+    loadTexture(gpu, "/assets/textures/scree_diff.jpg", { srgb: true }),
+    loadMountains(gpu),
+  ]);
+  const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree);
+  const grass = new Grass(gpu, globals.uniforms, life.buffer, mountains, settings.grass);
   const flowers = new Flowers(gpu, globals.uniforms);
-  const fireflies = new Fireflies(gpu, globals.uniforms);
+  const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
   const stream = new PetalStream(gpu, globals.uniforms);
   const camera = new Camera();
   const input = new Input(canvas);
@@ -118,12 +125,14 @@ async function main(): Promise<void> {
   const debug = {
     fixedCamera: null as null | { pos: Vec3; target: Vec3 },
     fixedTime: null as null | number,
-    hide: { fireflies: false },
+    hide: { fireflies: false, grass: false, terrain: false, trees: false, water: false, beds: false },
     start,
     player,
     trees,
     beds,
     height: terrainHeight,
+    mountainZone,
+    biome,
     river: { center: riverCenter, water: riverWater, halfWidth: riverHalfWidth },
     grassCounts: () => grass.counts(),
     bloom: (x: number, z: number, r: number) => life.bloom(x, z, r, 0.01),
@@ -188,12 +197,13 @@ async function main(): Promise<void> {
     const rawDt = Math.min(time.deltaTime, 1 / 15);
     dtSmooth += (rawDt - dtSmooth) * 0.2;
     const dt = dtSmooth;
+    input.suspended = panel.open;
     input.update();
     const frameStart = performance.now();
-    if (input.wasPressed("KeyF")) panel.set({ showStats: !current.showStats });
-    if (input.wasPressed("KeyO")) panel.toggle();
-    if (input.wasPressed("KeyN")) panel.set({ night: !current.night });
-    if (input.wasPressed("KeyM")) {
+    if (input.wasPressed("f")) panel.set({ showStats: !current.showStats });
+    if (input.wasPressed("o")) panel.toggle();
+    if (input.wasPressed("n")) panel.set({ night: !current.night });
+    if (input.wasPressed("m")) {
       explore = !explore;
       if (explore) {
         start();
@@ -297,13 +307,13 @@ async function main(): Promise<void> {
 
     renderer.render(frame, (pass) => {
       // Rough front-to-back for early depth rejection: blades and props first, ground last.
-      grass.encode(pass);
-      trees.encode(pass);
-      beds.encode(pass);
+      if (!debug.hide.grass) grass.encode(pass);
+      if (!debug.hide.trees) trees.encode(pass);
+      if (!debug.hide.beds) beds.encode(pass);
       flowers.encode(pass);
       if (!explore) stream.encode(pass);
-      water.encode(pass);
-      terrain.encode(pass);
+      if (!debug.hide.water) water.encode(pass);
+      if (!debug.hide.terrain) terrain.encode(pass);
       flowers.encodeGlow(pass);
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
     }, spans);
@@ -323,6 +333,7 @@ async function main(): Promise<void> {
         : "";
     }
     adaptResolution(time.time);
+    input.endFrame();
   }
   startLoop(current.fpsTarget);
   onFpsTarget = startLoop;

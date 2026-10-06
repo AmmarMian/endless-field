@@ -6,8 +6,12 @@ export class Input {
   rise = false;
   dive = false;
   active = false;
+  /** True while the pointer is over UI or a menu is open: steering eases back to center. */
+  suspended = false;
   private pointerDown = false;
   private keys = new Set<string>();
+  /** Presses latched on keydown so a quick tap between two frames is never lost. */
+  private pressed = new Set<string>();
   private readonly listeners: (() => void)[] = [];
 
   constructor(private readonly el: HTMLElement) {
@@ -15,7 +19,12 @@ export class Input {
       target.addEventListener(type, fn as EventListener, opts);
       this.listeners.push(() => target.removeEventListener(type, fn as EventListener));
     };
-    on(window, "pointermove", (e) => this.aim(e.clientX, e.clientY));
+    on(window, "pointermove", (e) => {
+      // Moving toward the HUD (settings gear, panel) must not steer the wind.
+      const overUi = (e.target as HTMLElement | null)?.closest?.("#gear, #settings") != null;
+      if (overUi || this.suspended) return;
+      this.aim(e.clientX, e.clientY);
+    });
     on(el, "pointerdown", (e) => {
       this.pointerDown = true;
       this.active = true;
@@ -29,6 +38,9 @@ export class Input {
     });
     on(window, "keydown", (e) => {
       this.keys.add(e.code);
+      // Commands follow the typed letter (layout-independent: AZERTY's M is not KeyM);
+      // movement keeps physical positions (WASD on QWERTY = ZQSD on AZERTY).
+      if (!e.repeat && e.key.length === 1) this.pressed.add(e.key.toLowerCase());
       if (e.code === "Space") e.preventDefault();
     });
     on(window, "keyup", (e) => this.keys.delete(e.code));
@@ -43,6 +55,10 @@ export class Input {
 
   update(): void {
     const k = this.keys;
+    if (this.suspended) {
+      this.steerX *= 0.85;
+      this.steerY *= 0.85;
+    }
     this.gust = this.pointerDown || k.has("Space");
     this.rise = k.has("ShiftLeft") || k.has("ShiftRight") || k.has("KeyW") || k.has("ArrowUp");
     this.dive = k.has("ControlLeft") || k.has("ControlRight") || k.has("KeyS") || k.has("ArrowDown");
@@ -51,12 +67,14 @@ export class Input {
     else if (k.has("KeyD") || k.has("ArrowRight")) this.steerX = 0.7;
   }
 
-  wasPressed(code: string): boolean {
-    if (this.keys.has(code)) {
-      this.keys.delete(code);
-      return true;
-    }
-    return false;
+  /** Drops presses nobody asked about this frame. */
+  endFrame(): void {
+    this.pressed.clear();
+  }
+
+  /** True once per press of the typed character `letter` (e.g. "m"). */
+  wasPressed(letter: string): boolean {
+    return this.pressed.delete(letter.toLowerCase());
   }
 
   dispose(): void {

@@ -1,7 +1,7 @@
 import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import flowerShader from "../shaders/flower.wgsl";
 import glowShader from "../shaders/flower-glow.wgsl";
-import { terrainHeight } from "./height";
+import { mountainHeight, terrainHeightM as terrainHeight } from "./height";
 import { biome } from "./biome";
 
 const CELL = 46;
@@ -130,6 +130,7 @@ export class Flowers {
     if (roll > 0.45 + meadow * 0.25 - grove * 0.15 - forest * 0.2 && !nearSpawn) return cluster;
     cluster.x = (cx + 0.15 + rnd() * 0.7) * CELL;
     cluster.z = (cz + 0.15 + rnd() * 0.7) * CELL;
+    if (mountainHeight(cluster.x, cluster.z) > 150) return cluster;
     const count = 5 + Math.floor(rnd() * 10);
     const color = PALETTES[Math.floor(rnd() * PALETTES.length)];
     const spread = 4 + rnd() * 6;

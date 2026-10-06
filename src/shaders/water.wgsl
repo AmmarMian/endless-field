@@ -2,7 +2,7 @@
 // opaque but shades what lies beneath it analytically (the riverbed height is known), so
 // we get depth-based absorption, caustics and shore foam without a refraction pass.
 import { Globals } from "./lib/globals.wgsl";
-import { riverCenter, riverHalfWidth, riverInfo, terrainHeight } from "./lib/terrain.wgsl";
+import { riverCenter, riverHalfWidth, riverInfo, riverSpeed, riverWater, terrainHeight } from "./lib/terrain.wgsl";
 import { SkyParams, applyFog, skyColor } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
@@ -22,6 +22,8 @@ struct VOut {
   @location(0) world: vec3f,
   @location(1) flow: vec2f,
   @location(2) across: f32,
+  @location(3) rapids: f32,
+  @location(4) speed: f32,
 }
 
 fn sky() -> SkyParams {
@@ -46,6 +48,11 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   out.pos = G.viewProj * vec4f(out.world, 1.0);
   out.flow = tangent * downhill;
   out.across = sideSign * min(r.x / r.z, 4.0);
+  // Steep stretches (cascades between the pools of the mountain stream) become white water.
+  let drop = (riverWater(px - 3.0) - riverWater(px + 3.0)) / 6.0;
+  out.rapids = smoothstep(0.04, 0.35, abs(drop));
+  // Channel-center depth drives the Manning speed; the fragment shader slows it at the banks.
+  out.speed = riverSpeed(px, 1.7 * mix(1.0, 0.45, smoothstep(0.0, 1.0, out.rapids)));
   return out;
 }
 
@@ -73,7 +80,8 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let flow = normalize(frag.flow);
   let side = vec2f(-flow.y, flow.x);
   // Faster in the middle of the channel, lazy at the banks.
-  let speed = mix(2.2, 0.5, smoothstep(0.2, 1.0, abs(frag.across)));
+  // Velocity profile across the channel: fastest mid-stream, near still at the edges.
+  let speed = frag.speed * mix(1.0, 0.25, smoothstep(0.2, 1.0, abs(frag.across)));
   let travel = t * speed;
   let uv = vec2f(dot(p.xz, flow), dot(p.xz, side));
   let camDist = distance(G.camPos, p);
@@ -83,7 +91,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let h0 = waveHeight(uv, travel, t, detail);
   let hx = waveHeight(uv + vec2f(e, 0.0), travel, t, detail) - h0;
   let hy = waveHeight(uv + vec2f(0.0, e), travel, t, detail) - h0;
-  let amp = 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist));
+  let amp = 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0);
   let gradLocal = vec2f(hx, hy) / e * amp;
   let grad = flow * gradLocal.x + side * gradLocal.y;
   let n = normalize(vec3f(-grad.x, 1.0, -grad.y));
@@ -132,7 +140,8 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let lineN = simplex2d((uv - vec2f(travel, 0.0)) * vec2f(0.08, 1.6) + vec2f(0.0, 11.0)) * 0.5 + 0.5;
   let bubbles = smoothstep(0.55, 0.85, simplex2d((uv - vec2f(travel, 0.0)) * 4.0) * 0.5 + 0.5);
   let streak = smoothstep(0.93, 0.985, lineN) * bubbles;
-  let foam = clamp(shore * lace * 0.6 + streak * 0.7, 0.0, 1.0) * 0.5;
+  let churn = smoothstep(0.3, 0.75, simplex2d((uv - vec2f(travel * 1.3, 0.0)) * vec2f(0.6, 1.8)) * 0.5 + 0.5 + frag.rapids * 0.35);
+  let foam = clamp(shore * lace * 0.6 + streak * 0.7 + churn * frag.rapids * 1.4, 0.0, 1.0) * mix(0.5, 0.9, frag.rapids);
   col = mix(col, (G.sunColor * 0.75 + s.zenith * 0.5) * 0.9, foam);
 
   col = applyFog(col, p, G.camPos, G.fogDensity, s);

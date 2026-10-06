@@ -11,6 +11,7 @@ import {
 } from "vgpu";
 import cullShader from "../shaders/grass-cull.wgsl";
 import grassShader from "../shaders/grass.wgsl";
+import type { MountainSet } from "./mountains";
 
 const BLADE_BYTES = 64;
 
@@ -104,6 +105,7 @@ export class Grass {
     private readonly gpu: Gpu,
     private readonly globals: SharedUniforms,
     private readonly life: StorageBuffer,
+    private readonly mountains: MountainSet,
     quality: GrassQuality,
   ) {
     this.quality = quality;
@@ -121,7 +123,7 @@ export class Grass {
   }
 
   private build(quality: GrassQuality): void {
-    const { gpu, globals, life } = this;
+    const { gpu, globals, life, mountains } = this;
     this.lods = grassLods(quality).map((config) => {
       const gridSize = Math.ceil((config.rOuter * 2) / config.spacing) + 2;
       const blades = storage(gpu, gridSize * gridSize * BLADE_BYTES, "read-write");
@@ -147,6 +149,8 @@ export class Grass {
           blades,
           args,
           life,
+          mtnTex: mountains.texture,
+          mtnSamp: mountains.sampler,
         },
       });
       const render = draw(gpu, {

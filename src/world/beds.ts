@@ -2,7 +2,7 @@ import { draw, geometry, sampler, storage, type Draw, type FramePass, type Gpu, 
 import plantShader from "../shaders/plants.wgsl";
 import { loadTexture } from "../engine/textures";
 import { BED_CELL, bedInCell, bedInside, type BedInfo } from "./bed-shape";
-import { terrainHeight } from "./height";
+import { terrainHeightM as terrainHeight } from "./height";
 
 const SPECIES = ["gazania", "ursinia", "empodium", "dandelion", "heliophila"];
 const SPACING: Record<string, number> = { gazania: 0.55, ursinia: 0.55, empodium: 0.5, dandelion: 0.5, heliophila: 0.9 };

@@ -92,6 +92,10 @@ export class SettingsPanel {
     this.write();
   }
 
+  get open(): boolean {
+    return !this.root.hidden;
+  }
+
   get current(): Settings {
     return this.settings;
   }

@@ -1,5 +1,5 @@
 // CPU mirror of src/shaders/lib/beds.wgsl. Keep the two in sync.
-import { gnoise, hash2i } from "./height";
+import { gnoise, hash2i, mountainZone } from "./height";
 import { biome } from "./biome";
 
 export const BED_CELL = 64;
@@ -19,6 +19,7 @@ export function bedInCell(cx: number, cz: number): BedInfo | null {
   const h2 = hash2i(cx - 31337, cz + 2203);
   const [grove, meadow, forest] = biome((cx + 0.5) * BED_CELL, (cz + 0.5) * BED_CELL);
   if ((h & 0xffff) / 65536 >= 0.3 * (1 + meadow * 0.9 - grove * 0.6 - forest * 0.4)) return null;
+  if (mountainZone((cx + 0.5) * BED_CELL, (cz + 0.5) * BED_CELL) > 0.05) return null;
   const u = ((h >>> 16) & 0xff) / 255;
   const v = ((h >>> 24) & 0xff) / 255;
   return {

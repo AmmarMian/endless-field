@@ -1,7 +1,7 @@
 // Fireflies: world-anchored cells around the camera, each maybe holding one firefly that
 // wanders on a noise path, bobs above the grass and blinks. More gather over flower beds.
 import { Globals } from "./lib/globals.wgsl";
-import { riverInfo, terrainHeight } from "./lib/terrain.wgsl";
+import { riverInfo, terrainHeightM } from "./lib/terrain.wgsl";
 import { biome } from "./lib/biome.wgsl";
 import { bedMask } from "./lib/beds.wgsl";
 import { pcg2d, unitFloat } from "@vgpu/wgsl-std/hash";
@@ -15,6 +15,8 @@ struct FlyParams {
 
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<uniform> F: FlyParams;
+@group(0) @binding(2) var mtnTex: texture_2d_array<f32>;
+@group(0) @binding(3) var mtnSamp: sampler;
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -55,7 +57,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   let t = G.time * 0.08 + seed * 100.0;
   let wander = vec2f(simplex2d(vec2f(t, seed * 37.0)), simplex2d(vec2f(seed * 53.0, t))) * F.cellSize * 1.2;
   let xz = base + wander;
-  let ground = terrainHeight(xz);
+  let ground = terrainHeightM(xz, mtnTex, mtnSamp);
 
   // Swarms flash roughly together (shared phase per pocket) with per-fly jitter;
   // each flash is a short "J" that lifts the firefly a little while lit.

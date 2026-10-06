@@ -1,7 +1,7 @@
 // Grass placement + culling + animation. One thread per world-anchored grid cell around the
 // camera; surviving blades are appended to `blades` and counted into indirect draw `args`.
 import { Globals, TRAIL_LEN } from "./lib/globals.wgsl";
-import { riverInfo, terrainHeight, terrainNormalFrom } from "./lib/terrain.wgsl";
+import { mountainCorridor, mountainHeight, riverInfo, riverUpper, riverValley, terrainBroad, terrainHeightR, terrainNormalM } from "./lib/terrain.wgsl";
 import { bedMask } from "./lib/beds.wgsl";
 import { Blade, LifeCell, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl";
 import { pcg2d, unitFloat } from "@vgpu/wgsl-std/hash";
@@ -30,6 +30,8 @@ struct CullParams {
 @group(0) @binding(2) var<storage, read_write> blades: array<Blade>;
 @group(0) @binding(3) var<storage, read_write> args: array<atomic<u32>, 4>;
 @group(0) @binding(4) var<storage, read> life: array<LifeCell>;
+@group(0) @binding(5) var mtnTex: texture_2d_array<f32>;
+@group(0) @binding(6) var mtnSamp: sampler;
 
 fn sampleLife(xz: vec2f) -> f32 {
   let cell = vec2i(floor(xz));
@@ -105,7 +107,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   }
   let edgeJitter = simplex2d(xz * 0.3 + vec2f(5.0, 2.0)) * hwR * 0.25;
   let clump = smoothstep(0.1, 0.5, simplex2d(xz * 0.16 + vec2f(31.0, -4.0)));
-  let reed = clump * (1.0 - smoothstep(hwR * 1.25, hwR * 1.6, river.x)) * select(0.0, 1.0, river.x > hwR * 0.78);
+  let reed = clump * (1.0 - smoothstep(hwR * 1.25, hwR * 1.6, river.x)) * select(0.0, 1.0, river.x > hwR * 0.78) * (1.0 - smoothstep(0.1, 0.35, riverUpper(river.w)));
   let isReed = reed >= 0.4;
   let shoreKeep = smoothstep(hwR * 1.15, hwR * 2.0, river.x + edgeJitter);
   if (reed < 0.4 && unitFloat(h.x ^ 0x68e31da4u) > shoreKeep) {
@@ -119,14 +121,37 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     return;
   }
   height = height * mix(1.0, 0.55, bed);
-  let isSeed = (kind.x > 0.3 && unitFloat(h.y ^ 0x5bd1e995u) < 0.35 * kind.x) || (reed >= 0.4 && unitFloat(h.y ^ 0x1b873593u) < 0.25);
-  let hueQ = round(clamp(select(kind.z, 0.8, reed >= 0.4), -1.0, 1.0) * 7.0) + 7.0;
+  let seedKind = ((kind.x > 0.3 && unitFloat(h.y ^ 0x5bd1e995u) < 0.35 * kind.x) || (reed >= 0.4 && unitFloat(h.y ^ 0x1b873593u) < 0.25));
 
-  let y = terrainHeight(xz);
+  let baseY = terrainHeightR(xz, river);
+  let mRaw = mountainHeight(xz, mtnTex, mtnSamp, 0.0);
+  let y = riverValley(baseY + mRaw * mountainCorridor(river), river, xz);
+  let mtn = max(y - (terrainBroad(xz) * 0.6 + 22.0), 0.0) * smoothstep(0.0, 30.0, y - baseY + mRaw);
   let root = vec3f(xz.x, y, xz.y);
   if (!inFrustum(root + vec3f(0.0, height * 0.5, 0.0), height * 0.8 + 0.6)) {
     return;
   }
+  // Alpine ecology: turf shortens with altitude; rock and snow leave only sparse tufts.
+  let groundN = terrainNormalM(xz, y, 1.5, river.w, mtnTex, mtnSamp);
+  // Distant rings: wide sparse blades on steep ground read as spikes on ridgelines and
+  // curtains on valley walls; the ground shading carries those areas instead.
+  if (P.rInner > 0.0 && (groundN.y < 0.82 || (P.rInner > 100.0 && mtn > 15.0))) {
+    return;
+  }
+  var alpine = 0.0;
+  if (mtn > 1.0) {
+    alpine = smoothstep(60.0, 150.0, mtn);
+    let steep = 1.0 - smoothstep(0.62, 0.82, groundN.y);
+    let snow = smoothstep(235.0, 280.0, mtn + simplex2d(xz * 0.004) * 40.0) * smoothstep(0.45, 0.75, groundN.y);
+    let bare = max(smoothstep(0.45, 0.8, steep), snow);
+    if (unitFloat(h2.x ^ 0x2545f491u) < bare * 0.97) {
+      return;
+    }
+    height = height * mix(1.0, 0.32, alpine);
+  }
+  let alpineGreen = alpine * 0.55;
+  let isSeed = seedKind && alpine < 0.3;
+  let hueQ = round(clamp(select(mix(kind.z, 0.7, alpine), 0.8, reed >= 0.4), -1.0, 1.0) * 7.0) + 7.0;
 
   // Wind: ripple waves (~8 m/s, ~12 m wavelength) riding on slow broad gusts, plus flutter.
   let wdir = G.windDir;
@@ -167,7 +192,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   var width = mix(0.035, 0.06, unitFloat(h2.x ^ h.y)) * P.widthScale / sqrt(keep);
   width = width * mix(1.0, 0.7, kind.x) * select(1.0, 0.75, isReed);
   // Waterside plants stay green even before the land is restored.
-  let lifeV = max(sampleLife(xz), select(0.0, 0.4, isReed));
+  let lifeV = max(max(sampleLife(xz), select(0.0, 0.4, isReed)), alpineGreen);
 
   let idx = atomicAdd(&args[1], 1u);
   if (idx >= arrayLength(&blades)) {
@@ -178,6 +203,6 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   b.shape = vec4f(cos(angle), sin(angle), width, lifeV);
   let packedKind = min(patchN, 0.999) + select(0.0, 2.0, isSeed) + 4.0 * hueQ;
   b.bend = vec4f(bend * select(1.0, 1.25, isSeed), r1, packedKind);
-  b.ground = vec4f(terrainNormalFrom(xz, y, 1.0), 0.0);
+  b.ground = vec4f(groundN, 0.0);
   blades[idx] = b;
 }

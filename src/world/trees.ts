@@ -13,7 +13,7 @@ import {
 import treeShader from "../shaders/tree.wgsl";
 import impostorShader from "../shaders/tree-impostor.wgsl";
 import { loadTexture } from "../engine/textures";
-import { terrainHeight } from "./height";
+import { mountainHeight, terrainHeightM as terrainHeight } from "./height";
 import { biome } from "./biome";
 
 interface LodInfo {
@@ -208,13 +208,15 @@ export class Trees {
       const jacaranda = SPECIES[0].weight * (1 - grove * 0.6) + meadow * 0.3;
       return rnd() < jacaranda ? 0 : 1;
     };
-    const tree = (species: number, x: number, z: number): TreeInstance => {
+    const tree = (species: number, x: number, z: number): TreeInstance | null => {
+      // Above the treeline only turf, rock and snow.
+      if (mountainHeight(x, z) > 120) return null;
       const [s0, s1] = SPECIES[species].scale;
       return { species, x, y: terrainHeight(x, z) - 0.15, z, yaw: rnd() * Math.PI * 2, scale: s0 + (s1 - s0) * rnd(), seed: rnd() };
     };
     if (forest > 0.3) {
       // Woodland: many trees on a jittered lattice, thinning toward the forest edge.
-      const out: TreeInstance[] = [];
+      const out: (TreeInstance | null)[] = [];
       const n = 4;
       for (let i = 0; i < n * n; i++) {
         if (rnd() > forest * 0.8) continue;
@@ -222,20 +224,20 @@ export class Trees {
         const z = (cz + (Math.floor(i / n) + 0.15 + rnd() * 0.7) / n) * CELL;
         out.push(tree(rnd() < 0.35 ? 0 : 1, x, z));
       }
-      return out;
+      return out.filter((t): t is TreeInstance => t !== null);
     }
     if (grove > 0.5 && rnd() < grove) {
       // A loose cluster around a center, spaced so canopies touch but do not stack.
       const cxw = (cx + 0.3 + rnd() * 0.4) * CELL;
       const czw = (cz + 0.3 + rnd() * 0.4) * CELL;
       const count = 2 + Math.floor(rnd() * 4);
-      const out: TreeInstance[] = [];
+      const out: (TreeInstance | null)[] = [];
       for (let i = 0; i < count; i++) {
         const a = (i / count) * Math.PI * 2 + rnd() * 0.9;
         const r = i === 0 ? 0 : 9 + rnd() * 10;
         out.push(tree(pickSpecies(), cxw + Math.cos(a) * r, czw + Math.sin(a) * r));
       }
-      return out;
+      return out.filter((t): t is TreeInstance => t !== null);
     }
     // Prefer crests: keep the highest of a few candidate spots, like Flower's lone hilltop trees.
     let best = { x: 0, z: 0, y: -Infinity };
@@ -245,7 +247,8 @@ export class Trees {
       const y = terrainHeight(x, z);
       if (y > best.y) best = { x, z, y };
     }
-    return [tree(pickSpecies(), best.x, best.z)];
+    const lone = tree(pickSpecies(), best.x, best.z);
+    return lone ? [lone] : [];
   }
 
   private stream(px: number, pz: number): void {

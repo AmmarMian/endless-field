@@ -1,5 +1,6 @@
 import { draw, geometry, sampler, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer, type Texture } from "vgpu";
 import terrainShader from "../shaders/terrain.wgsl";
+import type { MountainSet } from "./mountains";
 
 const SNAP = 4;
 
@@ -7,7 +8,7 @@ const SNAP = 4;
 export class Terrain {
   private readonly drawCall: Draw;
 
-  constructor(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, pebbles: Texture, resolution = 320, private readonly radius = 1600) {
+  constructor(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, pebbles: Texture, mountains: MountainSet, rock: Texture, scree: Texture, resolution = 384, private readonly radius = 3200) {
     const n = resolution;
     const verts = new Float32Array((n + 1) * (n + 1) * 2);
     let o = 0;
@@ -36,10 +37,14 @@ export class Terrain {
       depth: { compare: "greater" },
       set: {
         G: globals,
-        grid: { center: [0, 0], radius: this.radius, power: 1.9 },
+        grid: { center: [0, 0], radius: this.radius, power: 2.2, cells: resolution, pad0: 0, pad1: 0, pad2: 0 },
         life,
         samp: sampler(gpu, { minFilter: "linear", magFilter: "linear", mipmapFilter: "linear", addressModeU: "repeat", addressModeV: "repeat", maxAnisotropy: 8 }),
         pebbles,
+        mtnTex: mountains.texture,
+        mtnSamp: mountains.sampler,
+        rockTex: rock,
+        screeTex: scree,
       },
     });
   }

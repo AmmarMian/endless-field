@@ -1,5 +1,5 @@
 import type { Camera, Vec3 } from "../engine/camera";
-import { riverInfo, terrainHeight } from "../world/height";
+import { riverInfo, terrainHeightM as terrainHeight } from "../world/height";
 
 const EYE = 1.65;
 const WALK = 4.2;
@@ -25,7 +25,7 @@ export class FreeCam {
     window.addEventListener("keydown", (e) => {
       if (!this.active) return;
       this.keys.add(e.code);
-      if (e.code === "KeyV") this.fly = !this.fly;
+      if (!e.repeat && e.key.toLowerCase() === "v") this.fly = !this.fly;
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
     window.addEventListener("blur", () => this.keys.clear());
@@ -80,7 +80,7 @@ export class FreeCam {
       vx = (sy * fwd * cp + cy * strafe) * speed;
       vz = (-cy * fwd * cp + sy * strafe) * speed;
       if (k.has("Space")) vy += speed * 0.7;
-      if (k.has("KeyC") || k.has("ControlLeft")) vy -= speed * 0.7;
+      if (k.has("KeyC") || k.has("ControlLeft") || k.has("ControlRight")) vy -= speed * 0.7;
     }
     this.pos[0] += vx * dt;
     this.pos[2] += vz * dt;

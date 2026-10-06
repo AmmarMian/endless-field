@@ -1,0 +1,9 @@
+{
+  "size": 512,
+  "extent": 2400.0,
+  "massifs": [
+    "massif_0.bin",
+    "massif_1.bin",
+    "massif_2.bin"
+  ]
+}

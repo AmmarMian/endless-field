@@ -86,8 +86,8 @@ export fn morningFog(worldPos: vec3f, camPos: vec3f, s: SkyParams, mist: vec4f) 
   var light = vec3f(0.0);
   let cosT = dot(dir, s.sunDir);
   // Sun light reaching into the fog (the canopy dims it), plus sky light from above.
-  let sunIn = s.sunColor * (hgPhase(cosT, 0.6) * 9.0 + 0.25) * mix(1.0, 0.35, mist.z);
-  let skyIn = (s.horizon * 0.6 + s.zenith * 0.4) * mix(1.0, 0.45, mist.z);
+  let sunIn = s.sunColor * (hgPhase(cosT, 0.6) * 4.0 + 0.1) * mix(1.0, 0.35, mist.z);
+  let skyIn = (s.horizon * 0.6 + s.zenith * 0.4) * 0.6 * mix(1.0, 0.45, mist.z);
   for (var i = 0; i < steps; i = i + 1) {
     let tt = t0 + (f32(i) + 0.5) * dt;
     let rho = fogDensity(camPos + dir * tt, cap, mist.w, mist.x);

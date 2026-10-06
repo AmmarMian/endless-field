@@ -80,18 +80,33 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let flow = normalize(frag.flow);
   let side = vec2f(-flow.y, flow.x);
   // Faster in the middle of the channel, lazy at the banks.
-  // Velocity profile across the channel: fastest mid-stream, near still at the edges.
-  let speed = frag.speed * mix(1.0, 0.25, smoothstep(0.2, 1.0, abs(frag.across)));
+  // Velocity profile across the channel: fastest mid-stream, still moving at the banks.
+  let speed = frag.speed * mix(1.0, 0.55, smoothstep(0.3, 1.1, abs(frag.across)));
   let travel = t * speed;
   let uv = vec2f(dot(p.xz, flow), dot(p.xz, side));
   let camDist = distance(G.camPos, p);
   let grazing = 1.0 - abs(normalize(G.camPos - p).y);
   let detail = (1.0 - smoothstep(4.0, 30.0, camDist)) * (1.0 - grazing * 0.6);
+  // Two-phase flow mapping: two copies of the ripple field are advected by the local speed
+  // and reset half a cycle apart, cross-faded so the surface evolves as it flows instead of
+  // sliding as a rigid band (and shear across the channel never stretches it).
+  let period = 1.8;
+  let ph0 = fract(t / period);
+  let ph1 = fract(t / period + 0.5);
+  let w0 = 1.0 - abs(ph0 * 2.0 - 1.0);
+  let d0 = ph0 * period * speed;
+  let d1 = ph1 * period * speed;
+  let j0 = vec2f(0.0, 0.0);
+  let j1 = vec2f(17.3, 9.1);
   let e = 0.08;
-  let h0 = waveHeight(uv, travel, t, detail);
-  let hx = waveHeight(uv + vec2f(e, 0.0), travel, t, detail) - h0;
-  let hy = waveHeight(uv + vec2f(0.0, e), travel, t, detail) - h0;
-  let amp = 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0);
+  let a0 = waveHeight(uv + j0, d0, t, detail);
+  let a1 = waveHeight(uv + j1, d1, t, detail);
+  let h0 = mix(a1, a0, w0);
+  let hx = mix(waveHeight(uv + j1 + vec2f(e, 0.0), d1, t, detail), waveHeight(uv + j0 + vec2f(e, 0.0), d0, t, detail), w0) - h0;
+  let hy = mix(waveHeight(uv + j1 + vec2f(0.0, e), d1, t, detail), waveHeight(uv + j0 + vec2f(0.0, e), d0, t, detail), w0) - h0;
+  // Crossfading halves the contrast at mid-blend; compensate so ripples stay even.
+  let blendGain = 1.0 / sqrt(w0 * w0 + (1.0 - w0) * (1.0 - w0));
+  let amp = 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0) * blendGain;
   let gradLocal = vec2f(hx, hy) / e * amp;
   let grad = flow * gradLocal.x + side * gradLocal.y;
   let n = normalize(vec3f(-grad.x, 1.0, -grad.y));
@@ -141,7 +156,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let bubbles = smoothstep(0.55, 0.85, simplex2d((uv - vec2f(travel, 0.0)) * 4.0) * 0.5 + 0.5);
   let streak = smoothstep(0.93, 0.985, lineN) * bubbles;
   let churn = smoothstep(0.3, 0.75, simplex2d((uv - vec2f(travel * 1.3, 0.0)) * vec2f(0.6, 1.8)) * 0.5 + 0.5 + frag.rapids * 0.35);
-  let foam = clamp(shore * lace * 0.6 + streak * 0.7 + churn * frag.rapids * 1.4, 0.0, 1.0) * mix(0.5, 0.9, frag.rapids);
+  let foam = clamp(shore * lace * 0.6 + streak * 0.7 + churn * frag.rapids * 0.9, 0.0, 1.0) * mix(0.5, 0.75, frag.rapids);
   col = mix(col, (G.sunColor * 0.75 + s.zenith * 0.5) * 0.9, foam);
 
   col = applyFog(col, p, G.camPos, G.fogDensity, s);

@@ -131,6 +131,6 @@ export class Player {
     this.camPos[1] = Math.max(this.camPos[1], terrainHeight(this.camPos[0], this.camPos[2]) + 1.1);
     camera.position.splice(0, 3, ...this.camPos);
     camera.target.splice(0, 3, this.pos[0] + f[0] * 4, this.pos[1] + f[1] * 4 + 0.3, this.pos[2] + f[2] * 4);
-    camera.fovY = ((56 + this.gust * 12) * Math.PI) / 180;
+    camera.fovY = ((60 + this.gust * 12) * Math.PI) / 180;
   }
 }

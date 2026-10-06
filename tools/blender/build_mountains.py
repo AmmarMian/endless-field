@@ -83,6 +83,19 @@ def stream_power(h, iters=60, k=0.0032, m=0.5):
     return hh
 
 
+def gaussian_smooth(h, sigma):
+    """Separable Gaussian blur (edge-clamped): rounds ridges and peaks, keeps valleys."""
+    r = int(sigma * 3)
+    x = np.arange(-r, r + 1)
+    k = np.exp(-(x * x) / (2 * sigma * sigma))
+    k /= k.sum()
+    pad = np.pad(h, r, mode="edge")
+    tmp = sum(k[i] * pad[:, i:i + h.shape[1]] for i in range(2 * r + 1))
+    tmp = tmp[r:-r, :] if r else tmp
+    pad = np.pad(tmp, ((r, r), (0, 0)), mode="edge")
+    return sum(k[i] * pad[i:i + h.shape[0], :] for i in range(2 * r + 1))
+
+
 def thermal(h, iters=40, talus=0.0035, k=0.4):
     """Material slides off slopes steeper than the talus angle, leaving scree aprons."""
     hh = h.copy()
@@ -105,6 +118,8 @@ for i in range(COUNT):
         h = stream_power(h)
         h = thermal(h, iters=4, talus=0.007)
     h = np.clip(h, 0, None)
+    # Soft, rounded alpine forms: blur away the knife-edge ridges left by noise + erosion.
+    h = gaussian_smooth(h, float(os.environ.get("MOUNTAIN_SMOOTH", "3.2")))
     # Keep the rim exactly at zero so stamps blend seamlessly.
     coords = (np.arange(N) / (N - 1)) * 2 - 1
     yy, xx = np.meshgrid(coords, coords, indexing="ij")

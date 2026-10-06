@@ -13,8 +13,8 @@ import {
 import treeShader from "../shaders/tree.wgsl";
 import impostorShader from "../shaders/tree-impostor.wgsl";
 import { loadTexture } from "../engine/textures";
-import { mountainHeight, terrainHeightM as terrainHeight } from "./height";
-import { biome } from "./biome";
+import { riverInfo, terrainHeightM as terrainHeight } from "./height";
+import { ecology, treeDensity, treeSuitability, type Eco } from "./ecology";
 
 interface LodInfo {
   file: string;
@@ -56,14 +56,18 @@ interface TreeInstance {
 }
 
 export const SPECIES = [
-  { name: "jacaranda", weight: 0.4, scale: [0.5, 0.78] as [number, number] },
-  { name: "island", weight: 0.6, scale: [2.0, 2.8] as [number, number] },
+  { name: "jacaranda", scale: [0.5, 0.78] as [number, number] },
+  { name: "island", scale: [2.0, 2.8] as [number, number] },
+  { name: "spruce", scale: [0.7, 1.15] as [number, number] },
 ];
 
 const CELL = 72;
-const DENSITY = 0.36;
-const VIEW = 520;
-const MAX_INSTANCES = 2048;
+const VIEW = 900;
+/** Trees grow in over this band at the edge of the view, inside the fog. */
+const FADE = 150;
+/** Cells generated per frame; the rest queue so fast flight never hitches. */
+const CELLS_PER_FRAME = 6;
+const MAX_INSTANCES = 8192;
 const STRIDE = 8;
 
 function cellRandom(cx: number, cz: number): () => number {
@@ -198,76 +202,95 @@ export class Trees {
     return this.species.flatMap((s) => [...s.meshDraws.flatMap((d) => [d.bark, d.leaves]), s.impostor]);
   }
 
+  /**
+   * Trees from an ecological niche model: canopy density follows moisture and temperature,
+   * and each tree's species is drawn by how well its niche fits the spot (see ecology.ts).
+   */
   private makeCell(cx: number, cz: number): TreeInstance[] {
     const rnd = cellRandom(cx, cz);
-    const [grove, meadow, forest] = biome((cx + 0.5) * CELL, (cz + 0.5) * CELL);
-    const density = DENSITY * (1 - meadow * 0.85) + grove * 0.5;
-    if (rnd() > density) return [];
-    const pickSpecies = (): number => {
-      // Groves lean toward the rounded island trees; open land toward lone jacarandas.
-      const jacaranda = SPECIES[0].weight * (1 - grove * 0.6) + meadow * 0.3;
-      return rnd() < jacaranda ? 0 : 1;
+    const pick = (eco: Eco): number => {
+      const suit = treeSuitability(eco);
+      const total = suit.reduce((a, b) => a + b, 0);
+      if (total < 0.05) return -1;
+      let r = rnd() * total;
+      for (let i = 0; i < suit.length; i++) {
+        r -= suit[i];
+        if (r <= 0) return i;
+      }
+      return suit.length - 1;
     };
-    const tree = (species: number, x: number, z: number): TreeInstance | null => {
-      // Above the treeline only turf, rock and snow.
-      if (mountainHeight(x, z) > 120) return null;
+    const tree = (x: number, z: number, eco: Eco): TreeInstance | null => {
+      const [d, , hw] = riverInfo(x, z);
+      if (d < hw * 1.8) return null;
+      const species = pick(eco);
+      if (species < 0) return null;
       const [s0, s1] = SPECIES[species].scale;
-      return { species, x, y: terrainHeight(x, z) - 0.15, z, yaw: rnd() * Math.PI * 2, scale: s0 + (s1 - s0) * rnd(), seed: rnd() };
+      // Trees grow taller where conditions suit them best.
+      const vigor = 0.85 + 0.15 * Math.min(1, eco.moisture * 1.4);
+      return { species, x, y: eco.height - 0.15, z, yaw: rnd() * Math.PI * 2, scale: (s0 + (s1 - s0) * rnd()) * vigor, seed: rnd() };
     };
-    if (forest > 0.3) {
-      // Woodland: many trees on a jittered lattice, thinning toward the forest edge.
-      const out: (TreeInstance | null)[] = [];
-      const n = 4;
-      for (let i = 0; i < n * n; i++) {
-        if (rnd() > forest * 0.8) continue;
-        const x = (cx + (i % n + 0.15 + rnd() * 0.7) / n) * CELL;
-        const z = (cz + (Math.floor(i / n) + 0.15 + rnd() * 0.7) / n) * CELL;
-        out.push(tree(rnd() < 0.35 ? 0 : 1, x, z));
+    const center = ecology((cx + 0.5) * CELL, (cz + 0.5) * CELL);
+    const density = treeDensity(center);
+    if (density < 0.08) {
+      // Open country: the odd lone tree, on the highest of a few spots (Flower's hilltop trees).
+      if (rnd() > 0.32) return [];
+      let best = { x: 0, z: 0, y: -Infinity };
+      for (let i = 0; i < 6; i++) {
+        const x = (cx + 0.1 + rnd() * 0.8) * CELL;
+        const z = (cz + 0.1 + rnd() * 0.8) * CELL;
+        const y = terrainHeight(x, z);
+        if (y > best.y) best = { x, z, y };
       }
-      return out.filter((t): t is TreeInstance => t !== null);
+      const lone = tree(best.x, best.z, ecology(best.x, best.z));
+      return lone ? [lone] : [];
     }
-    if (grove > 0.5 && rnd() < grove) {
-      // A loose cluster around a center, spaced so canopies touch but do not stack.
-      const cxw = (cx + 0.3 + rnd() * 0.4) * CELL;
-      const czw = (cz + 0.3 + rnd() * 0.4) * CELL;
-      const count = 2 + Math.floor(rnd() * 4);
-      const out: (TreeInstance | null)[] = [];
-      for (let i = 0; i < count; i++) {
-        const a = (i / count) * Math.PI * 2 + rnd() * 0.9;
-        const r = i === 0 ? 0 : 9 + rnd() * 10;
-        out.push(tree(pickSpecies(), cxw + Math.cos(a) * r, czw + Math.sin(a) * r));
-      }
-      return out.filter((t): t is TreeInstance => t !== null);
+    // Woodland: a jittered lattice, finer where the canopy closes; each candidate survives with
+    // the local canopy density, so forests thin out naturally toward dry or cold ground.
+    const n = density > 0.7 ? 6 : 4;
+    const out: TreeInstance[] = [];
+    for (let i = 0; i < n * n; i++) {
+      const x = (cx + (i % n + 0.15 + rnd() * 0.7) / n) * CELL;
+      const z = (cz + (Math.floor(i / n) + 0.15 + rnd() * 0.7) / n) * CELL;
+      const eco = ecology(x, z);
+      if (rnd() > treeDensity(eco)) continue;
+      const t = tree(x, z, eco);
+      if (t) out.push(t);
     }
-    // Prefer crests: keep the highest of a few candidate spots, like Flower's lone hilltop trees.
-    let best = { x: 0, z: 0, y: -Infinity };
-    for (let i = 0; i < 6; i++) {
-      const x = (cx + 0.1 + rnd() * 0.8) * CELL;
-      const z = (cz + 0.1 + rnd() * 0.8) * CELL;
-      const y = terrainHeight(x, z);
-      if (y > best.y) best = { x, z, y };
-    }
-    const lone = tree(pickSpecies(), best.x, best.z);
-    return lone ? [lone] : [];
+    return out;
   }
+
+  private readonly pending: { key: string; cx: number; cz: number; d: number }[] = [];
 
   private stream(px: number, pz: number): void {
     const cx = Math.floor(px / CELL);
     const cz = Math.floor(pz / CELL);
     const key = `${cx},${cz}`;
-    if (key === this.loadedCell) return;
-    this.loadedCell = key;
-    const r = Math.ceil(VIEW / CELL);
-    const keep = new Set<string>();
-    for (let dz = -r; dz <= r; dz++) {
-      for (let dx = -r; dx <= r; dx++) {
-        const k = `${cx + dx},${cz + dz}`;
-        keep.add(k);
-        if (!this.cells.has(k)) this.cells.set(k, this.makeCell(cx + dx, cz + dz));
+    if (key !== this.loadedCell) {
+      this.loadedCell = key;
+      const r = Math.ceil(VIEW / CELL);
+      const keep = new Set<string>();
+      this.pending.length = 0;
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          const k = `${cx + dx},${cz + dz}`;
+          keep.add(k);
+          if (!this.cells.has(k)) this.pending.push({ key: k, cx: cx + dx, cz: cz + dz, d: dx * dx + dz * dz });
+        }
       }
+      for (const k of this.cells.keys()) if (!keep.has(k)) this.cells.delete(k);
+      // Nearest first: what is about to be close is generated before the far horizon.
+      this.pending.sort((a, b) => b.d - a.d);
+      this.instances = [...this.cells.values()].flat();
     }
-    for (const k of this.cells.keys()) if (!keep.has(k)) this.cells.delete(k);
-    this.instances = [...this.cells.values()].flat();
+    // A bounded amount of generation per frame (everything at once on the first frame).
+    let budget = this.cells.size === 0 ? Infinity : CELLS_PER_FRAME;
+    let added = false;
+    while (budget-- > 0 && this.pending.length) {
+      const c = this.pending.pop()!;
+      if (!this.cells.has(c.key)) this.cells.set(c.key, this.makeCell(c.cx, c.cz));
+      added = true;
+    }
+    if (added) this.instances = [...this.cells.values()].flat();
   }
 
   /** Nearby trees (for gameplay collision / avoidance). */
@@ -276,7 +299,7 @@ export class Trees {
   }
 
   trunkRadius(t: TreeInstance): number {
-    return t.species === 0 ? 0.9 * t.scale : 0.35 * t.scale;
+    return [0.9, 0.35, 0.4][t.species] * t.scale;
   }
 
   canopyTop(t: TreeInstance): number {
@@ -298,11 +321,15 @@ export class Trees {
         if (frustum[o] * t.x + frustum[o + 1] * cy + frustum[o + 2] * t.z + frustum[o + 3] < -radius) visible = false;
       }
       if (!visible) continue;
-      const d = Math.hypot(t.x - cam[0], cy - cam[1], t.z - cam[2]) / (t.scale * lodBias);
+      const dist = Math.hypot(t.x - cam[0], cy - cam[1], t.z - cam[2]);
+      if (dist > VIEW * lodBias) continue;
+      // Grow in at the far edge instead of popping.
+      const grow = Math.min(1, Math.max(0, (VIEW * lodBias - dist) / FADE));
+      const d = dist / (t.scale * lodBias);
       const lod = d < m.lodDistances[0] ? 0 : d < m.lodDistances[1] ? 1 : 2;
       const n = s.counts[lod]++;
       if (n >= MAX_INSTANCES) continue;
-      s.data[lod].set([t.x, t.y, t.z, t.scale, Math.cos(t.yaw), Math.sin(t.yaw), t.seed, 0], n * STRIDE);
+      s.data[lod].set([t.x, t.y, t.z, t.scale * (0.2 + 0.8 * grow * grow), Math.cos(t.yaw), Math.sin(t.yaw), t.seed, 0], n * STRIDE);
     }
     for (const s of this.species) {
       for (let lod = 0; lod < 3; lod++) {

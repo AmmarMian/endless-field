@@ -80,8 +80,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let base = mix(mix(frag.color, vec3f(1.0, 0.96, 0.9), 0.5), frag.color, smoothstep(0.0, 0.7, frag.uv.y));
   let l = G.sunDir;
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0);
-  var col = base * (ambientSky(n, s) * 0.7 + G.sunColor * (max(dot(n, l), 0.0) * 0.7 + back * 0.9 + 0.25));
-  col = col + base * (mix(0.9, 0.35, G.night) + 0.6 * frag.glow + G.night * 0.45);
+  var col = base * (ambientSky(n, s) * 0.7 + G.sunColor * (max(dot(n, l), 0.0) * 0.6 + back * 0.6 + 0.08));
+  // Daylight: lit naturally with only a faint self-glow; the glow grows at night.
+  col = col + base * (mix(0.0, 0.7, G.night) + 0.1 * frag.glow);
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s);
   return vec4f(col, alpha);
 }

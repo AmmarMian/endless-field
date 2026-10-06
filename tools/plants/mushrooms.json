@@ -1,0 +1,9 @@
+{
+  "src": "assets-src/props/mushrooms/mushrooms.gltf",
+  "scale": 1.6,
+  "target_tris": 900,
+  "credit": "Modeled in Blender (tools/blender/model_props.py)",
+  "name": "mushrooms",
+  "out": "public/assets/plants/mushrooms",
+  "error": 0.01
+}

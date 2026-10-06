@@ -76,16 +76,21 @@ with open(os.path.join(OUT, "plants.bin"), "wb") as f:
 
 src_dir = os.path.dirname(cfg["src"])
 diff = img_np(os.path.join(src_dir, gltf["images"][gltf["textures"][gltf["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"]]["source"]]["uri"]))
-diff[..., 3] = img_np(cfg["alpha"])[..., 0]
-save_png(bleed(diff), os.path.join(OUT, "albedo.png"))
-nor_uri = gltf["images"][gltf["textures"][gltf["materials"][0]["normalTexture"]["index"]]["source"]]["uri"]
-shutil.copy(os.path.join(src_dir, nor_uri), os.path.join(OUT, "normal.jpg"))
+if cfg.get("alpha"):
+    diff[..., 3] = img_np(cfg["alpha"])[..., 0]
+    diff = bleed(diff)
+else:
+    diff[..., 3] = 1.0  # opaque props (logs, rocks, mushrooms)
+save_png(diff, os.path.join(OUT, "albedo.png"))
+if "normalTexture" in gltf["materials"][0]:
+    nor_uri = gltf["images"][gltf["textures"][gltf["materials"][0]["normalTexture"]["index"]]["source"]]["uri"]
+    shutil.copy(os.path.join(src_dir, nor_uri), os.path.join(OUT, "normal.jpg"))
 json.dump({
     "name": cfg["name"],
-    "source": cfg["credit"],
+    "source": cfg.get("credit", ""),
     "vertexBytes": len(vb),
     "indexCount": ioff,
     "variants": variants,
-    "bloomColor": cfg["bloom_color"],
+    "bloomColor": cfg.get("bloom_color", [1, 1, 1]),
 }, open(os.path.join(OUT, "plants.json"), "w"), indent=2)
 print(f"[plants] {cfg['name']} done: {vbase} verts, {ioff // 3} tris, {len(vb) + len(ib)} bytes")

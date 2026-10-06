@@ -1,0 +1,9 @@
+{
+  "src": "assets-src/props/rocks/rocks.gltf",
+  "scale": 1.0,
+  "target_tris": 600,
+  "credit": "Modeled in Blender; mossy_rock texture by Poly Haven (CC0)",
+  "name": "rocks",
+  "out": "public/assets/plants/rocks",
+  "error": 0.01
+}

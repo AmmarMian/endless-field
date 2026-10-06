@@ -115,6 +115,12 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   }
   height = select(height * mix(0.55, 1.0, shoreKeep), height * 1.6, reed >= 0.4);
 
+  // Shade under the forest canopy: only sparse, shorter tufts survive.
+  if (bio.z > 0.05 && unitFloat(h.y ^ 0x9e3779b9u) < bio.z * 1.2) {
+    return;
+  }
+  height = height * mix(1.0, 0.6, bio.z);
+
   // Flower beds: the grass thins and shortens so wildflowers grow up through it.
   let bed = bedMask(xz).x;
   if (bed > 0.0 && unitFloat(h2.y ^ 0x27d4eb2du) < bed * 0.5) {
@@ -142,7 +148,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   if (mtn > 1.0) {
     alpine = smoothstep(60.0, 150.0, mtn);
     let steep = 1.0 - smoothstep(0.62, 0.82, groundN.y);
-    let snow = smoothstep(235.0, 280.0, mtn + simplex2d(xz * 0.004) * 40.0) * smoothstep(0.45, 0.75, groundN.y);
+    let snow = smoothstep(190.0, 230.0, mtn + simplex2d(xz * 0.004) * 35.0) * smoothstep(0.45, 0.75, groundN.y);
     let bare = max(smoothstep(0.45, 0.8, steep), snow);
     if (unitFloat(h2.x ^ 0x2545f491u) < bare * 0.97) {
       return;

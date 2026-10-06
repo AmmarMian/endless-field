@@ -84,7 +84,7 @@ export function riverCenter(x: number): number {
 export function riverRise(x: number): number {
   const s = x / 95;
   const stepped = (Math.floor(s) + smoothstep(0.72, 0.97, s - Math.floor(s))) * 95;
-  return 175 * Math.pow(riverUpper(stepped), 2.2);
+  return 140 * Math.pow(riverUpper(stepped), 2.2);
 }
 
 export function riverHalfWidth(x: number): number {
@@ -156,9 +156,9 @@ export function setMountains(layers: Float32Array[], size: number): void {
 export function mountainZone(x: number, z: number): number {
   const dist = Math.hypot(x, z);
   if (dist < 600) return 0;
-  const spawn = smoothstep(800, 1400, dist);
-  const ranges = smoothstep(-0.12, 0.22, gnoise(x / 3200 + 11, z / 3200 - 7));
-  let zone = spawn * ranges;
+  const west = 1 - smoothstep(-1500, -800, x);
+  const ranges = smoothstep(-0.35, 0.1, gnoise(x / 3200 + 11, z / 3200 - 7));
+  let zone = west * ranges;
   const up = riverUpper(x);
   if (up > 0) zone = Math.max(zone, up * (1 - smoothstep(250, 900, Math.abs(z - riverCenter(x)))) * smoothstep(600, 1000, dist));
   return zone;
@@ -208,14 +208,14 @@ export function mountainHeight(x: number, z: number): number {
     else if (rot === 2) [u, v] = [-u, -v];
     else if (rot === 3) [u, v] = [v, -u];
     const layer = ((hs >>> 18) >>> 0) % 3;
-    const scale = 260 + (((hs >>> 20) & 0xff) / 255) * 220;
+    const scale = 200 + (((hs >>> 20) & 0xff) / 255) * 160;
     h = Math.max(h, sampleLayer(layer, u + 0.5, v + 0.5) * scale * zone);
   }
   const sx = SOURCE_X - 160;
   const sz = riverCenter(SOURCE_X);
   const su = (x - sx) / MTN_EXTENT;
   const sv = (z - sz) / MTN_EXTENT;
-  if (Math.abs(su) < 0.5 && Math.abs(sv) < 0.5) h = Math.max(h, sampleLayer(0, su + 0.5, sv + 0.5) * 450);
+  if (Math.abs(su) < 0.5 && Math.abs(sv) < 0.5) h = Math.max(h, sampleLayer(0, su + 0.5, sv + 0.5) * 340);
   return h;
 }
 
@@ -224,11 +224,14 @@ function riverValley(natural: number, d: number, water: number, hw: number, px: 
   const uw = smoothstep(0, 0.1, upper);
   if (uw <= 0) return natural;
   const bed = riverBed(d, water, hw, upper);
+  const rise = riverRise(px);
+  const lift = rise * (1 - smoothstep(hw * 2, 700, d));
+  const lifted = natural + lift * (1 - smoothstep(0, 1, Math.max(natural - (water - rise), 0) / Math.max(rise, 1)));
   const wallN = gnoise(x / 45 + 3.3, z / 45 + 8.1);
   const bumps = gnoise(x / 9, z / 9) * 1.6 * smoothstep(hw * 1.5, hw * 4, d);
-  const cut = d < hw ? bed : water + 0.3 + Math.max(d - hw * 1.15, 0) * (0.85 + 0.45 * wallN) + bumps;
+  const cut = d < hw ? bed : water + 0.3 + Math.max(d - hw * 1.15, 0) * (0.5 + 0.25 * wallN) + bumps;
   const fill = d < hw ? bed : water + 0.3 - Math.max(d - hw * 1.6, 0) * 0.28;
-  const clamped = Math.min(Math.max(natural, fill), Math.max(cut, fill));
+  const clamped = Math.min(Math.max(lifted, fill), Math.max(cut, fill));
   return natural + (clamped - natural) * uw;
 }
 

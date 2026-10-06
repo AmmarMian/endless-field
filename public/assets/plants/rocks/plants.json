@@ -1,0 +1,34 @@
+{
+  "name": "rocks",
+  "source": "Modeled in Blender; mossy_rock texture by Poly Haven (CC0)",
+  "vertexBytes": 13680,
+  "indexCount": 2880,
+  "variants": [
+    {
+      "name": "rock_0",
+      "firstIndex": 0,
+      "indexCount": 960,
+      "height": 0.573,
+      "radius": 0.935
+    },
+    {
+      "name": "rock_1",
+      "firstIndex": 960,
+      "indexCount": 960,
+      "height": 0.992,
+      "radius": 1.798
+    },
+    {
+      "name": "rock_2",
+      "firstIndex": 1920,
+      "indexCount": 960,
+      "height": 1.364,
+      "radius": 2.907
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

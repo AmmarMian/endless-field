@@ -16,6 +16,16 @@ struct Plant {
 @group(0) @binding(3) var albedoTex: texture_2d<f32>;
 @group(0) @binding(4) var<storage, read> life: array<LifeCell>;
 
+struct PlantParams {
+  // How much foliage takes the field's dry tone before restoration (wildflowers, ferns).
+  dryTint: f32,
+  // Night glow of non-leaf texels (petals, mushroom caps).
+  nightGlow: f32,
+  pad0: f32,
+  pad1: f32,
+}
+@group(0) @binding(5) var<uniform> P: PlantParams;
+
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) world: vec3f,
@@ -78,12 +88,12 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Foliage (green-dominant texels) shares the field's dry gold until restored; petals keep color.
   let leafness = smoothstep(0.02, 0.12, texel.g - max(texel.r, texel.b));
   let dry = vec3f(dot(texel.rgb, vec3f(0.5, 0.4, 0.1))) * vec3f(1.25, 0.95, 0.5);
-  let base = mix(texel.rgb, dry, leafness * (1.0 - frag.life) * 0.6);
+  let base = mix(texel.rgb, dry, leafness * (1.0 - frag.life) * 0.6 * P.dryTint);
   let l = G.sunDir;
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * 0.8;
   var col = base * (ambientSky(n, s) * 0.6 * frag.ao + G.sunColor * (wrapDiffuse(n, l, 0.4) + back) * 0.85 * frag.ao);
   let petal = 1.0 - leafness;
-  col = col + texel.rgb * petal * G.night * 0.9 * (0.7 + 0.3 * sin(G.time * 1.1 + frag.world.x * 0.7 + frag.world.z));
+  col = col + texel.rgb * petal * G.night * 0.9 * P.nightGlow * (0.7 + 0.3 * sin(G.time * 1.1 + frag.world.x * 0.7 + frag.world.z));
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s);
   return vec4f(col, a);
 }

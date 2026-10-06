@@ -27,6 +27,7 @@ struct GridParams {
 @group(0) @binding(6) var mtnSamp: sampler;
 @group(0) @binding(7) var rockTex: texture_2d<f32>;
 @group(0) @binding(8) var screeTex: texture_2d<f32>;
+@group(0) @binding(9) var floorTex: texture_2d<f32>;
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -37,7 +38,7 @@ struct VOut {
   @location(3) river: vec3f,
   // field kind: x = tall meadow, y = lawn, z = hue
   @location(4) kind: vec3f,
-  // x = meadow patch, y = bed amount, z = snowline noise, w = unused
+  // x = meadow patch, y = bed amount, z = snowline noise, w = forest canopy
   @location(5) misc: vec4f,
   @location(6) @interpolate(flat) bedSpecies: u32,
 }
@@ -101,7 +102,7 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   out.mtn = hm.y;
   out.river = r.xyz;
   out.kind = fieldKind(xz, kindN + bio.y * 0.35 - bio.x * 0.3 - bio.z * 0.6, hueN + bio.x * 0.35 + bio.z * 0.5);
-  out.misc = vec4f(simplex2d(xz * 0.018) * 0.5 + 0.5, bed.x, simplex2d(xz * 0.004), 0.0);
+  out.misc = vec4f(simplex2d(xz * 0.018) * 0.5 + 0.5, bed.x, simplex2d(xz * 0.004), bio.z);
   out.bedSpecies = u32(bed.y + 0.5);
   return out;
 }
@@ -143,16 +144,25 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let tone = simplex2d(xz * 0.012 + frag.world.y * 0.01) * 0.5 + 0.5;
   let rockC = mix(vec3f(dot(rockRaw, vec3f(0.33))), rockRaw, 0.55) * mix(1.25, 1.75, tone) * vec3f(1.0, 0.99, 0.96);
   let scree = textureSample(screeTex, samp, xz * 0.08).rgb * mix(0.95, 1.25, tone);
+  let litter = textureSample(floorTex, samp, xz * 0.18).rgb;
   if (mtn > 1.0) {
     let alpine = smoothstep(80.0, 150.0, mtn);
     let steep = 1.0 - smoothstep(0.62, 0.82, n.y);
     let turf = mix(albedo, vec3f(0.11, 0.13, 0.06) * mix(0.85, 1.1, grain), alpine * 0.7);
     var ground = mix(turf, scree * 0.85, smoothstep(0.35, 0.7, steep) * smoothstep(40.0, 120.0, mtn));
     ground = mix(ground, rockC * 0.9, smoothstep(0.55, 0.85, steep + (1.0 - smoothstep(0.0, 1.0, alpine)) * -0.2));
-    let snowLine = 255.0 + frag.misc.z * 40.0;
+    let snowLine = 205.0 + frag.misc.z * 35.0;
     let snow = smoothstep(snowLine - 20.0, snowLine + 25.0, mtn) * smoothstep(0.45, 0.75, n.y);
     ground = mix(ground, vec3f(0.86, 0.9, 0.97), snow);
     albedo = mix(albedo, ground, smoothstep(1.0, 20.0, mtn));
+  }
+
+  // Forest floor: leaf litter and needles under the canopy, mottled with moss.
+  let canopy = frag.misc.w;
+  if (canopy > 0.01) {
+    let moss = smoothstep(0.2, 0.8, simplex2d(xz * 0.15) * 0.5 + 0.5);
+    let floorC = mix(litter * vec3f(0.85, 0.8, 0.72), vec3f(0.09, 0.13, 0.04), moss * 0.45);
+    albedo = mix(albedo, floorC, smoothstep(0.15, 0.7, canopy) * (1.0 - farMix * 0.35));
   }
 
   // Riverbank zones: wet pebbles at the waterline, drying up the beach, then a band of mud

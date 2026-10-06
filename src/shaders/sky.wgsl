@@ -28,7 +28,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let dir = normalize(hp.xyz / hp.w - G.camPos);
 
   // The moon reuses the sun disk but much dimmer than daylight.
-  var col = skyColor(dir, s) + sunDisk(dir, s) * mix(1.0, 0.12, G.night);
+  var col = skyColor(dir, s) + sunDisk(dir, s) * mix(1.0, 0.045, G.night);
 
   // Night: stars on a direction lattice (twinkling), a soft moon halo and a milky band.
   if (G.night > 0.01 && dir.y > -0.02) {
@@ -46,7 +46,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     let band = exp(-pow(dot(dir, normalize(vec3f(0.35, 0.25, -0.9))), 2.0) * 18.0);
     col = col + vec3f(0.06, 0.07, 0.12) * band * G.night * smoothstep(0.0, 0.3, dir.y);
     let mu = max(dot(dir, G.sunDir), 0.0);
-    col = col + vec3f(0.35, 0.42, 0.6) * pow(mu, 120.0) * 0.25 * G.night;
+    col = col + vec3f(0.35, 0.42, 0.6) * pow(mu, 160.0) * 0.12 * G.night;
   }
 
   if (dir.y > 0.0) {

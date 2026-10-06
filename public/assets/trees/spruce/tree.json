@@ -1,0 +1,78 @@
+{
+  "name": "spruce",
+  "source": "Spruce modeled in Blender (tools/blender/model_conifer.py) with fir_tree_01 twig and bark textures by Poly Haven (CC0)",
+  "bounds": {
+    "min": [
+      -6.066999912261963,
+      -1.5360000133514404,
+      -5.747000217437744
+    ],
+    "max": [
+      5.751999855041504,
+      20.399999618530273,
+      5.9039998054504395
+    ]
+  },
+  "height": 20.4,
+  "canopy": {
+    "center": [
+      -0.03700000047683716,
+      8.272000312805176,
+      -0.019999999552965164
+    ],
+    "radius": 8.397
+  },
+  "lods": [
+    {
+      "file": "lod0.bin",
+      "vertexCount": 14095,
+      "vertexBytes": 281900,
+      "indexCount": 34845,
+      "groups": {
+        "bark": {
+          "firstIndex": 0,
+          "indexCount": 22551
+        },
+        "leaves": {
+          "firstIndex": 22551,
+          "indexCount": 12294
+        }
+      }
+    },
+    {
+      "file": "lod1.bin",
+      "vertexCount": 5247,
+      "vertexBytes": 104940,
+      "indexCount": 9561,
+      "groups": {
+        "bark": {
+          "firstIndex": 0,
+          "indexCount": 4647
+        },
+        "leaves": {
+          "firstIndex": 4647,
+          "indexCount": 4914
+        }
+      }
+    }
+  ],
+  "lodDistances": [
+    40,
+    110
+  ],
+  "impostor": {
+    "frames": 8,
+    "cols": 4,
+    "rows": 2,
+    "tile": 512,
+    "size": 22.814,
+    "centerY": 9.871
+  },
+  "textures": {
+    "leaves": "leaves.png",
+    "trunk_diff": "trunk_diff.jpg",
+    "trunk_nor": "trunk_nor.jpg",
+    "branches_diff": "branches_diff.jpg",
+    "branches_nor": "branches_nor.jpg"
+  }
+}

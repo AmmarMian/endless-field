@@ -35,7 +35,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.uv = c;
   // Distant beacons stay readable through the fog but never overpower the scene.
-  let range = 1.0 - smoothstep(120.0, 190.0, dist);
+  // Flowers only light up as you approach: dark beyond ~90 m, full glow within ~45 m.
+  let range = 1.0 - smoothstep(45.0, 90.0, dist);
   out.color = f.color.rgb * closed * pulse * range * mix(0.9, 0.55, smoothstep(5.0, 60.0, dist)) * (1.0 + G.night * 0.4);
   return out;
 }

@@ -1,0 +1,10 @@
+{
+  "src": "assets-src/fern_02/fern_02.gltf",
+  "alpha": "assets-src/fern_02/textures/fern_02_alpha_1k.png",
+  "scale": 1.6,
+  "target_tris": 1400,
+  "credit": "Fern 02 by Poly Haven (CC0)",
+  "name": "fern",
+  "out": "public/assets/plants/fern",
+  "error": 0.01
+}

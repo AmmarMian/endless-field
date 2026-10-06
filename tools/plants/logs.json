@@ -1,0 +1,9 @@
+{
+  "src": "assets-src/props/logs/logs.gltf",
+  "scale": 1.0,
+  "target_tris": 900,
+  "credit": "Modeled in Blender; moss_wood texture by Poly Haven (CC0)",
+  "name": "logs",
+  "out": "public/assets/plants/logs",
+  "error": 0.01
+}

@@ -138,7 +138,7 @@ fn vs_main(@location(0) a: vec4f, @builtin(instance_index) ii: u32) -> VOut {
     n = normalize(side * ln.x + up * ln.y + fwd * ln.z);
     // Pale throat to saturated tips.
     albedo = mix(mix(petalColor, vec3f(1.0, 0.97, 0.88), 0.55), petalColor, smoothstep(0.1, 0.8, u));
-    let pulse = 0.65 + 0.35 * sin(t * 2.2 + seed * 17.0);
+    let pulse = (0.65 + 0.35 * sin(t * 2.2 + seed * 17.0)) * (1.0 - smoothstep(45.0, 90.0, distance(top, G.camPos)));
     emissive = petalColor * (budGlow * (1.0 - b) * pulse * 3.0 * (1.0 + G.night) + 0.1 + G.night * b * (0.8 + 0.4 * pulse));
   } else {
     // Center disk: a.y = radius, a.z = angle

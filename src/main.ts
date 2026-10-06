@@ -20,6 +20,7 @@ import { biome } from "./world/biome";
 import { Trees } from "./world/trees";
 import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
+import { Undergrowth } from "./world/undergrowth";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const errorBox = document.getElementById("error")!;
@@ -58,13 +59,14 @@ async function main(): Promise<void> {
     msaa: true,
   });
   const life = new LifeMap(gpu);
-  const [pebbles, rock, scree, mountains] = await Promise.all([
+  const [pebbles, rock, scree, forestFloor, mountains] = await Promise.all([
     loadTexture(gpu, "/assets/textures/pebbles.jpg", { srgb: true }),
     loadTexture(gpu, "/assets/textures/rock_diff.jpg", { srgb: true }),
     loadTexture(gpu, "/assets/textures/scree_diff.jpg", { srgb: true }),
+    loadTexture(gpu, "/assets/textures/forest_floor.jpg", { srgb: true }),
     loadMountains(gpu),
   ]);
-  const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree);
+  const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree, forestFloor);
   const grass = new Grass(gpu, globals.uniforms, life.buffer, mountains, settings.grass);
   const flowers = new Flowers(gpu, globals.uniforms);
   const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
@@ -72,10 +74,11 @@ async function main(): Promise<void> {
   const camera = new Camera();
   const input = new Input(canvas);
   const audio = new Audio();
-  const [trees, beds, water] = await Promise.all([
+  const [trees, beds, water, undergrowth] = await Promise.all([
     Trees.load(gpu, globals.uniforms),
     FlowerBeds.load(gpu, globals.uniforms, life.buffer),
     Water.load(gpu, globals.uniforms),
+    Undergrowth.load(gpu, globals.uniforms, life.buffer),
   ]);
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
@@ -84,7 +87,7 @@ async function main(): Promise<void> {
   stream.add(player.pos, PALETTES[0]);
 
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
   );
 
   let playing = false;
@@ -301,7 +304,8 @@ async function main(): Promise<void> {
     fireflies.update(camera.position[0], camera.position[2]);
     water.update(camera.position[0], camera.position[2]);
     trees.update(camera.position, camera.frustum, current.drawDistance);
-    beds.update(camera.position, camera.frustum, 80 * current.drawDistance);
+    beds.update(camera.position, camera.frustum, 140 * current.drawDistance);
+    undergrowth.update(camera.position, camera.frustum, current.drawDistance);
     renderer.setPost({ time: t });
     audio.update(explore ? 0.15 : (player.speed - 7.5) / 13.5, explore ? 2 : player.altitude);
 
@@ -310,6 +314,7 @@ async function main(): Promise<void> {
       if (!debug.hide.grass) grass.encode(pass);
       if (!debug.hide.trees) trees.encode(pass);
       if (!debug.hide.beds) beds.encode(pass);
+      undergrowth.encode(pass);
       flowers.encode(pass);
       if (!explore) stream.encode(pass);
       if (!debug.hide.water) water.encode(pass);

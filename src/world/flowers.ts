@@ -5,7 +5,7 @@ import { mountainHeight, terrainHeightM as terrainHeight } from "./height";
 import { biome } from "./biome";
 
 const CELL = 46;
-const LOAD_RADIUS = 190;
+const LOAD_RADIUS = 320;
 const MAX_FLOWERS = 4096;
 const FLOAT_STRIDE = 12;
 

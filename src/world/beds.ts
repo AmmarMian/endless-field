@@ -6,8 +6,8 @@ import { terrainHeightM as terrainHeight } from "./height";
 
 const SPECIES = ["gazania", "ursinia", "empodium", "dandelion", "heliophila"];
 const SPACING: Record<string, number> = { gazania: 0.55, ursinia: 0.55, empodium: 0.5, dandelion: 0.5, heliophila: 0.9 };
-const LOAD_RADIUS = 110;
-const DRAW_RADIUS = 80;
+const LOAD_RADIUS = 170;
+const DRAW_RADIUS = 140;
 const MAX_PLANTS = 16384;
 const STRIDE = 8;
 
@@ -92,7 +92,7 @@ export class FlowerBeds {
             geometry: geo.slice({ firstIndex: v.firstIndex, indexCount: v.indexCount }),
             depth: { compare: "greater" },
             multisample: { alphaToCoverage: true },
-            set: { G: globals, plants: buffer, samp, albedoTex, life },
+            set: { G: globals, plants: buffer, samp, albedoTex, life, P: { dryTint: 1, nightGlow: 1, pad0: 0, pad1: 0 } },
           }),
         );
         return { name, variants, draws, buffer, data: new Float32Array(MAX_PLANTS * STRIDE), counts: variants.map(() => 0), firsts: variants.map(() => 0) };

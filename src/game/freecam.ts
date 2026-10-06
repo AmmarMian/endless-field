@@ -2,8 +2,8 @@ import type { Camera, Vec3 } from "../engine/camera";
 import { riverInfo, terrainHeightM as terrainHeight } from "../world/height";
 
 const EYE = 1.65;
-const WALK = 4.2;
-const FLY = 14;
+const WALK = 6;
+const FLY = 30;
 const TRAIL_LEN = 24;
 
 /**
@@ -66,7 +66,8 @@ export class FreeCam {
     const k = this.keys;
     const fwd = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
     const strafe = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
-    const sprint = k.has("ShiftLeft") || k.has("ShiftRight") ? 2.6 : 1;
+    const sprinting = k.has("ShiftLeft") || k.has("ShiftRight");
+    const sprint = sprinting ? (this.fly ? 4 : 3.5) : 1;
     const speed = (this.fly ? FLY : WALK) * sprint;
     const sy = Math.sin(this.yaw);
     const cy = Math.cos(this.yaw);

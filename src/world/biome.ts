@@ -11,5 +11,7 @@ export function biome(x: number, z: number): [number, number, number] {
   const wx = gnoise(x * 0.0011 + 3.7, z * 0.0011 + 1.3) * 380;
   const wz = gnoise(x * 0.0011 - 8.1, z * 0.0011 + 4.4) * 380;
   const m = gnoise((x + wx) / 1150 + 21, (z + wz) / 1150 - 13);
-  return [smoothstep(0.1, 0.3, m), smoothstep(0.08, 0.28, -m), smoothstep(0.36, 0.48, m)];
+  const east = smoothstep(380, 900, x);
+  const forest = Math.max(smoothstep(0.36, 0.48, m), east);
+  return [smoothstep(0.1, 0.3, m) * (1 - east), smoothstep(0.08, 0.28, -m) * (1 - east), forest];
 }

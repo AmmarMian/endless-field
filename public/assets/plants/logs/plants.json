@@ -1,0 +1,41 @@
+{
+  "name": "logs",
+  "source": "Modeled in Blender; moss_wood texture by Poly Haven (CC0)",
+  "vertexBytes": 17360,
+  "indexCount": 4158,
+  "variants": [
+    {
+      "name": "log_0",
+      "firstIndex": 0,
+      "indexCount": 1260,
+      "height": 1.14,
+      "radius": 2.777
+    },
+    {
+      "name": "log_1",
+      "firstIndex": 1260,
+      "indexCount": 1200,
+      "height": 0.808,
+      "radius": 1.922
+    },
+    {
+      "name": "log_2",
+      "firstIndex": 2460,
+      "indexCount": 1320,
+      "height": 1.335,
+      "radius": 3.53
+    },
+    {
+      "name": "stump_0",
+      "firstIndex": 3780,
+      "indexCount": 378,
+      "height": 0.695,
+      "radius": 0.836
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

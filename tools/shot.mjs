@@ -28,7 +28,10 @@ page.on("response", (r) => {
   if (r.status() >= 400) logs.push(`[http ${r.status()}] ${r.url()}`);
 });
 await page.goto(url);
-await page.waitForTimeout(1500);
+const t0 = Date.now();
+await page.waitForFunction(() => window.__ef || !document.getElementById("error")?.hidden, null, { timeout: 60000 });
+console.log(`ready in ${Date.now() - t0} ms`);
+await page.waitForTimeout(500);
 if (evalJs) {
   const r = await page.evaluate(evalJs);
   if (r !== undefined) console.log("eval:", JSON.stringify(r));

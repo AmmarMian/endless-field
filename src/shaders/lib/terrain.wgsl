@@ -75,7 +75,7 @@ export fn riverCenter(x: f32) -> f32 {
 export fn riverRise(x: f32) -> f32 {
   let s = x / 95.0;
   let stepped = (floor(s) + smoothstep(0.72, 0.97, fract(s))) * 95.0;
-  return 175.0 * pow(riverUpper(stepped), 2.2);
+  return 140.0 * pow(riverUpper(stepped), 2.2);
 }
 
 // Width follows discharge, which accumulates downstream of the spring (w ~ Q^0.5).
@@ -184,9 +184,10 @@ export fn mountainZone(xz: vec2f) -> f32 {
   if (dist < 600.0) {
     return 0.0;
   }
-  let spawn = smoothstep(800.0, 1400.0, dist);
-  let ranges = smoothstep(-0.12, 0.22, gnoise(xz / 3200.0 + vec2f(11.0, -7.0)));
-  var zone = spawn * ranges;
+  // Mountains rise only to the west (where the river springs), broken into ranges.
+  let west = 1.0 - smoothstep(-1500.0, -800.0, xz.x);
+  let ranges = smoothstep(-0.35, 0.1, gnoise(xz / 3200.0 + vec2f(11.0, -7.0)));
+  var zone = west * ranges;
   // The river's upper valley always runs between mountains.
   let up = riverUpper(xz.x);
   if (up > 0.0) {
@@ -224,7 +225,7 @@ export fn mountainHeight(xz: vec2f, tex: texture_2d_array<f32>, samp: sampler, l
     if (rot == 2u) { uv = -uv; }
     if (rot == 3u) { uv = vec2f(uv.y, -uv.x); }
     let layer = i32((hs >> 18u) % 3u);
-    let scale = 260.0 + f32((hs >> 20u) & 0xFFu) / 255.0 * 220.0;
+    let scale = 200.0 + f32((hs >> 20u) & 0xFFu) / 255.0 * 160.0;
     let v = textureSampleLevel(tex, samp, uv + 0.5, layer, lod).r;
     h = max(h, v * scale * zone);
   }
@@ -232,7 +233,7 @@ export fn mountainHeight(xz: vec2f, tex: texture_2d_array<f32>, samp: sampler, l
   let src = vec2f(SOURCE_X - 160.0, riverCenter(SOURCE_X));
   let suv = (xz - src) / MTN_EXTENT;
   if (abs(suv.x) < 0.5 && abs(suv.y) < 0.5) {
-    h = max(h, textureSampleLevel(tex, samp, suv + 0.5, 0, lod).r * 450.0);
+    h = max(h, textureSampleLevel(tex, samp, suv + 0.5, 0, lod).r * 340.0);
   }
   return h;
 }
@@ -247,12 +248,16 @@ export fn riverValley(natural: f32, r: vec4f, xz: vec2f) -> f32 {
     return natural;
   }
   let bed = riverBed(r.x, r.y, r.z, upper);
+  // The whole upper valley climbs with the river: lift the floor and flanks by the river's
+  // rise, fading out over a few hundred meters, so the stream never runs on a dike.
+  let lift = riverRise(r.w) * (1.0 - smoothstep(r.z * 2.0, 700.0, r.x));
+  let lifted = natural + lift * (1.0 - smoothstep(0.0, 1.0, max(natural - (r.y - riverRise(r.w)), 0.0) / max(riverRise(r.w), 1.0)));
   // Valley walls: slope and small bumps vary along the valley so they read as hillsides.
   let wallN = gnoise(xz / 45.0 + vec2f(3.3, 8.1));
   let bumps = gnoise(xz / 9.0) * 1.6 * smoothstep(r.z * 1.5, r.z * 4.0, r.x);
-  let cut = select(r.y + 0.3 + max(r.x - r.z * 1.15, 0.0) * (0.85 + 0.45 * wallN) + bumps, bed, r.x < r.z);
+  let cut = select(r.y + 0.3 + max(r.x - r.z * 1.15, 0.0) * (0.5 + 0.25 * wallN) + bumps, bed, r.x < r.z);
   let fill = select(r.y + 0.3 - max(r.x - r.z * 1.6, 0.0) * 0.28, bed, r.x < r.z);
-  return mix(natural, clamp(natural, fill, max(cut, fill)), uw);
+  return mix(natural, clamp(lifted, fill, max(cut, fill)), uw);
 }
 
 export fn mountainCorridor(r: vec4f) -> f32 {

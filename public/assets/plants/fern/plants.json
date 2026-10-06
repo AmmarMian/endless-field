@@ -1,0 +1,41 @@
+{
+  "name": "fern",
+  "source": "Fern 02 by Poly Haven (CC0)",
+  "vertexBytes": 63820,
+  "indexCount": 13200,
+  "variants": [
+    {
+      "name": "fern_02_b",
+      "firstIndex": 0,
+      "indexCount": 4200,
+      "height": 0.635,
+      "radius": 0.982
+    },
+    {
+      "name": "fern_02_c",
+      "firstIndex": 4200,
+      "indexCount": 4200,
+      "height": 0.512,
+      "radius": 0.821
+    },
+    {
+      "name": "fern_02_a",
+      "firstIndex": 8400,
+      "indexCount": 2352,
+      "height": 0.413,
+      "radius": 0.55
+    },
+    {
+      "name": "fern_02_d",
+      "firstIndex": 10752,
+      "indexCount": 2448,
+      "height": 0.319,
+      "radius": 0.635
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

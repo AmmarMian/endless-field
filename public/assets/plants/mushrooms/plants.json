@@ -1,0 +1,41 @@
+{
+  "name": "mushrooms",
+  "source": "Modeled in Blender (tools/blender/model_props.py)",
+  "vertexBytes": 28740,
+  "indexCount": 5994,
+  "variants": [
+    {
+      "name": "mushroom_0",
+      "firstIndex": 0,
+      "indexCount": 570,
+      "height": 0.322,
+      "radius": 0.124
+    },
+    {
+      "name": "mushroom_1",
+      "firstIndex": 570,
+      "indexCount": 1710,
+      "height": 0.329,
+      "radius": 0.315
+    },
+    {
+      "name": "mushroom_2",
+      "firstIndex": 2280,
+      "indexCount": 2574,
+      "height": 0.379,
+      "radius": 0.371
+    },
+    {
+      "name": "mushroom_3",
+      "firstIndex": 4854,
+      "indexCount": 1140,
+      "height": 0.322,
+      "radius": 0.383
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

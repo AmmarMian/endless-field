@@ -109,7 +109,6 @@ async function main(): Promise<void> {
   const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
   const motes = new Motes(gpu, globals.uniforms);
   const windTrail = new WindTrail(gpu, globals.uniforms);
-  // Seeds the wind lets fall take root: a small patch of new growth where each lands.
   const birds = new Birds(gpu, globals.uniforms);
   birds.onTakeoff = (at, n) => {
     const fx = camera.target[0] - camera.position[0];
@@ -120,7 +119,6 @@ async function main(): Promise<void> {
     const pan = (dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1));
     audio.birds(n, pan, d);
   };
-  motes.onSeed = (x, z) => life.bloom(x, z, 1.8 + Math.random(), 2.5, 0.6);
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");

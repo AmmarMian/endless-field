@@ -74,10 +74,9 @@ function pick<T>(items: [T, number][]): T {
 }
 
 /**
- * What the wind carries: it lifts whatever the land offers (seeds and chaff from the meadow,
- * leaves in the forest or in autumn, snow in winter, spray over the river or in the rain,
+ * What the wind carries: it lifts whatever the land offers (leaves in the forest or in autumn, snow in winter, spray over the river or in the rain,
  * pollen in the sunflowers, fireflies at night), holds it a while in its wake, then lets it
- * go. Seeds that land take root: `onSeed` is called where they come down.
+ * go. The meadow grass itself stays put.
  */
 export class Motes {
   readonly draw: Draw;
@@ -87,7 +86,6 @@ export class Motes {
   private readonly data = new Float32Array(MAX * STRIDE);
   private spawnDebt = 0;
   private time = 0;
-  onSeed: ((x: number, z: number) => void) | null = null;
 
   constructor(gpu: Gpu, globals: SharedUniforms) {
     this.buffer = storage(gpu, MAX * STRIDE * 4, "read");
@@ -147,12 +145,16 @@ export class Motes {
   }
 
   /** What the land offers here, with its colour. */
+  /** How much the land here has to give (open summer meadow: nothing; the grass stays put). */
+  private richness(env: Surroundings): number {
+    const [, au, wi] = env.season;
+    return Math.min(1, env.forest * 0.8 + au * 0.5 + wi * 0.8 + env.river + env.rain * 0.6 + env.sunflowers + (env.night > 0.5 ? 0.4 : 0));
+  }
+
   private offer(env: Surroundings): [Kind, [number, number, number]] {
     const [su, au, wi, sp] = env.season;
     const kind = pick<Kind>([
-      [Kind.Fluff, (su + sp * 1.4) * (1 - env.forest) * (1 - env.sunflowers) + 0.05],
-      [Kind.Chaff, (su + au * 0.6) * (1 - env.forest) * 0.8],
-      [Kind.Leaf, env.forest * (0.4 + au * 1.6) + au * 0.7 * (1 - env.forest)],
+      [Kind.Leaf, env.forest * (0.4 + au * 1.6) + au * 0.5 * (1 - env.forest)],
       [Kind.Snow, wi * 2.5],
       [Kind.Spray, env.river * 2.5 + env.rain * 1.5],
       [Kind.Pollen, env.sunflowers * (1 - wi) * 2.5],
@@ -202,7 +204,7 @@ export class Motes {
 
     // Skimming low and fast, the wind lifts things up from the land beneath it.
     const low = 1 - Math.min(1, Math.max(0, (env.altitude - 2.5) / 3.5));
-    const rate = low * (0.6 + speed * 0.18 + gust * 4);
+    const rate = low * this.richness(env) * (0.6 + speed * 0.18 + gust * 4);
     this.spawnDebt += rate * dt;
     while (this.spawnDebt >= 1) {
       this.spawnDebt -= 1;
@@ -260,8 +262,6 @@ export class Motes {
           m.pos[1] = ground + 0.03;
           m.landed = true;
           m.life = m.kind === Kind.Leaf ? 6 : m.kind === Kind.Chaff ? 3 : 0.4;
-          // A seed that comes down takes root.
-          if (m.kind === Kind.Fluff && Math.random() < 0.5) this.onSeed?.(m.pos[0], m.pos[2]);
         }
       } else m.life -= dt;
       if (m.life <= 0 || Math.hypot(m.pos[0] - leader[0], m.pos[2] - leader[2]) > 120) {

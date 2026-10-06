@@ -1,4 +1,5 @@
 import { Music } from "./music";
+import { feltPiano } from "./piano";
 /**
  * Procedural soundscape: wind that follows speed, pentatonic chimes for each bloom, a chord
  * when a whole cluster blooms, and a slow evolving drone. No audio assets needed.
@@ -203,26 +204,13 @@ export class Audio {
     lfo.start();
   }
 
+  /** A felt piano note (blooms, lanterns), into the dry mix and the room. */
   private bell(note: number, when: number, level: number): void {
-    const ctx = this.ctx!;
-    const out = ctx.createGain();
-    out.gain.setValueAtTime(0, when);
-    out.gain.linearRampToValueAtTime(level, when + 0.01);
-    out.gain.exponentialRampToValueAtTime(0.0001, when + 3.2);
+    const out = this.ctx!.createGain();
+    out.gain.value = Math.min(1, level * 2.2);
     out.connect(this.master);
     out.connect(this.reverb);
-    // Slightly inharmonic partials give a glassy bell.
-    const partials: [number, number][] = [[1, 1], [2.01, 0.35], [3.98, 0.12], [5.4, 0.05]];
-    for (const [ratio, amp] of partials) {
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = midi(note) * ratio;
-      const g = ctx.createGain();
-      g.gain.value = amp;
-      osc.connect(g).connect(out);
-      osc.start(when);
-      osc.stop(when + 3.3);
-    }
+    feltPiano(this.ctx!, out, note, when, Math.min(1, 0.35 + level * 2.5));
   }
 
   /** A note per bloom, walking up and down the pentatonic scale. */

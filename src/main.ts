@@ -153,6 +153,7 @@ async function main(): Promise<void> {
     renderer.setRenderScale(s.renderScale);
     renderer.setBloom(s.bloom);
     grass.setQuality(s.grass);
+    audio.setMusic(s.music);
   };
   const panel = new SettingsPanel(settings, applySettings);
   const worldMap = new WorldMap(

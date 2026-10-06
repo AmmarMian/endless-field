@@ -1,3 +1,4 @@
+import { Music } from "./music";
 /**
  * Procedural soundscape: wind that follows speed, pentatonic chimes for each bloom, a chord
  * when a whole cluster blooms, and a slow evolving drone. No audio assets needed.
@@ -50,6 +51,17 @@ export class Audio {
     this.crickets.connect(this.master);
     this.crickets.connect(this.reverb);
     this.scheduleCrickets();
+    this.music = new Music(ctx, this.master, this.reverb);
+    this.music.setEnabled(this.musicOn);
+  }
+
+  private music: Music | null = null;
+  private musicOn = true;
+
+  /** Background score on / off. */
+  setMusic(on: boolean): void {
+    this.musicOn = on;
+    this.music?.setEnabled(on);
   }
 
   /** Cricket chirps: short trains of high sine pulses at random stereo positions. */
@@ -83,6 +95,7 @@ export class Audio {
 
   setNight(amount: number): void {
     this.nightLevel = amount;
+    this.music?.setNight(amount);
     if (this.ctx) this.crickets.gain.setTargetAtTime(amount * 0.9, this.ctx.currentTime, 0.5);
   }
 

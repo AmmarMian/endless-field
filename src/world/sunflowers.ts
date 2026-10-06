@@ -92,7 +92,7 @@ export class Sunflowers {
     this.chunks = [...byKey.values()];
   }
 
-  static async load(gpu: Gpu, globals: SharedUniforms, base = "/assets/sunflower"): Promise<Sunflowers> {
+  static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/sunflower"): Promise<Sunflowers> {
     const [manifest, bin, albedoTex] = await Promise.all([
       fetch(`${base}/sunflower.json`).then((r) => r.json() as Promise<Manifest>),
       fetch(`${base}/sunflower.bin`).then((r) => r.arrayBuffer()),

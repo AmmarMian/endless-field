@@ -61,7 +61,7 @@ export class FlowerBeds {
 
   private constructor(private readonly species: PlantSpecies[]) {}
 
-  static async load(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, base = "/assets/plants"): Promise<FlowerBeds> {
+  static async load(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, base = "assets/plants"): Promise<FlowerBeds> {
     const samp = sampler(gpu, {
       minFilter: "linear",
       magFilter: "linear",

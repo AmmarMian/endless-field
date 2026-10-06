@@ -14,7 +14,7 @@ export class Water {
   private constructor(readonly draw: Draw) {}
 
   static async load(gpu: Gpu, globals: SharedUniforms): Promise<Water> {
-    const pebbles = await loadTexture(gpu, "/assets/textures/pebbles.jpg", { srgb: true });
+    const pebbles = await loadTexture(gpu, "assets/textures/pebbles.jpg", { srgb: true });
     const verts = new Float32Array((GRID + 1) * (GRID + 1) * 2);
     let o = 0;
     for (let z = 0; z <= GRID; z++) {

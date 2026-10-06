@@ -51,7 +51,7 @@ function halfToFloat(h: number): number {
  * Loads the Blender-generated massif heightfields: one r16float array layer each on the GPU,
  * and decoded floats for the CPU height mirror (both sample them identically).
  */
-export async function loadMountains(gpu: Gpu, base = "/assets/mountains"): Promise<MountainSet> {
+export async function loadMountains(gpu: Gpu, base = "assets/mountains"): Promise<MountainSet> {
   const meta = (await (await fetch(`${base}/mountains.json`)).json()) as { size: number; massifs: string[] };
   const n = meta.size;
   const raw = await Promise.all(meta.massifs.map(async (f) => new Uint16Array(await (await fetch(`${base}/${f}`)).arrayBuffer())));

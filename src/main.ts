@@ -69,10 +69,10 @@ async function main(): Promise<void> {
   });
   const life = new LifeMap(gpu);
   const [pebbles, rock, scree, forestFloor, mountains] = await Promise.all([
-    loadTexture(gpu, "/assets/textures/pebbles.jpg", { srgb: true }),
-    loadTexture(gpu, "/assets/textures/rock_diff.jpg", { srgb: true }),
-    loadTexture(gpu, "/assets/textures/scree_diff.jpg", { srgb: true }),
-    loadTexture(gpu, "/assets/textures/forest_floor.jpg", { srgb: true }),
+    loadTexture(gpu, "assets/textures/pebbles.jpg", { srgb: true }),
+    loadTexture(gpu, "assets/textures/rock_diff.jpg", { srgb: true }),
+    loadTexture(gpu, "assets/textures/scree_diff.jpg", { srgb: true }),
+    loadTexture(gpu, "assets/textures/forest_floor.jpg", { srgb: true }),
     loadMountains(gpu),
   ]);
   const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree, forestFloor);

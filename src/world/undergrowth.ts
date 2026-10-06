@@ -89,7 +89,7 @@ export class Undergrowth {
 
   private constructor(private readonly species: Loaded[]) {}
 
-  static async load(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, base = "/assets/plants"): Promise<Undergrowth> {
+  static async load(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, base = "assets/plants"): Promise<Undergrowth> {
     const samp = sampler(gpu, { minFilter: "linear", magFilter: "linear", mipmapFilter: "linear", addressModeU: "repeat", addressModeV: "repeat", maxAnisotropy: 4 });
     const species = await Promise.all(
       DEFS.map(async (def): Promise<Loaded> => {

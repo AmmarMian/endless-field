@@ -100,7 +100,7 @@ export class Trees {
   private loadedCell = "";
   private instances: TreeInstance[] = [];
 
-  static async load(gpu: Gpu, globals: SharedUniforms, base = "/assets/trees"): Promise<Trees> {
+  static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/trees"): Promise<Trees> {
     const linear = sampler(gpu, {
       minFilter: "linear",
       magFilter: "linear",

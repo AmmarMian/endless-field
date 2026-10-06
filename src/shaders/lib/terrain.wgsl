@@ -74,15 +74,16 @@ export fn riverCenter(x: f32) -> f32 {
 
 // Height gained toward the source, as a staircase of pools and short cascades.
 export fn riverRise(x: f32) -> f32 {
-  let s = x / 95.0;
-  let stepped = (floor(s) + smoothstep(0.72, 0.97, fract(s))) * 95.0;
+  // Step-pool profile: long calm pools broken by short, steep drops (cascades / falls).
+  let s = x / 60.0;
+  let stepped = (floor(s) + smoothstep(0.86, 0.98, fract(s))) * 60.0;
   return 140.0 * pow(riverUpper(stepped), 2.2);
 }
 
 // Width follows discharge, which accumulates downstream of the spring (w ~ Q^0.5).
 export fn riverHalfWidth(x: f32) -> f32 {
   let q = clamp((x - SOURCE_X) / (UPPER_LEN * 1.6), 0.0, 1.0);
-  return (7.5 + 2.5 * gnoise(vec2f(x / 110.0, 9.3))) * mix(0.28, 1.0, sqrt(q));
+  return (7.5 + 2.5 * gnoise(vec2f(x / 110.0, 9.3))) * mix(0.2, 1.0, pow(q, 0.6));
 }
 
 // Manning's equation, v = (1/n) R^(2/3) S^(1/2): surface speed from the local water slope

@@ -27,6 +27,8 @@ struct VOut {
   // Unsigned distance from the centerline in half-widths: continuous everywhere, unlike
   // `across`, whose sign flips where the closest point jumps between meander branches.
   @location(5) dist: f32,
+  // White water boiling in the plunge pool just below a drop.
+  @location(6) plunge: f32,
 }
 
 fn sky() -> SkyParams {
@@ -54,6 +56,14 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   // Steep stretches (cascades between the pools of the mountain stream) become white water.
   let drop = (riverWater(px - 3.0) - riverWater(px + 3.0)) / 6.0;
   out.rapids = smoothstep(0.12, 0.45, abs(drop));
+  // Upstream of this point (within ~10 m) the water fell: a plunge pool.
+  var fell = 0.0;
+  for (var k = 1; k <= 3; k = k + 1) {
+    let up = px - downhill * f32(k) * 3.5;
+    let du = (riverWater(up - 3.0) - riverWater(up + 3.0)) / 6.0;
+    fell = max(fell, smoothstep(0.12, 0.45, abs(du)) * (1.0 - f32(k - 1) * 0.25));
+  }
+  out.plunge = fell * (1.0 - out.rapids);
   // Channel-center depth drives the Manning speed; the fragment shader slows it at the banks.
   out.speed = riverSpeed(px, 1.7 * mix(1.0, 0.45, smoothstep(0.0, 1.0, out.rapids)));
   out.dist = min(r.x / r.z, 4.0);
@@ -139,7 +149,10 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let bedY = terrainHeight(p.xz);
   let depth = max(p.y - bedY, 0.0);
   let path = depth / max(v.y, 0.12);
-  let bedUv = p.xz * 0.45 + n.xz * depth * 0.25;
+  // Screen-space footprint of one meter of surface: fine features fade before they alias.
+  let footprint = length(fwidth(uv));
+  let aa = 1.0 - smoothstep(0.08, 0.4, footprint);
+  let bedUv = p.xz * 0.45 + n.xz * min(depth, 0.6) * 0.25 * aa;
   let bed = textureSample(pebbles, samp, bedUv).rgb * 0.8;
   let caust = pow(1.0 - abs(simplex2d(p.xz * 1.1 + flow * t * 0.6) + simplex2d(p.xz * 1.6 - flow * t * 0.45)) * 0.5, 7.0);
   let bedLit = bed * (G.sunColor * max(G.sunDir.y, 0.1) * (0.6 + caust * 2.2) + s.zenith * 0.4);
@@ -157,14 +170,25 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let shore = 1.0 - smoothstep(0.0, 0.07, depth);
   let lace = smoothstep(0.45, 0.8, simplex2d((uv - vec2f(travel * 0.6, 0.0)) * vec2f(1.2, 3.5)) * 0.5 + 0.5);
   let lineN = simplex2d((uv - vec2f(travel, 0.0)) * vec2f(0.08, 1.6) + vec2f(0.0, 11.0)) * 0.5 + 0.5;
-  let bubbles = smoothstep(0.55, 0.85, simplex2d((uv - vec2f(travel, 0.0)) * 4.0) * 0.5 + 0.5);
+  let bubbles = smoothstep(0.55, 0.85, simplex2d((uv - vec2f(travel, 0.0)) * 4.0) * 0.5 + 0.5) * aa;
   let streak = smoothstep(0.93, 0.985, lineN) * bubbles;
-  // White water on the cascades: broken, aerated patches (never a flat sheet), fading with
-  // distance so its fine structure cannot alias.
-  let churnN = simplex2d((uv - vec2f(travel * 1.3, 0.0)) * vec2f(0.5, 1.4)) * 0.6 + simplex2d((uv - vec2f(travel * 1.6, 0.0)) * 2.2) * 0.4;
-  let churn = smoothstep(0.15, 0.7, churnN * 0.5 + 0.5) * mix(1.0, 0.55, smoothstep(15.0, 60.0, camDist));
-  let foam = clamp(shore * lace * 0.6 + streak * 0.7 + churn * frag.rapids * 0.75, 0.0, 1.0) * 0.6;
-  col = mix(col, (G.sunColor * 0.75 + s.zenith * 0.5) * 0.9, foam);
+  // White water. On the drops the water is fully aerated: streaks stretched along the flow,
+  // racing downhill. Below each drop it boils up in the plunge pool and breaks apart.
+  let fast = travel * 1.8;
+  let streakN = simplex2d((uv - vec2f(fast, 0.0)) * vec2f(0.22, 1.7)) * 0.55
+    + simplex2d((uv - vec2f(fast * 1.3, 0.0)) * vec2f(0.6, 3.6) + vec2f(5.0, 0.0)) * 0.3 * aa
+    + simplex2d((uv - vec2f(fast * 1.6, 0.0)) * vec2f(1.4, 7.0) + vec2f(-3.0, 2.0)) * 0.15 * aa;
+  let white = smoothstep(-0.35, 0.35, streakN) * frag.rapids;
+  let boilN = simplex2d((uv - vec2f(travel * 0.7, 0.0)) * 0.9 + vec2f(t * 0.35, -t * 0.25)) * 0.6
+    + simplex2d((uv - vec2f(travel, 0.0)) * 2.4 - vec2f(t * 0.5, 0.0)) * 0.4 * aa;
+  let boil = smoothstep(0.0, 0.6, boilN * 0.5 + 0.5 - (1.0 - frag.plunge) * 0.6) * frag.plunge;
+  let foam = clamp(shore * lace * 0.6 + streak * 0.7, 0.0, 1.0) * 0.6;
+  let foamCol = (G.sunColor * 0.75 + s.zenith * 0.55) * 0.95;
+  col = mix(col, foamCol, foam);
+  // Aerated water still shows a little blue-green body between the streaks.
+  let rapidBody = mix(foamCol * 0.55, foamCol, smoothstep(-0.2, 0.6, streakN));
+  col = mix(col, rapidBody, frag.rapids * 0.85);
+  col = mix(col, foamCol * mix(0.8, 1.0, white), clamp(white * 0.6 + boil * 0.75, 0.0, 1.0));
 
   col = applyFog(col, p, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, 1.0);

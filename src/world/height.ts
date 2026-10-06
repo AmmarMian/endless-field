@@ -83,14 +83,15 @@ export function riverCenter(x: number): number {
 }
 
 export function riverRise(x: number): number {
-  const s = x / 95;
-  const stepped = (Math.floor(s) + smoothstep(0.72, 0.97, s - Math.floor(s))) * 95;
+  // Step-pool profile: long calm pools broken by short, steep drops (cascades / falls).
+  const s = x / 60;
+  const stepped = (Math.floor(s) + smoothstep(0.86, 0.98, s - Math.floor(s))) * 60;
   return 140 * Math.pow(riverUpper(stepped), 2.2);
 }
 
 export function riverHalfWidth(x: number): number {
   const q = Math.min(1, Math.max(0, (x - SOURCE_X) / (UPPER_LEN * 1.6)));
-  return (7.5 + 2.5 * gnoise(x / 110, 9.3)) * (0.28 + 0.72 * Math.sqrt(q));
+  return (7.5 + 2.5 * gnoise(x / 110, 9.3)) * (0.2 + 0.8 * Math.pow(q, 0.6));
 }
 
 export function riverWater(x: number): number {

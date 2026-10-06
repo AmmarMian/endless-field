@@ -3,6 +3,7 @@ import plantShader from "../shaders/plants.wgsl";
 import { loadTexture } from "../engine/textures";
 import { ecology } from "./ecology";
 import { biome, canopyLight } from "./biome";
+import { sunflowerNear } from "./sunflower-field";
 import { riverBed, riverInfo, riverUpper, terrainHeightM } from "./height";
 
 /** Per-species shading: dry tint before restoration, and night glow of non-leaf texels. */
@@ -140,6 +141,7 @@ export class Undergrowth {
         const [d, , hw] = riverInfo(x, z);
         if (d < hw * 1.3) return;
       }
+      if (sunflowerNear(x, z, 2)) return;
       out.push({
         shade: canopyLight(x, biome(x, z)[2]),
         species,

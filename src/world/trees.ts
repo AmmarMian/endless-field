@@ -16,6 +16,7 @@ import { loadTexture } from "../engine/textures";
 import { riverInfo, terrainHeightM as terrainHeight } from "./height";
 import { ecology, treeDensity, treeSuitability, type Eco } from "./ecology";
 import { biome, canopyLight } from "./biome";
+import { sunflowerNear } from "./sunflower-field";
 
 interface LodInfo {
   file: string;
@@ -263,6 +264,7 @@ export class Trees {
     for (let i = 0; i < n * n; i++) {
       const x = (cx + (i % n + 0.15 + rnd() * 0.7) / n) * CELL;
       const z = (cz + (Math.floor(i / n) + 0.15 + rnd() * 0.7) / n) * CELL;
+      if (sunflowerNear(x, z, 4)) continue;
       const eco = ecology(x, z);
       if (rnd() > treeDensity(eco)) continue;
       const t = tree(x, z, eco);

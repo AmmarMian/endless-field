@@ -4,6 +4,8 @@ import { riverInfo, terrainHeightM as terrainHeight } from "../world/height";
 const EYE = 1.65;
 const WALK = 6;
 const FLY = 30;
+/** Highest a flying explorer may go above the ground (meters). */
+const MAX_FLY = 5;
 const TRAIL_LEN = 24;
 
 /**
@@ -45,7 +47,9 @@ export class FreeCam {
     const d = from.target.map((v, i) => v - from.position[i]);
     this.yaw = Math.atan2(d[0], -d[2]);
     this.pitch = Math.atan2(d[1], Math.hypot(d[0], d[2]));
-    this.fly = this.pos[1] - terrainHeight(this.pos[0], this.pos[2]) > 4;
+    const above = this.pos[1] - terrainHeight(this.pos[0], this.pos[2]);
+    this.fly = above > 4;
+    if (above > MAX_FLY) this.pos[1] -= above - MAX_FLY;
     void this.canvas.requestPointerLock?.();
   }
 
@@ -63,8 +67,13 @@ export class FreeCam {
 
   update(dt: number, obstacles: { x: number; z: number; r: number }[]): void {
     const k = this.keys;
-    const fwd = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
-    const strafe = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
+    const fwd = (k.has("KeyW") ? 1 : 0) - (k.has("KeyS") ? 1 : 0);
+    const strafe = (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0);
+    // Arrows look around, so the whole mode works from the keyboard (no pointer lock needed).
+    const turn = (k.has("ArrowRight") ? 1 : 0) - (k.has("ArrowLeft") ? 1 : 0);
+    const look = (k.has("ArrowUp") ? 1 : 0) - (k.has("ArrowDown") ? 1 : 0);
+    this.yaw += turn * 1.8 * dt;
+    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch + look * 1.2 * dt));
     const sprinting = k.has("ShiftLeft") || k.has("ShiftRight");
     const sprint = sprinting ? (this.fly ? 4 : 3.5) : 1;
     const speed = (this.fly ? FLY : WALK) * sprint;
@@ -96,7 +105,8 @@ export class FreeCam {
     const g = this.ground(this.pos[0], this.pos[2]);
     const moving = Math.hypot(vx, vz) > 0.1;
     if (this.fly) {
-      this.pos[1] = Math.max(this.pos[1] + vy * dt, g + 0.8);
+      // Stay close to the ground: the world is built to be seen from within it.
+      this.pos[1] = Math.min(Math.max(this.pos[1] + vy * dt, g + 0.8), g + MAX_FLY);
     } else {
       this.bob += dt * (moving ? 9 * Math.sqrt(sprint) : 0);
       const target = g + EYE + (moving ? Math.sin(this.bob) * 0.035 : 0);

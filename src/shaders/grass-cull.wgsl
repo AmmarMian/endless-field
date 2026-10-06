@@ -7,6 +7,7 @@ import { Blade, LifeCell, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl
 import { pcg2d, unitFloat } from "@vgpu/wgsl-std/hash";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome } from "./lib/biome.wgsl";
+import { sunflowerField } from "./lib/sunflowers.wgsl";
 
 struct CullParams {
   // Integer cell of the grid center (camera snapped to the cell size).
@@ -115,6 +116,14 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   var height = mix(0.45, 1.15, patchN) * mix(0.7, 1.2, r1) * mix(0.85, 1.1, detail);
   height = height * mix(1.0, 1.75, kind.x) * mix(1.0, 0.4, kind.y) * mix(1.0, 0.7, bio.z);
   height = height * P.heightScale * fade;
+  // Inside the sunflower field only sparse, short weeds grow between the rows.
+  let sf = sunflowerField(xz);
+  if (sf > 0.01) {
+    if (unitFloat(h.x ^ 0x68E31DA4u) < sf * 0.8) {
+      return;
+    }
+    height = height * mix(1.0, 0.45, sf);
+  }
   // River: open water has no grass; reeds grow in clumps along the edge (some in the
   // shallows); the field thins out over an irregular beach before taking over.
   let river = riverInfo(xz);

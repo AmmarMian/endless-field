@@ -1,5 +1,6 @@
 // Terrain height field. Mirrored by src/world/height.ts (up to float precision), so gameplay
 // on the CPU and rendering on the GPU agree on where the ground is.
+import { sunflowerLevel } from "./sunflowers.wgsl";
 
 export fn hash2i(p: vec2i) -> u32 {
   var v = bitcast<vec2u>(p) * 1664525u + 1013904223u;
@@ -143,7 +144,7 @@ export fn terrainHeight(xz: vec2f) -> f32 {
 export fn terrainHeightR(xz: vec2f, r: vec4f) -> f32 {
   // The upper valley climbs with the river: the land is raised by the river's rise (fading
   // over ~700 m) before the banks are shaped, so cross-sections stay monotonic.
-  let h = terrainBase(xz) + riverRise(r.w) * (1.0 - smoothstep(r.z * 2.0, 700.0, r.x));
+  let h = sunflowerLevel(xz, terrainBase(xz)) + riverRise(r.w) * (1.0 - smoothstep(r.z * 2.0, 700.0, r.x));
   let hw = r.z;
   if (r.x > hw * 7.0) {
     return h;

@@ -7,6 +7,7 @@ import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.w
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome, canopyLight } from "./lib/biome.wgsl";
 import { bedColor, bedMask } from "./lib/beds.wgsl";
+import { SF_ROW, SF_ROW_PHASE, sunflowerField, sunflowerLocal } from "./lib/sunflowers.wgsl";
 
 struct GridParams {
   center: vec2f,
@@ -131,6 +132,17 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     let speck = smoothstep(0.3, 0.8, simplex2d(xz * 2.3));
     let bedAlbedo = mix(albedo, bedColor(frag.bedSpecies) * 0.55, speck * smoothstep(25.0, 70.0, dist) * 0.6);
     albedo = mix(albedo, bedAlbedo, bedAmt);
+  }
+  // Sunflower field: tilled soil ridged along the drill rows, crumbly clods, a few weeds;
+  // from afar it reads as the field's green-gold canopy.
+  let sf = sunflowerField(xz);
+  if (sf > 0.01) {
+    let l = sunflowerLocal(xz);
+    let ridge = 0.5 + 0.5 * cos((l.y + SF_ROW_PHASE) / SF_ROW * 6.2831853);
+    let clod = simplex2d(xz * 3.1) * 0.5 + 0.5;
+    var soil = mix(vec3f(0.1, 0.07, 0.045), vec3f(0.19, 0.14, 0.09), ridge * 0.6 + clod * 0.4) * mix(0.85, 1.1, grain);
+    soil = mix(soil, under * 0.8, smoothstep(0.55, 0.9, simplex2d(xz * 0.6) * 0.5 + 0.5) * 0.45);
+    albedo = mix(albedo, mix(soil, vec3f(0.17, 0.2, 0.05), farMix), sf);
   }
   // Alpine zones on the mountains: short turf, then scree and rock on steep ground, and snow
   // on the high, flatter faces. Cliff rock is sampled triplanar-ish (xz for flats, side

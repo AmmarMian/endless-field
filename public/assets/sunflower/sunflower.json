@@ -1,0 +1,132 @@
+{
+  "vertexCount": 22996,
+  "indexCount": 95142,
+  "vertexBytes": 459920,
+  "variants": [
+    {
+      "height": 2.05,
+      "pivot": [
+        -0.0517,
+        1.9377,
+        0.1999
+      ],
+      "axis": [
+        -0.0386,
+        -0.0078,
+        0.9992
+      ],
+      "lods": [
+        {
+          "firstIndex": 0,
+          "indexCount": 22824
+        },
+        {
+          "firstIndex": 22824,
+          "indexCount": 1776
+        },
+        {
+          "firstIndex": 24600,
+          "indexCount": 534
+        },
+        {
+          "firstIndex": 25134,
+          "indexCount": 30
+        }
+      ]
+    },
+    {
+      "height": 1.85,
+      "pivot": [
+        0.0676,
+        1.7723,
+        0.1684
+      ],
+      "axis": [
+        0.0181,
+        0.1473,
+        0.9889
+      ],
+      "lods": [
+        {
+          "firstIndex": 25164,
+          "indexCount": 22122
+        },
+        {
+          "firstIndex": 47286,
+          "indexCount": 1704
+        },
+        {
+          "firstIndex": 48990,
+          "indexCount": 510
+        },
+        {
+          "firstIndex": 49500,
+          "indexCount": 30
+        }
+      ]
+    },
+    {
+      "height": 1.6,
+      "pivot": [
+        -0.0397,
+        1.5545,
+        0.1135
+      ],
+      "axis": [
+        0.0073,
+        0.3227,
+        0.9465
+      ],
+      "lods": [
+        {
+          "firstIndex": 49530,
+          "indexCount": 21420
+        },
+        {
+          "firstIndex": 70950,
+          "indexCount": 1632
+        },
+        {
+          "firstIndex": 72582,
+          "indexCount": 510
+        },
+        {
+          "firstIndex": 73092,
+          "indexCount": 30
+        }
+      ]
+    },
+    {
+      "height": 1.35,
+      "pivot": [
+        -0.0333,
+        1.3427,
+        0.0192
+      ],
+      "axis": [
+        0.0083,
+        0.735,
+        0.6781
+      ],
+      "lods": [
+        {
+          "firstIndex": 73122,
+          "indexCount": 20016
+        },
+        {
+          "firstIndex": 93138,
+          "indexCount": 1488
+        },
+        {
+          "firstIndex": 94626,
+          "indexCount": 486
+        },
+        {
+          "firstIndex": 95112,
+          "indexCount": 30
+        }
+      ]
+    }
+  ],
+  "credit": "Modeled in Blender (tools/blender/model_sunflower.py)"
+}

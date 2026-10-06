@@ -1,3 +1,4 @@
+import { SUNFLOWERS, sunflowerFlat } from "./sunflower-field";
 // CPU mirror of src/shaders/lib/terrain.wgsl. Keep the two in sync.
 
 const TAU = Math.PI * 2;
@@ -41,7 +42,7 @@ export function terrainBroad(x: number, z: number): number {
   return gnoise(x / 700, z / 700) * 52;
 }
 
-function terrainBase(x: number, z: number): number {
+export function terrainBase(x: number, z: number): number {
   let h = terrainBroad(x, z);
   const dome = Math.max(gnoise(x / 160 + 41, z / 160 - 17) + 0.08, 0);
   h += dome * dome * 70;
@@ -123,7 +124,9 @@ export function riverInfo(x: number, z: number): [number, number, number, number
 
 export function terrainHeight(x: number, z: number): number {
   const [d, water, hw, px] = riverInfo(x, z);
-  const h = terrainBase(x, z) + riverRise(px) * (1 - smoothstep(hw * 2, 700, d));
+  const flat = sunflowerFlat(x, z);
+  const base = terrainBase(x, z);
+  const h = base + (SUNFLOWERS.level - base) * flat + riverRise(px) * (1 - smoothstep(hw * 2, 700, d));
   if (d > hw * 7) return h;
   const bed = riverBed(d, water, hw, riverUpper(px));
   const beach = water - 0.12 + smoothstep(hw * 0.95, hw * 1.9, d) * 0.7 + Math.max(d - hw * 1.9, 0) * 0.12;

@@ -1,5 +1,6 @@
 import { clock, frameLoop, init, timer, type Frame, type FrameLoopHandle } from "vgpu";
 import { SettingsPanel, loadSettings, type Settings } from "./ui/settings";
+import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
 import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere } from "./engine/globals";
 import { Renderer } from "./engine/renderer";
@@ -15,13 +16,14 @@ import { LifeMap } from "./world/life";
 import { Terrain } from "./world/terrain";
 import { Fireflies } from "./world/fireflies";
 import { Water } from "./world/water";
-import { mountainZone, riverCenter, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
+import { SOURCE_X, mountainZone, riverCenter, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
 import { biome } from "./world/biome";
 import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
 import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
+import { SUNFLOWERS, Sunflowers } from "./world/sunflowers";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const errorBox = document.getElementById("error")!;
@@ -29,8 +31,8 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
-const WIND_HINT = "move the mouse to steer · hold click or space to gust · shift to rise · ctrl to dive · M free roam";
-const EXPLORE_HINT = "free roam · click to look around · WASD / ZQSD move · shift sprint · V fly (space / C up and down) · M back to the wind";
+const WIND_HINT = "arrows / WASD (ZQSD) or mouse to steer · space to gust · up / down to rise and dive · M free roam · K map";
+const EXPLORE_HINT = "free roam · WASD / ZQSD move · arrows (or click + mouse) look · shift sprint · V fly (space / C up and down) · M back to the wind · K map";
 
 const params = new URLSearchParams(location.search);
 
@@ -75,11 +77,12 @@ async function main(): Promise<void> {
   const camera = new Camera();
   const input = new Input(canvas);
   const audio = new Audio();
-  const [trees, beds, water, undergrowth] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers] = await Promise.all([
     Trees.load(gpu, globals.uniforms),
     FlowerBeds.load(gpu, globals.uniforms, life.buffer),
     Water.load(gpu, globals.uniforms),
     Undergrowth.load(gpu, globals.uniforms, life.buffer),
+    Sunflowers.load(gpu, globals.uniforms),
   ]);
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
@@ -88,7 +91,7 @@ async function main(): Promise<void> {
   stream.add(player.pos, PALETTES[0]);
 
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
   );
 
   let playing = false;
@@ -116,6 +119,38 @@ async function main(): Promise<void> {
     grass.setQuality(s.grass);
   };
   const panel = new SettingsPanel(settings, applySettings);
+  const valley = (x: number) => riverCenter(x) + riverHalfWidth(x) * 4 + 25;
+  const worldMap = new WorldMap(
+    document.getElementById("hud") ?? document.body,
+    [
+      { label: "spawn", x: 0, z: 30, yaw: 0.4 },
+      {
+        label: "sunflowers",
+        x: SUNFLOWERS.x - SUNFLOWERS.dir[0] * (SUNFLOWERS.rx + 6),
+        z: SUNFLOWERS.z - SUNFLOWERS.dir[1] * (SUNFLOWERS.rx + 6),
+        yaw: Math.atan2(SUNFLOWERS.dir[0], -SUNFLOWERS.dir[1]),
+      },
+      { label: "river", x: 120, z: riverCenter(120) + 30, yaw: Math.PI },
+      { label: "forest edge", x: 520, z: 120, yaw: Math.PI / 2 },
+      { label: "autumn forest", x: 900, z: 120, yaw: Math.PI / 2 },
+      { label: "deep forest", x: 1650, z: 150, yaw: Math.PI / 2 },
+      { label: "foothills", x: -900, z: valley(-900), yaw: -Math.PI / 2 },
+      { label: "mountains", x: -1450, z: valley(-1450), yaw: -Math.PI / 2 },
+      { label: "river source", x: SOURCE_X + 140, z: riverCenter(SOURCE_X + 140) + 18, yaw: -Math.PI / 2 },
+    ],
+    (x, z, yaw) => {
+      start();
+      const y = terrainHeight(x, z);
+      if (explore) {
+        freecam.pos.splice(0, 3, x, y + 1.65, z);
+        freecam.yaw = yaw;
+        freecam.pitch = 0;
+      } else {
+        player.teleport([x, y + 1.7, z], yaw);
+        stream.regroup(player.pos);
+      }
+    },
+  );
   applySettings(settings);
   const gpuTimer = canTime ? timer(gpu) : undefined;
   const spans = gpuTimer ? { scene: gpuTimer.span("scene"), post: gpuTimer.span("post") } : undefined;
@@ -133,10 +168,11 @@ async function main(): Promise<void> {
   const debug = {
     fixedCamera: null as null | { pos: Vec3; target: Vec3 },
     fixedTime: null as null | number,
-    hide: { fireflies: false, grass: false, terrain: false, trees: false, water: false, beds: false },
+    hide: { fireflies: false, grass: false, terrain: false, trees: false, water: false, beds: false, sunflowers: false },
     start,
     player,
     trees,
+    sunflowers,
     beds,
     height: terrainHeight,
     mountainZone,
@@ -205,8 +241,10 @@ async function main(): Promise<void> {
     const rawDt = Math.min(time.deltaTime, 1 / 15);
     dtSmooth += (rawDt - dtSmooth) * 0.2;
     const dt = dtSmooth;
-    input.suspended = panel.open;
-    input.update();
+    input.suspended = panel.open || worldMap.open;
+    input.update(rawDt);
+    if (input.wasPressed("k")) worldMap.toggle();
+    worldMap.update(explore ? freecam.pos[0] : player.pos[0], explore ? freecam.pos[2] : player.pos[2], explore ? freecam.yaw : player.yaw);
     const frameStart = performance.now();
     if (input.wasPressed("f")) panel.set({ showStats: !current.showStats });
     if (input.wasPressed("o")) panel.toggle();
@@ -350,6 +388,7 @@ async function main(): Promise<void> {
     trees.update(camera.position, camera.frustum, current.drawDistance);
     beds.update(camera.position, camera.frustum, 140 * current.drawDistance);
     undergrowth.update(camera.position, camera.frustum, current.drawDistance);
+    sunflowers.update(dt, camera.position, camera.frustum);
     renderer.setPost({ time: t });
     audio.update(explore ? 0.15 : (player.speed - 7.5) / 13.5, explore ? 2 : player.altitude);
 
@@ -358,6 +397,7 @@ async function main(): Promise<void> {
       if (!debug.hide.grass) grass.encode(pass);
       if (!debug.hide.trees) trees.encode(pass);
       if (!debug.hide.beds) beds.encode(pass);
+      if (!debug.hide.sunflowers) sunflowers.encode(pass);
       undergrowth.encode(pass);
       flowers.encode(pass);
       if (!explore) stream.encode(pass);

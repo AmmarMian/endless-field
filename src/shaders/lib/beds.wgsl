@@ -2,6 +2,7 @@
 // src/world/bed-shape.ts so the CPU places plants exactly where the GPU clears the grass.
 import { gnoise, hash2i, mountainZone } from "./terrain.wgsl";
 import { biome } from "./biome.wgsl";
+import { sunflowerNear } from "./sunflowers.wgsl";
 
 export const BED_CELL: f32 = 64.0;
 export const BED_SPECIES: u32 = 5u;
@@ -19,7 +20,8 @@ export fn bedInCell(cell: vec2i) -> BedInfo {
   var b: BedInfo;
   let bio = biome((vec2f(cell) + 0.5) * BED_CELL);
   b.exists = f32(h & 0xFFFFu) / 65536.0 < 0.3 * (1.0 + bio.y * 0.9 - bio.x * 0.6 - bio.z * 0.4)
-    && mountainZone((vec2f(cell) + 0.5) * BED_CELL) <= 0.05;
+    && mountainZone((vec2f(cell) + 0.5) * BED_CELL) <= 0.05
+    && !sunflowerNear((vec2f(cell) + 0.5) * BED_CELL, 46.0);
   let u = f32((h >> 16u) & 0xFFu) / 255.0;
   let v = f32((h >> 24u) & 0xFFu) / 255.0;
   b.center = (vec2f(cell) * BED_CELL) + vec2f(14.0) + vec2f(u, v) * (BED_CELL - 28.0);

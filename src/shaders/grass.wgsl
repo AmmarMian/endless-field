@@ -1,5 +1,6 @@
 // Grass blades, one instance per culled blade. The blade is a tapered strip bent along a
 // quadratic Bezier; NSEG picks the LOD (near blades get more segments).
+import { seasonGrass, seasonWeights } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
 import { Blade, fieldColor } from "./lib/field.wgsl";
 import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
@@ -139,7 +140,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   let sparkle = step(0.72, fract(rnd * 13.7));
   let pulse = 0.6 + 0.4 * sin(G.time * 1.3 + rnd * 40.0);
   out.glow = mix(vec3f(0.25, 0.9, 0.7), vec3f(1.0, 0.75, 0.3), fract(rnd * 5.3)) * life * sparkle * pulse * G.night * 1.6;
-  var color = fieldColor(meadow, life, t, hue) * mix(0.85, 1.15, rnd);
+  var color = seasonGrass(fieldColor(meadow, life, t, hue), seasonWeights(G.season), t) * mix(0.85, 1.15, rnd);
   if (isSeed && t > 0.6) {
     color = mix(color, vec3f(0.46, 0.33, 0.15) * mix(1.0, 0.8, life), 0.45);
   }

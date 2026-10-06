@@ -1,4 +1,5 @@
 // Tree meshes (LOD0/LOD1). One vertex stage; `fs_bark` / `fs_leaves` are selected per draw.
+import { SNOW, seasonHash, seasonWeights, springLeaf } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
 import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
@@ -175,7 +176,17 @@ fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec
   let l = G.sunDir;
   let ao = frag.extra.z;
   let hue = 0.92 + 0.16 * fract(frag.seed * 7.13);
-  let albedo = autumnLeaf(texel.rgb * hue * tree.leafTint, frag.seed, frag.autumn);
+  // Seasons: broadleaves turn in autumn, drop their leaves (stochastically, per card) into
+  // winter and flush light green in spring; evergreens carry snow on their upper needles.
+  let sw = seasonWeights(G.season);
+  let fall = (sw.y * 0.25 + sw.z * 0.93) * tree.deciduous;
+  if (seasonHash(frag.extra.y * 97.0 + frag.seed * 13.0) < fall) {
+    discard;
+  }
+  let autumnAmt = max(frag.autumn, (sw.y + sw.z * 0.6) * tree.deciduous);
+  var albedo = autumnLeaf(texel.rgb * hue * tree.leafTint, frag.seed, autumnAmt);
+  albedo = mix(albedo, springLeaf(albedo), sw.w * 0.75 * tree.deciduous);
+  albedo = mix(albedo, SNOW * 0.85, sw.z * (1.0 - tree.deciduous) * smoothstep(0.1, 0.7, normalize(frag.normal).y) * 0.8);
   let diff = wrapDiffuse(n, l, 0.5);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.9;
   var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.55, 1.0, frag.shade) + G.sunColor * (diff * ao + back * (0.4 + 0.6 * ao)) * 0.85 * frag.shade);

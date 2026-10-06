@@ -1,5 +1,6 @@
 // Ground surface. A camera-centered grid whose vertex density falls off with distance,
 // snapped to world steps; heights come from the shared terrain field.
+import { SNOW, seasonGrass, seasonWeights } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
 import { mountainCorridor, mountainHeight, riverInfo, riverInfoAt, riverValley, terrainBroad, terrainHeightR } from "./lib/terrain.wgsl";
 import { LifeCell, fieldColor, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl";
@@ -137,9 +138,11 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Under nearby grass the ground reads as shaded soil; far away it stands in for the
   // whole field, so it takes the blades' mid-height color.
   let kind = frag.kind;
-  let under = fieldColor(meadow, lifeV, 0.12, kind.z) * mix(0.7, 1.2, grain);
+  let sw = seasonWeights(G.season);
+  let under = seasonGrass(fieldColor(meadow, lifeV, 0.12, kind.z), sw, 0.12) * mix(0.7, 1.2, grain);
   // Tall meadows read lighter from afar (seed heads), lawns darker and greener.
-  let field = fieldColor(meadow, lifeV, mix(0.62, 0.75, kind.x) - 0.15 * kind.y, kind.z) * mix(0.9, 1.08, grain);
+  let tField = mix(0.62, 0.75, kind.x) - 0.15 * kind.y;
+  let field = seasonGrass(fieldColor(meadow, lifeV, tField, kind.z), sw, tField) * mix(0.9, 1.08, grain);
   let farMix = smoothstep(60.0, 140.0, dist);
   // From afar a field is the average of lit tips and shadowed stems: darker and richer than
   // the tip color, matching the blades of the coarse rings so they merge into it.
@@ -223,6 +226,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let shoreAlbedo = mix(peb, peb * 0.5, wet);
   albedo = mix(albedo, vec3f(0.085, 0.065, 0.04) * mix(0.8, 1.15, grain), mud * (1.0 - farMix * 0.5));
   albedo = mix(albedo, shoreAlbedo, shore);
+  // Winter: snow settles on the flatter ground (and on the path), patchy where wind scours it.
+  let snowCover = sw.z * smoothstep(0.62, 0.9, n.y) * smoothstep(0.2, 0.55, simplex2d(xz * 0.05) * 0.35 + 0.65 + sw.z * 0.25 - 0.6);
+  albedo = mix(albedo, SNOW * mix(0.92, 1.0, grain), clamp(snowCover * 1.4, 0.0, 1.0) * (1.0 - shore * 0.7));
   let ao = mix(0.45, 1.0, farMix);
 
   let l = G.sunDir;

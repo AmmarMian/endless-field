@@ -1,5 +1,6 @@
 // Far-tree impostor: a camera-facing billboard that blends the two nearest baked views.
 // The atlas holds `frames` orthographic views around the tree (albedo + tree-space normals).
+import { SNOW, seasonHash, seasonWeights, springLeaf } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway, windGust } from "./lib/tree.wgsl";
@@ -108,7 +109,17 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.6;
   // Bark stays as baked; only leafy (green-dominant) texels turn.
   let leafy = smoothstep(0.0, 0.08, albedo.g - albedo.r);
-  let rgb = mix(albedo.rgb, autumnLeaf(albedo.rgb, frag.autumn.y, frag.autumn.x), leafy) * imp.leafTint;
+  let sw = seasonWeights(G.season);
+  // Winter thins the baked foliage in clumps (bare crowns from afar); bark stays.
+  let clump = seasonHash(dot(floor(frag.uv * 40.0), vec2f(1.0, 57.0)) + frag.autumn.y * 31.0);
+  if (leafy > 0.5 && clump < (sw.y * 0.25 + sw.z * 0.85) * imp.deciduous) {
+    discard;
+  }
+  let autumnAmt = max(frag.autumn.x, (sw.y + sw.z * 0.6) * imp.deciduous);
+  var leafCol = autumnLeaf(albedo.rgb, frag.autumn.y, autumnAmt);
+  leafCol = mix(leafCol, springLeaf(leafCol), sw.w * 0.75 * imp.deciduous);
+  leafCol = mix(leafCol, SNOW * 0.85, sw.z * (1.0 - imp.deciduous) * smoothstep(0.1, 0.7, nl.y) * 0.8);
+  let rgb = mix(albedo.rgb, leafCol, leafy) * imp.leafTint;
   var col = rgb * (ambientSky(n, s) * 0.6 + G.sunColor * (wrapDiffuse(n, l, 0.5) + back) * 0.8);
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);

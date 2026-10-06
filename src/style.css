@@ -297,3 +297,23 @@ body {
 #chain.show {
   opacity: 1;
 }
+
+#season {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  font-style: italic;
+  font-weight: 300;
+  font-size: 46px;
+  letter-spacing: 0.12em;
+  color: #fff8ec;
+  text-shadow: 0 0 24px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transition: opacity 1.6s ease;
+  pointer-events: none;
+}
+
+#season.show {
+  opacity: 0.9;
+}

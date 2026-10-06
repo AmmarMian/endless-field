@@ -5,6 +5,7 @@
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { lodKeep, rotateYaw } from "./lib/tree.wgsl";
+import { seasonHash, seasonWeights } from "./lib/season.wgsl";
 
 struct Plant {
   root: vec4f,
@@ -37,6 +38,8 @@ struct VOut {
   @location(4) @interpolate(flat) part: u32,
   @location(5) @interpolate(flat) lodFade: f32,
   @location(6) height: f32,
+  // Per-organ random (each petal / leaf), with the plant's seed mixed in.
+  @location(7) @interpolate(flat) organ: f32,
 }
 
 // Rodrigues rotation of v about unit axis k by angle a.
@@ -119,6 +122,7 @@ fn vs_main(
   out.part = part;
   out.lodFade = bitcast<f32>(vis.y);
   out.height = clamp(p.y / max(H, 0.1), 0.0, 1.0);
+  out.organ = e.w + plant.info.z * 7.0;
   return out;
 }
 
@@ -147,6 +151,26 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let canopy = mix(0.45, 1.0, smoothstep(0.15, 0.85, frag.height));
   let ao = frag.ao * canopy;
   var albedo = texel.rgb;
+  // Through the year: summer bloom; autumn petals wither and leaves yellow; winter leaves
+  // dry stalks and bare heads; spring brings young green plants with closed buds.
+  let sw = seasonWeights(G.season);
+  let petalTexel = frag.part == 3u || (frag.part == 2u && albedo.r - albedo.b > 0.45);
+  if (petalTexel) {
+    let gone = sw.z + sw.w * 0.85 + sw.y * 0.3;
+    if (seasonHash(frag.organ * 53.0 + select(0.0, floor(frag.uv.x * 34.0), frag.part == 2u)) < gone) {
+      discard;
+    }
+    albedo = mix(albedo, vec3f(0.34, 0.2, 0.07), sw.y * 0.7);
+  } else if (frag.part == 2u) {
+    albedo = mix(albedo, albedo * 0.6 + vec3f(0.02, 0.015, 0.0), sw.y + sw.z);
+    albedo = mix(albedo, vec3f(0.16, 0.26, 0.07), sw.w * 0.85);
+  } else {
+    let lum = dot(albedo, vec3f(0.3, 0.59, 0.11));
+    let dry = select(0.4, 0.7, frag.part == 1u);
+    albedo = mix(albedo, vec3f(0.45, 0.34, 0.1) * lum * 2.2, sw.y * dry);
+    albedo = mix(albedo, vec3f(0.23, 0.16, 0.08) * (0.7 + lum), sw.z * 0.9);
+    albedo = mix(albedo, vec3f(0.3, 0.55, 0.12) * lum * 2.2, sw.w * 0.4);
+  }
   // The far face card is single: its back shows the green calyx.
   if (frag.part == 2u && !front) {
     albedo = vec3f(0.17, 0.27, 0.07);

@@ -2,7 +2,7 @@ import { clock, frameLoop, init, timer, type Frame, type FrameLoopHandle } from 
 import { SettingsPanel, loadSettings, type Settings } from "./ui/settings";
 import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
-import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere } from "./engine/globals";
+import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere, weatherAtmosphere } from "./engine/globals";
 import { Renderer } from "./engine/renderer";
 import { loadTexture } from "./engine/textures";
 import { Audio } from "./game/audio";
@@ -102,6 +102,21 @@ async function main(): Promise<void> {
   chainEl.id = "chain";
   (document.getElementById("hud") ?? document.body).append(chainEl);
   let chainTimer = 0;
+  const SEASONS = ["summer", "autumn", "winter", "spring"] as const;
+  let season = 0;
+  try {
+    season = Number(localStorage.getItem("endless-field-season")) % 4 || 0;
+  } catch {
+    // Storage unavailable: start in summer.
+  }
+  let atmSeason = -1;
+  let shownSeason = "";
+  let seasonSave = 0;
+  let rain = 0;
+  const seasonEl = document.createElement("div");
+  seasonEl.id = "season";
+  (document.getElementById("hud") ?? document.body).append(seasonEl);
+  let seasonTimer = 0;
   stream.add(player.pos, PALETTES[0]);
 
   await Promise.all(
@@ -285,13 +300,47 @@ async function main(): Promise<void> {
       hintTimer = window.setTimeout(() => controlsEl.classList.remove("show"), 7000);
     }
 
+    // Seasons: the year turns in ~20 minutes, each bloom nudges it on; or one is held.
+    if (input.wasPressed("y")) {
+      if (current.season !== "cycle") panel.set({ season: "cycle" });
+      season = (Math.floor(season + 0.5) + 1) % 4;
+    }
+    if (current.season === "cycle") season = (season + dt * (4 / 1200)) % 4;
+    else {
+      const target = SEASONS.indexOf(current.season);
+      let d = target - season;
+      d -= Math.round(d / 4) * 4;
+      season = (season + Math.sign(d) * Math.min(Math.abs(d), dt * 0.5) + 4) % 4;
+    }
+    const seasonName = SEASONS[Math.floor(season + 0.5) % 4];
+    if (seasonName !== shownSeason) {
+      if (shownSeason) {
+        seasonEl.textContent = seasonName;
+        seasonEl.classList.add("show");
+        clearTimeout(seasonTimer);
+        seasonTimer = window.setTimeout(() => seasonEl.classList.remove("show"), 4000);
+      }
+      shownSeason = seasonName;
+    }
+    seasonSave += dt;
+    if (seasonSave > 5) {
+      seasonSave = 0;
+      try {
+        localStorage.setItem("endless-field-season", String(season));
+      } catch {
+        // Non-essential.
+      }
+    }
+    if (Math.abs(season - atmSeason) > 0.004) atmosphereDirty = true;
+
     // Day/night eases over ~4 s; the atmosphere, bloom and sound follow.
     const nightTarget = current.night ? 1 : 0;
     if (night !== nightTarget || atmosphereDirty) {
       atmosphereDirty = false;
       night = nightTarget > night ? Math.min(1, night + dt / 4) : Math.max(0, night - dt / 4);
       const k = night * night * (3 - 2 * night);
-      const atm = mixAtmosphere(GOLDEN_HOUR, NIGHT, k);
+      atmSeason = season;
+      const atm = weatherAtmosphere(mixAtmosphere(GOLDEN_HOUR, NIGHT, k), season, rain);
       globals.setAtmosphere(atm);
       renderer.setPost({ exposure: atm.exposure * 0.8, bloomStrength: 0.1 + 0.12 * k });
       audio.setNight(k);
@@ -325,6 +374,7 @@ async function main(): Promise<void> {
         stream.add([f.x, f.y + f.height, f.z], f.color);
         life.bloom(f.x, f.z, 9 + Math.random() * 4);
         audio.bloom();
+        if (current.season === "cycle") season = (season + 0.02) % 4;
       }
       for (const c of flowers.completedClusters(touched)) {
         life.bloom(c.x, c.z, 34, 7);
@@ -392,6 +442,8 @@ async function main(): Promise<void> {
       mist,
       mistBase,
       canopy,
+      season,
+      rain,
       explore: explore ? 1 : 0,
       playerPos: explore ? freecam.pos : player.pos,
       playerSpeed: explore ? 0 : player.speed,

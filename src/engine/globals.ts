@@ -10,6 +10,33 @@ export interface Atmosphere {
   exposure: number;
 }
 
+/** (summer, autumn, winter, spring) weights for a season value in [0, 4) (mirror of season.wgsl). */
+export function seasonWeights(s: number): [number, number, number, number] {
+  return [0, 1, 2, 3].map((i) => {
+    const d = Math.abs((((s - i) / 4 + 0.5) % 1 + 1) % 1 * 4 - 2);
+    return Math.max(0, 1 - d);
+  }) as [number, number, number, number];
+}
+
+/**
+ * Season and weather on top of the time of day: autumn warms the light, winter cools and
+ * pales it, spring clears it; rain closes the sky into an overcast grey and thickens the haze.
+ */
+export function weatherAtmosphere(a: Atmosphere, season: number, rain: number): Atmosphere {
+  const [su, au, wi, sp] = seasonWeights(season);
+  const tint = (c: number[], warm: number[], cold: number[], fresh: number[]) =>
+    c.map((v, i) => v * (su + au * warm[i] + wi * cold[i] + sp * fresh[i])) as [number, number, number];
+  let sunColor = tint(a.sunColor, [1.06, 0.93, 0.82], [0.88, 0.93, 1.05], [1.0, 1.02, 0.98]);
+  let horizonColor = tint(a.horizonColor, [1.08, 0.94, 0.85], [1.0, 1.05, 1.15], [0.98, 1.03, 1.02]);
+  let zenithColor = a.zenithColor;
+  // Overcast: the sun is a dim smudge, the sky a flat grey-blue.
+  const grey = (c: number[], level: number) => c.map((v) => v + (level * (c[0] + c[1] + c[2]) / 3 - v) * rain) as [number, number, number];
+  sunColor = sunColor.map((v) => v * (1 - 0.75 * rain)) as [number, number, number];
+  horizonColor = grey(horizonColor, 0.85);
+  zenithColor = grey(zenithColor, 1.1);
+  return { ...a, sunColor, horizonColor, zenithColor, fogDensity: a.fogDensity * (1 + 1.6 * rain + 0.3 * wi), exposure: a.exposure * (1 + 0.25 * rain) };
+}
+
 /** Moonlit night: cool light, deep indigo sky, a faint warm glow left on the horizon. */
 export const NIGHT: Atmosphere = {
   sunDir: normalize([-0.25, 0.42, -0.85]),

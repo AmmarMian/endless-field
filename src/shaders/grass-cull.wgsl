@@ -9,6 +9,7 @@ import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome } from "./lib/biome.wgsl";
 import { sunflowerField } from "./lib/sunflowers.wgsl";
 import { PATH_WIDTH, pathDistance } from "./lib/path.wgsl";
+import { seasonWeights } from "./lib/season.wgsl";
 
 struct CullParams {
   // Integer cell of the grid center (camera snapped to the cell size).
@@ -117,6 +118,9 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   var height = mix(0.45, 1.15, patchN) * mix(0.7, 1.2, r1) * mix(0.85, 1.1, detail);
   height = height * mix(1.0, 1.75, kind.x) * mix(1.0, 0.4, kind.y) * mix(1.0, 0.7, bio.z);
   height = height * P.heightScale * fade;
+  // Winter snow presses the grass down; spring grass is young and shorter.
+  let sw = seasonWeights(G.season);
+  height = height * (1.0 - 0.32 * sw.z - 0.15 * sw.w);
   // The lantern path is bare; grass shortens toward its edge (trampled).
   let pd = pathDistance(xz);
   if (pd < PATH_WIDTH + 1.6) {

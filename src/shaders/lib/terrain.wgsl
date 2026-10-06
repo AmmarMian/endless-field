@@ -19,7 +19,12 @@ fn grad(c: vec2i, f: vec2f) -> f32 {
 }
 
 // Gradient noise in roughly [-0.7, 0.7].
-export fn gnoise(p: vec2f) -> f32 {
+// World seed: every landscape noise is read at an offset (0, 0 is the original world).
+override SEED_X: f32 = 0.0;
+override SEED_Z: f32 = 0.0;
+
+export fn gnoise(pIn: vec2f) -> f32 {
+  let p = pIn + vec2f(SEED_X, SEED_Z);
   let i = vec2i(floor(p));
   let f = p - floor(p);
   let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);

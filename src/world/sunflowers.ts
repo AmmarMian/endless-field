@@ -2,11 +2,30 @@ import { compute, draw, geometry, sampler, storage, type Compute, type Draw, typ
 import simShader from "../shaders/sunflower-sim.wgsl";
 import renderShader from "../shaders/sunflower.wgsl";
 import { loadTexture } from "../engine/textures";
-import { terrainHeightM as terrainHeight } from "./height";
+import { terrainBase, terrainHeightM as terrainHeight } from "./height";
 
 import { SUNFLOWERS, sunflowerField } from "./sunflower-field";
 
 export { SUNFLOWERS, sunflowerField, sunflowerNear } from "./sunflower-field";
+
+/**
+ * Grades the field for the current world: the level is the field's mean natural ground
+ * height, so leveling cuts and fills evenly. Call after setWorldSeed, before heights are used.
+ */
+export function gradeSunflowerField(): void {
+  let sum = 0;
+  let weight = 0;
+  const reach = Math.max(SUNFLOWERS.rx, SUNFLOWERS.rz) * 1.25;
+  for (let x = SUNFLOWERS.x - reach; x <= SUNFLOWERS.x + reach; x += 4) {
+    for (let z = SUNFLOWERS.z - reach; z <= SUNFLOWERS.z + reach; z += 4) {
+      const f = sunflowerField(x, z);
+      if (f <= 0) continue;
+      sum += terrainBase(x, z) * f;
+      weight += f;
+    }
+  }
+  SUNFLOWERS.level = weight ? sum / weight : 0;
+}
 
 interface Manifest {
   vertexBytes: number;

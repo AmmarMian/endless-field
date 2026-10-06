@@ -1,3 +1,4 @@
+import { worldConstants } from "./height";
 import { draw, geometry, sampler, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer, type Texture } from "vgpu";
 import terrainShader from "../shaders/terrain.wgsl";
 import type { MountainSet } from "./mountains";
@@ -33,6 +34,7 @@ export class Terrain {
     this.drawCall = draw(gpu, {
       label: "terrain",
       shader: terrainShader,
+      constants: worldConstants(),
       geometry: geometry(gpu, { buffers: [{ data: verts, attributes: { g: "float32x2" } }], indices }),
       depth: { compare: "greater" },
       set: {

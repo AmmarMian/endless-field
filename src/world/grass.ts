@@ -1,3 +1,4 @@
+import { worldConstants } from "./height";
 import {
   compute,
   draw,
@@ -113,6 +114,7 @@ export class Grass {
       const verts = (2 * (config.segments - 1) + 1) * 3;
       const cull = compute(gpu, cullShader, {
         label: `${config.label}-cull`,
+        constants: worldConstants(),
         set: {
           G: globals,
           P: {

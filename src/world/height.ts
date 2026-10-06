@@ -22,7 +22,29 @@ function grad(cx: number, cy: number, fx: number, fy: number): number {
   return Math.cos(a) * fx + Math.sin(a) * fy;
 }
 
-export function gnoise(x: number, y: number): number {
+/** World seed offsets (mirror of the SEED_X / SEED_Z overrides in terrain.wgsl). */
+let seedX = 0;
+let seedZ = 0;
+
+/** Selects the landscape: seed 0 is the original world. Call before anything samples heights. */
+export function setWorldSeed(seed: number): void {
+  if (!seed) {
+    seedX = seedZ = 0;
+    return;
+  }
+  const h = hash2i(seed, seed * 7 + 3);
+  seedX = ((h & 0xffff) / 65536) * 900 + 37.17;
+  seedZ = (((h >>> 16) & 0xffff) / 65536) * 900 + 53.91;
+}
+
+/** Override constants for every pipeline that samples the landscape on the GPU. */
+export function worldConstants(): Record<string, number> {
+  return { SEED_X: seedX, SEED_Z: seedZ, SF_LEVEL: SUNFLOWERS.level };
+}
+
+export function gnoise(xIn: number, yIn: number): number {
+  const x = xIn + seedX;
+  const y = yIn + seedZ;
   const ix = Math.floor(x);
   const iy = Math.floor(y);
   const fx = x - ix;

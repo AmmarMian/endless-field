@@ -16,14 +16,14 @@ import { LifeMap } from "./world/life";
 import { Terrain } from "./world/terrain";
 import { Fireflies } from "./world/fireflies";
 import { Water } from "./world/water";
-import { SOURCE_X, mountainZone, riverCenter, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
+import { setWorldSeed, mountainZone, riverCenter, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
 import { biome } from "./world/biome";
 import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
 import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
-import { SUNFLOWERS, Sunflowers } from "./world/sunflowers";
+import { SUNFLOWERS, Sunflowers, gradeSunflowerField } from "./world/sunflowers";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const errorBox = document.getElementById("error")!;
@@ -51,6 +51,12 @@ async function main(): Promise<void> {
   const canTime = adapter?.features.has("timestamp-query") ?? false;
   const gpu = await init({ requiredFeatures: canTime ? ["timestamp-query"] : [] });
   const settings: Settings = loadSettings();
+  // ?seed=N opens a specific world (shareable links).
+  const urlSeed = new URLSearchParams(location.search).get("seed");
+  if (urlSeed !== null && Number.isFinite(Number(urlSeed))) settings.seed = Math.max(0, Math.floor(Number(urlSeed)));
+  // The world seed must be in place before anything samples the landscape.
+  setWorldSeed(settings.seed);
+  gradeSunflowerField();
   gpu.onError((e) => {
     console.error(e);
     showError(String((e as Error).message ?? e));
@@ -111,6 +117,11 @@ async function main(): Promise<void> {
   let current = settings;
   let onFpsTarget: ((fps: number) => void) | undefined;
   const applySettings = (s: Settings) => {
+    // A new seed is a new world: regenerate everything from scratch.
+    if (s.seed !== current.seed) {
+      location.reload();
+      return;
+    }
     const fpsChanged = s.fpsTarget !== current.fpsTarget;
     current = s;
     if (fpsChanged) onFpsTarget?.(s.fpsTarget);

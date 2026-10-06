@@ -1,3 +1,4 @@
+import { worldConstants } from "./height";
 import { draw, type Draw, type FramePass, type Gpu, type SharedUniforms } from "vgpu";
 import fireflyShader from "../shaders/fireflies.wgsl";
 import type { MountainSet } from "./mountains";
@@ -13,6 +14,7 @@ export class Fireflies {
     this.draw = draw(gpu, {
       label: "fireflies",
       shader: fireflyShader,
+      constants: worldConstants(),
       vertices: 6,
       instances: GRID * GRID,
       blend: "additive",

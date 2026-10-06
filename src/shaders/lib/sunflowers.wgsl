@@ -4,7 +4,8 @@
 const SF_CENTER = vec2f(-62.0, -400.0);
 const SF_DIR = vec2f(0.3902, -0.9207);
 const SF_HALF = vec2f(80.0, 50.0);
-const SF_LEVEL = -22.1;
+// Ground level the field is graded to (depends on the world seed; set by the host).
+override SF_LEVEL: f32 = -22.1;
 export const SF_ROW = 0.76;
 // Across-row offset of the first drill row (plants sit on the ridges).
 export const SF_ROW_PHASE = 55.0;

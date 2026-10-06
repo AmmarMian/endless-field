@@ -1,7 +1,7 @@
 import { draw, geometry, sampler, type Draw, type FramePass, type Gpu, type SharedUniforms } from "vgpu";
 import waterShader from "../shaders/water.wgsl";
 import { loadTexture } from "../engine/textures";
-import { riverInfo } from "./height";
+import { riverInfo, worldConstants } from "./height";
 
 const GRID = 192;
 const EXTENT = 190;
@@ -45,6 +45,7 @@ export class Water {
       draw(gpu, {
         label: "water",
         shader: waterShader,
+        constants: worldConstants(),
         geometry: geometry(gpu, { buffers: [{ data: verts, attributes: { g: "float32x2" } }], indices }),
         depth: { compare: "greater" },
         set: { G: globals, W: { center: [0, 0], extent: EXTENT, pad: 0 }, samp, pebbles },

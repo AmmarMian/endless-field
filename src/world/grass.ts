@@ -42,11 +42,12 @@ export function grassLods(quality: GrassQuality): GrassLodConfig[] {
   const base = { low: 0.15, medium: 0.115, high: 0.09, ultra: 0.075 }[quality];
   const radii = {
     low: [24, 70, 140],
-    medium: [32, 85, 160, 250],
-    high: [42, 100, 180, 320],
-    ultra: [55, 120, 200, 340],
+    medium: [32, 85, 160, 380],
+    high: [42, 100, 180, 480],
+    ultra: [55, 120, 200, 560],
   }[quality];
-  const widths = [1, 2.25, 6, 16];
+  // Each ring keeps 1 blade in 9, so widths grow ~3x per ring to keep the field closed.
+  const widths = [1, 2.6, 7.6, 22];
   return radii.map((rOuter, i) => {
     const last = i === radii.length - 1;
     return {

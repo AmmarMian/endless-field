@@ -39,7 +39,7 @@ export const GOLDEN_HOUR: Atmosphere = {
   sunColor: [2.6, 1.85, 1.15],
   horizonColor: [0.95, 0.66, 0.45],
   zenithColor: [0.16, 0.34, 0.78],
-  fogDensity: 0.0026,
+  fogDensity: 0.0018,
   exposure: 1.0,
 };
 

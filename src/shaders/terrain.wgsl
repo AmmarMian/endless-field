@@ -125,7 +125,11 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Tall meadows read lighter from afar (seed heads), lawns darker and greener.
   let field = fieldColor(meadow, lifeV, mix(0.62, 0.75, kind.x) - 0.15 * kind.y, kind.z) * mix(0.9, 1.08, grain);
   let farMix = smoothstep(60.0, 140.0, dist);
-  var albedo = mix(under, field, farMix);
+  // From afar a field is the average of lit tips and shadowed stems: darker and richer than
+  // the tip color, matching the blades of the coarse rings so they merge into it.
+  let fieldLum = dot(field, vec3f(0.3, 0.59, 0.11));
+  let fieldAgg = mix(vec3f(fieldLum), field, 1.18) * 0.8;
+  var albedo = mix(under, fieldAgg, farMix);
   // Beds: only a faint speckle of bloom color, mostly visible from afar.
   let bedAmt = frag.misc.y;
   if (bedAmt > 0.01) {
@@ -196,13 +200,33 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let diff = wrapDiffuse(n, l, 0.4);
   let shade = canopyLight(xz.x, frag.misc.w);
   var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.5, 1.0, shade) + G.sunColor * diff * mix(0.55, 1.0, farMix) * shade * shade);
-  // Blade-scale streaks so distant ground reads as grass rather than paint.
-  let streak = simplex2d(xz * vec2f(1.7, 0.6) + G.windDir * G.time * 0.4) * 0.5 + 0.5;
-  col = col * mix(1.0, mix(0.82, 1.12, streak), farMix);
-  // Far field picks up the blades' backlit sheen.
+  // Grass canopy seen from afar (where blades thin out or stop): the ground carries the
+  // field's look. Weighted off on beds, forest floor, shores and fields of other crops.
   let v = normalize(G.camPos - frag.world);
-  let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0);
-  col = col + G.sunColor * albedo * back * 0.8 * farMix;
+  let grassy = farMix * (1.0 - smoothstep(0.15, 0.6, canopy)) * (1.0 - shore) * (1.0 - mud * 0.7) * (1.0 - sf);
+  // Clumps at three scales, each fading out once it is smaller than a pixel.
+  let fp = length(fwidth(xz));
+  let c0 = simplex2d(xz * 1.6 + vec2f(3.0, 1.0)) * (1.0 - smoothstep(0.15, 0.6, fp));
+  let c1 = simplex2d(xz * 0.42 + vec2f(-7.0, 2.0)) * (1.0 - smoothstep(0.6, 2.4, fp));
+  let c2 = simplex2d(xz * 0.11 + vec2f(1.0, 9.0)) * (1.0 - smoothstep(2.4, 9.0, fp));
+  let clumps = 1.0 + (c0 * 0.12 + c1 * 0.1 + c2 * 0.08);
+  // Wind waves: the gust field that bends the blades also bends the far grass; bent blades
+  // show their lighter flanks, so gusts sweep across distant hills as bright moving bands.
+  let wdir = G.windDir;
+  let along = dot(xz, wdir);
+  let ripple = simplex2d(vec2f(along * 0.085 - G.time * 0.68, dot(xz, vec2f(-wdir.y, wdir.x)) * 0.03));
+  let broad = simplex2d(xz * 0.014 - wdir * G.time * 0.09);
+  let gust = smoothstep(-0.6, 0.9, broad * 0.6 + ripple * 0.55);
+  let lookDownwind = abs(dot(normalize(v.xz + vec2f(1e-4)), wdir));
+  let wave = 1.0 + (gust - 0.45) * mix(0.28, 0.45, lookDownwind) * G.windStrength;
+  // Canopy depth: at grazing angles only the lit upper blades show; looking down, the dark
+  // gaps between stems do.
+  let ndv = clamp(dot(n, v), 0.0, 1.0);
+  let canopyView = mix(1.08, 0.82, smoothstep(0.25, 0.9, ndv));
+  col = col * mix(1.0, clumps * wave * canopyView, grassy);
+  // Backlit sheen: blades glow when the sun is behind them, strongest at grazing angles.
+  let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * mix(1.0, 0.5, ndv);
+  col = col + G.sunColor * albedo * back * 0.9 * farMix * mix(1.0, wave, grassy);
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, 1.0);
 }

@@ -2,13 +2,28 @@
 // quadratic Bezier; NSEG picks the LOD (near blades get more segments).
 import { Globals } from "./lib/globals.wgsl";
 import { Blade, fieldColor } from "./lib/field.wgsl";
-import { lanternLight } from "./lib/path.wgsl";
+import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky } from "./lib/atmosphere.wgsl";
 
 override NSEG: u32 = 5u;
 
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<storage, read> blades: array<Blade>;
+
+// Warm light from the lit path lanterns at night (see lib/path.wgsl).
+fn lampLight(p: vec3f) -> vec3f {
+  let k0 = lanternFirst(p, G.lampPos[1].w, G.lampPos[2].w, G.night);
+  if (k0 < -50) {
+    return vec3f(0.0);
+  }
+  let count = i32(G.lampPos[0].w);
+  var sum = 0.0;
+  for (var k = max(k0, 0); k < min(k0 + 5, count); k = k + 1) {
+    sum = sum + lanternTerm(p, G.lampPos[k].xyz, G.lamps[u32(k) / 4u][u32(k) % 4u], f32(k), G.time);
+  }
+  return LANTERN_COLOR * sum * G.night;
+}
+
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -114,7 +129,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   var out: VOut;
   out.pos = G.viewProj * vec4f(pos, 1.0);
   out.world = pos;
-  out.lamp = lanternLight(out.world, G.night, G.time, G.lamps);
+  out.lamp = lampLight(out.world);
   out.fog = morningFog(out.world, G.camPos, SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor), vec4f(G.mist, G.mistBase, G.canopy, G.time));
   out.normal = n;
   out.t = t;

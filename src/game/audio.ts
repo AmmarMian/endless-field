@@ -177,20 +177,29 @@ export class Audio {
   }
 
   /**
-   * A lantern lit: chain step n climbs a major pentatonic from D, and grows richer (a fifth
-   * at 4, an octave shimmer at 8). A fresh chain starts with a soft low note.
+   * A lantern lit. The chain plays a melody in D major pentatonic, phrased in fours like the
+   * lanterns, lifting a step each time it comes round; harmony grows with the chain (a fifth
+   * from 4, an octave shimmer from 8). Notes are snapped to a 75 bpm eighth-note grid, so a
+   * slightly uneven flight still sounds in time. A fresh chain starts with a soft low note.
    */
   lantern(chain: number): void {
     if (!this.ctx) return;
     const steps = [0, 2, 4, 7, 9];
-    const i = Math.min(chain - 1, 17);
-    const note = 62 + Math.floor(i / 5) * 12 + steps[i % 5];
-    const t = this.ctx.currentTime;
-    const level = 0.1 + Math.min(chain, 12) * 0.008;
-    this.bell(note, t, level);
-    if (chain >= 4) this.bell(note + 7, t + 0.06, level * 0.45);
-    if (chain >= 8) this.bell(note + 12, t + 0.12, level * 0.35);
-    if (chain >= 14) this.bell(note + 19, t + 0.18, level * 0.25);
+    // Scale degrees: rise, answer, climb, resolve.
+    const melody = [0, 2, 4, 2, 1, 3, 5, 4, 2, 4, 6, 5, 4, 3, 2, 5];
+    const i = chain - 1;
+    const degree = melody[i % melody.length] + Math.min(Math.floor(i / melody.length), 3);
+    const note = 62 + Math.floor(degree / 5) * 12 + steps[degree % 5];
+    const grid = 60 / 75 / 2;
+    const now = this.ctx.currentTime;
+    const t = Math.ceil(now / grid - 0.25) * grid;
+    const when = Math.max(now, t);
+    const level = chain === 1 ? 0.08 : 0.1 + Math.min(chain, 16) * 0.006;
+    this.bell(note, when, level);
+    if (chain >= 4) this.bell(note - 5, when, level * 0.4);
+    if (chain >= 8) this.bell(note + 12, when + grid * 0.5, level * 0.3);
+    // Every completed phrase of four lands with a soft low root.
+    if (chain >= 4 && chain % 4 === 0) this.bell(50 + Math.min(Math.floor(i / 16), 2) * 2, when, level * 0.6);
   }
 
   /** Every lantern lit in one run: a long rising arpeggio over a warm chord. */

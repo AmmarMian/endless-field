@@ -97,6 +97,7 @@ async function main(): Promise<void> {
   const freecam = new FreeCam(canvas);
   let explore = false;
   let hintTimer = 0;
+  lanterns.writePositions(globals.lampPos);
   const chainEl = document.createElement("div");
   chainEl.id = "chain";
   (document.getElementById("hud") ?? document.body).append(chainEl);
@@ -189,6 +190,7 @@ async function main(): Promise<void> {
     player,
     trees,
     camera,
+    lanterns,
     sunflowers,
     beds,
     height: terrainHeight,

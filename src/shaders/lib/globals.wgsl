@@ -34,7 +34,9 @@ export struct Globals {
   // xyz = trail sample position, w = push strength (fades with age).
   trail: array<vec4f, 24>,
   // Lantern brightness by index (4 per vec4): 0 dark, 1 lit, above 1 while flaring.
-  lamps: array<vec4f, 12>,
+  lamps: array<vec4f, 16>,
+  // Lantern positions (xyz). w of entries 0..2 carries: count, first x, mean x spacing.
+  lampPos: array<vec4f, 64>,
 }
 
 export const TRAIL_LEN: u32 = 24u;

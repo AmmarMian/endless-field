@@ -7,7 +7,7 @@ import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.w
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome, canopyLight } from "./lib/biome.wgsl";
 import { bedColor, bedMask } from "./lib/beds.wgsl";
-import { PATH_WIDTH, lanternLight, pathDistance } from "./lib/path.wgsl";
+import { LANTERN_COLOR, PATH_WIDTH, lanternFirst, lanternTerm, pathDistance } from "./lib/path.wgsl";
 import { SF_ROW, SF_ROW_PHASE, sunflowerField, sunflowerLocal } from "./lib/sunflowers.wgsl";
 
 struct GridParams {
@@ -30,6 +30,21 @@ struct GridParams {
 @group(0) @binding(7) var rockTex: texture_2d<f32>;
 @group(0) @binding(8) var screeTex: texture_2d<f32>;
 @group(0) @binding(9) var floorTex: texture_2d<f32>;
+
+// Warm light from the lit path lanterns at night (see lib/path.wgsl).
+fn lampLight(p: vec3f) -> vec3f {
+  let k0 = lanternFirst(p, G.lampPos[1].w, G.lampPos[2].w, G.night);
+  if (k0 < -50) {
+    return vec3f(0.0);
+  }
+  let count = i32(G.lampPos[0].w);
+  var sum = 0.0;
+  for (var k = max(k0, 0); k < min(k0 + 5, count); k = k + 1) {
+    sum = sum + lanternTerm(p, G.lampPos[k].xyz, G.lamps[u32(k) / 4u][u32(k) % 4u], f32(k), G.time);
+  }
+  return LANTERN_COLOR * sum * G.night;
+}
+
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -241,7 +256,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Backlit sheen: blades glow when the sun is behind them, strongest at grazing angles.
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * mix(1.0, 0.5, ndv);
   col = col + G.sunColor * albedo * back * 0.9 * farMix * mix(1.0, wave, grassy);
-  col = col + albedo * lanternLight(frag.world, G.night, G.time, G.lamps);
+  col = col + albedo * lampLight(frag.world);
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
 }

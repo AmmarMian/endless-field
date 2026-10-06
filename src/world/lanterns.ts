@@ -70,6 +70,21 @@ export class Lanterns {
     return new Lanterns(draws, buffers, items);
   }
 
+  /** Lantern positions (debug / tests). */
+  get positions(): [number, number, number][] {
+    return this.items.map((it) => [it.x, it.y, it.z]);
+  }
+
+  /** Writes lantern positions (and the lookup header) into the globals' lampPos array. */
+  writePositions(out: Float32Array): void {
+    out.fill(0);
+    this.items.forEach((it, k) => out.set([it.x, it.y + 0.9, it.z], k * 4));
+    const n = this.items.length;
+    out[3] = n;
+    out[7] = this.items[0].x;
+    out[11] = n > 1 ? (this.items[n - 1].x - this.items[0].x) / (n - 1) : 1;
+  }
+
   /** Lit state, flare (decays after a touch), and the current in-order chain. */
   private readonly lit: Float32Array;
   private readonly litTarget: Uint8Array;

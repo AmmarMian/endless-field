@@ -2,7 +2,16 @@
 // spawn meadow east to the forest edge, lined with an avenue of trees and stone lanterns.
 // No imports, so height / placement modules can use it freely.
 
-export const PATH = { x0: 30, x1: 470, width: 1.3, lanternStep: 10, lanternX0: 40, lanternOffset: 2.3, treeOffset: 6.2 };
+export const PATH = { x0: 30, x1: 470, width: 1.3, lanternX0: 40, lanternOffset: 1.6, treeOffset: 6.2, treeStep: 12 };
+
+/**
+ * Lanterns are spaced by beats: at cruise speed (7.5 m/s) one lantern every 0.8 s (75 bpm),
+ * in phrases of four followed by a one-beat rest. They sit just inside the reach of the
+ * path's center line, alternating sides, so following the path plays the whole sequence.
+ */
+export const BEAT_METERS = 6;
+const PHRASE = 4;
+export const MAX_LANTERNS = 64;
 
 /** Path centerline z at x. */
 export function pathZ(x: number): number {
@@ -39,23 +48,49 @@ export interface Lantern {
   index: number;
 }
 
-/** Lantern k: every lanternStep meters along x, alternating sides. */
+let lanternCache: Lantern[] | null = null;
+
+/** All lanterns, in path order (placed by arc length; see BEAT_METERS). */
+export function lanterns(): Lantern[] {
+  if (lanternCache) return lanternCache;
+  const out: Lantern[] = [];
+  let x = PATH.lanternX0;
+  let travelled = 0;
+  let beat = 0;
+  let nextAt = 0;
+  while (x < PATH.x1 - 4 && out.length < MAX_LANTERNS) {
+    if (travelled >= nextAt) {
+      // Beats 0-3 of each 5-beat phrase hold a lantern; beat 4 is a rest.
+      if (beat % (PHRASE + 1) < PHRASE) {
+        const k = out.length;
+        const side = k % 2 === 0 ? 1 : -1;
+        const [nx, nz] = pathNormal(x);
+        out.push({ x: x + nx * side * PATH.lanternOffset, z: pathZ(x) + nz * side * PATH.lanternOffset, yaw: Math.atan2(-nx * side, -nz * side), variant: k % 7 === 5 ? 1 : 0, index: k });
+      }
+      beat++;
+      nextAt += BEAT_METERS;
+    }
+    const dx = 0.05;
+    travelled += dx * Math.hypot(1, pathSlope(x));
+    x += dx;
+  }
+  lanternCache = out;
+  return out;
+}
+
 export function lanternAt(k: number): Lantern {
-  const x = PATH.lanternX0 + k * PATH.lanternStep;
-  const side = k % 2 === 0 ? 1 : -1;
-  const [nx, nz] = pathNormal(x);
-  return { x: x + nx * side * PATH.lanternOffset, z: pathZ(x) + nz * side * PATH.lanternOffset, yaw: Math.atan2(-nx * side, -nz * side), variant: k % 5 === 3 ? 1 : 0, index: k };
+  return lanterns()[k];
 }
 
 export function lanternCount(): number {
-  return Math.floor((PATH.x1 - PATH.lanternX0) / PATH.lanternStep) + 1;
+  return lanterns().length;
 }
 
 /** Avenue trees: between lanterns, on both sides. */
 export function avenueTrees(): { x: number; z: number; k: number; side: number }[] {
   const out: { x: number; z: number; k: number; side: number }[] = [];
   for (let k = 0; ; k++) {
-    const x = PATH.lanternX0 + PATH.lanternStep * (k + 0.5);
+    const x = PATH.lanternX0 + PATH.treeStep * (k + 0.5);
     if (x > PATH.x1 - 10) break;
     const [nx, nz] = pathNormal(x);
     for (const side of [1, -1]) out.push({ x: x + nx * side * PATH.treeOffset, z: pathZ(x) + nz * side * PATH.treeOffset, k, side });

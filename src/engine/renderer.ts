@@ -119,17 +119,21 @@ export class Renderer {
     const sceneSize = scaled(this.output.size, this.renderScale);
     if (this.scene.size[0] === sceneSize[0] && this.scene.size[1] === sceneSize[1]) return;
     this.scene.resize(sceneSize);
-    for (let i = 0; i < BLOOM_LEVELS; i++) {
-      this.down[i].resize(scaled(sceneSize, 1 / 2 ** (i + 1)));
-      const src = i === 0 ? this.scene : this.down[i - 1];
-      this.downFx[i].set({ params: { texel: src.texelSize } });
-    }
+    for (let i = 0; i < BLOOM_LEVELS; i++) this.down[i].resize(scaled(sceneSize, 1 / 2 ** (i + 1)));
     for (let i = 0; i < BLOOM_LEVELS - 1; i++) this.up[i].resize(this.down[i].size);
     this.shafts.resize(this.down[0].size);
+    // Rebind every effect to the resized textures (the old ones are destroyed; a stale binding
+    // made the frame after each resolution change sample garbage, a visible flicker).
+    for (let i = 0; i < BLOOM_LEVELS; i++) {
+      const src = i === 0 ? this.scene : this.down[i - 1];
+      this.downFx[i].set({ src, params: { texel: src.texelSize } });
+    }
     for (let i = 0; i < BLOOM_LEVELS - 1; i++) {
       const coarse = i === BLOOM_LEVELS - 2 ? this.down[BLOOM_LEVELS - 1] : this.up[i + 1];
-      this.upFx[i].set({ params: { texel: coarse.texelSize } });
+      this.upFx[i].set({ coarse, fine: this.down[i], params: { texel: coarse.texelSize } });
     }
+    this.shaftsFx.set({ bright: this.down[0] });
+    this.composite.set({ scene: this.scene, bloom: this.up[0], shafts: this.shafts });
   }
 
   get aspect(): number {

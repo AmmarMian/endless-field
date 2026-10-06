@@ -120,8 +120,13 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let hy = mix(waveHeight(uv + j1 + vec2f(0.0, e), d1, t, detail), waveHeight(uv + j0 + vec2f(0.0, e), d0, t, detail), w0) - h0;
   // Crossfading halves the contrast at mid-blend; compensate so ripples stay even.
   let blendGain = 1.0 / sqrt(w0 * w0 + (1.0 - w0) * (1.0 - w0));
+  // Normals vary faster than pixels at grazing angles and distance: fade the ripple detail by
+  // its screen footprint (it would only alias into crawling stripes) and widen the sun's
+  // highlight to match (below), instead of letting glints sparkle on and off.
+  let footprint = length(fwidth(uv));
+  let detailAA = 1.0 / (1.0 + footprint * footprint * 60.0);
   // Rain beats the wind ripples flat; its own rings take over.
-  let amp = 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0) * blendGain * (1.0 - 0.65 * G.rain);
+  let amp = detailAA * 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0) * blendGain * (1.0 - 0.65 * G.rain);
   let gradLocal = vec2f(hx, hy) / e * amp;
   var grad = flow * gradLocal.x + side * gradLocal.y;
   // Rain on the river: each 0.6 m cell gets a drop at its own moment; the ring spreads and fades.
@@ -160,15 +165,16 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let bankLit = vec3f(0.30, 0.24, 0.08) * (G.sunColor * 0.45 + s.zenith * 0.35);
   let bankColor = mix(bankLit, vec3f(0.01, 0.012, 0.02), G.night * 0.8);
   refl = mix(refl, bankColor, 1.0 - smoothstep(bankAngle - 0.04, bankAngle + 0.04, rAngle));
-  let sunSpec = pow(max(dot(r, G.sunDir), 0.0), 1200.0) * 45.0 + pow(max(dot(r, G.sunDir), 0.0), 120.0) * 0.35;
+  // Glint sharpness falls with the footprint (energy-conserving widening): no single-pixel sparkle.
+  let glintExp = 1200.0 / (1.0 + footprint * 120.0);
+  let sunSpec = pow(max(dot(r, G.sunDir), 0.0), glintExp) * 45.0 * glintExp / 1200.0 + pow(max(dot(r, G.sunDir), 0.0), 120.0) * 0.35;
   refl = refl + G.sunColor * sunSpec;
 
   // Refraction: riverbed pebbles seen through the water column.
   let bedY = terrainHeight(p.xz);
   let depth = max(p.y - bedY, 0.0);
   let path = depth / max(v.y, 0.12);
-  // Screen-space footprint of one meter of surface: fine features fade before they alias.
-  let footprint = length(fwidth(uv));
+  // Fine features fade before they alias (footprint: screen size of a meter, above).
   let aa = 1.0 - smoothstep(0.08, 0.4, footprint);
   let bedUv = p.xz * 0.45 + n.xz * min(depth, 0.6) * 0.25 * aa;
   let bed = textureSample(pebbles, samp, bedUv).rgb * 0.8;

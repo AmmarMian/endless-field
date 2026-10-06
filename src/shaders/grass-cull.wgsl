@@ -216,8 +216,10 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let gust = smoothstep(-0.6, 0.9, broad * 0.6 + ripple * 0.55);
   let flutter = simplex2d(xz * 0.5 + vec2f(t * 3.1, -t * 2.3));
   var bend = wdir * G.windStrength * (0.1 + 0.85 * gust) + vec2f(-wdir.y, wdir.x) * flutter * 0.16 * G.windStrength;
-  // Raindrops knock the blades about.
-  bend = bend + vec2f(simplex2d(xz * 3.1 + vec2f(t * 7.0, 0.0)), simplex2d(xz * 3.1 + vec2f(0.0, t * 6.3))) * 0.22 * G.rain;
+  // Raindrops knock the blades about (only while it rains: two noise lookups per blade).
+  if (G.rain > 0.001) {
+    bend = bend + vec2f(simplex2d(xz * 3.1 + vec2f(t * 7.0, 0.0)), simplex2d(xz * 3.1 + vec2f(0.0, t * 6.3))) * 0.22 * G.rain;
+  }
 
   // The petal stream parts the grass as it passes.
   let toPlayer = distance(xz, G.playerPos.xz);

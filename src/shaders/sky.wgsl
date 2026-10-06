@@ -27,8 +27,10 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let hp = G.invViewProj * vec4f(frag.ndc, 0.5, 1.0);
   let dir = normalize(hp.xyz / hp.w - G.camPos);
 
-  // The moon reuses the sun disk but much dimmer than daylight.
-  var col = skyColor(dir, s) + sunDisk(dir, s) * mix(1.0, 0.045, G.night);
+  // The sun (or the moon, the same disk much dimmer) is added after the clouds, through them.
+  var col = skyColor(dir, s);
+  let disk = sunDisk(dir, s) * mix(1.0, 0.045, G.night);
+  var cloudTrans = 1.0 - G.rain;
 
   // Night: stars on a direction lattice (twinkling), a soft moon halo and a milky band.
   if (G.night > 0.01 && dir.y > -0.02) {
@@ -41,7 +43,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
       let d = length(grid - center);
       let tw = 0.65 + 0.35 * sin(G.time * (1.5 + rnd * 5.0) + rnd * 70.0);
       let temp = mix(vec3f(0.75, 0.85, 1.0), vec3f(1.0, 0.85, 0.65), fract(rnd * 37.0));
-      col = col + temp * smoothstep(0.32, 0.0, d) * tw * 2.2 * G.night * smoothstep(-0.02, 0.15, dir.y);
+      col = col + temp * smoothstep(0.32, 0.0, d) * tw * 2.2 * G.night * smoothstep(-0.02, 0.15, dir.y) * (1.0 - G.rain);
     }
     let band = exp(-pow(dot(dir, normalize(vec3f(0.35, 0.25, -0.9))), 2.0) * 18.0);
     col = col + vec3f(0.06, 0.07, 0.12) * band * G.night * smoothstep(0.0, 0.3, dir.y);
@@ -54,7 +56,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     let drift = G.windDir * G.time * 0.004;
     let uv = (dir.xz * t + G.camPos.xz * 0.6) * 0.00055 + drift;
     let n = fbmSimplex2d(uv, 5, 2.03, 0.5) * 0.5 + 0.5;
-    let cover = smoothstep(0.50, 0.78, n) * smoothstep(0.0, 0.22, dir.y);
+    // As rain moves in the clouds spread and merge (coverage threshold falls), as a front does.
+    let r = G.rain;
+    let cover = smoothstep(0.5 - 0.45 * r, 0.78 - 0.4 * r, n) * smoothstep(0.0, 0.22 - 0.15 * r, dir.y);
     // Density a step toward the sun gives a cheap self-shadowing gradient.
     let toward = fbmSimplex2d(uv + normalize(G.sunDir.xz + vec2f(1e-4)) * 0.035, 4, 2.03, 0.5) * 0.5 + 0.5;
     let shade = clamp(1.0 - (toward - n) * 3.5, 0.35, 1.25);
@@ -63,6 +67,18 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     let cloudCol = mix(G.horizonColor * 0.9, lit, 0.75);
     // At night clouds thin out so the stars come through.
     col = mix(col, cloudCol, cover * mix(0.85, 0.55, G.night));
+    // Light from the disk through the cloud: Beer-Lambert on the cloud's optical depth, so
+    // even thin cloud mutes it and thick cloud hides it.
+    cloudTrans = cloudTrans * exp(-cover * 7.0);
   }
+  // Rain: an even overcast deck, soft and only faintly mottled, down to the horizon.
+  if (G.rain > 0.001) {
+    let t = 900.0 / (max(dir.y, 0.0) + 0.06);
+    let uv = (dir.xz * t + G.camPos.xz * 0.6) * 0.00025 + G.windDir * G.time * 0.002;
+    let m = fbmSimplex2d(uv, 3, 2.0, 0.5) * 0.5 + 0.5;
+    let deck = mix(G.horizonColor * 1.05, G.zenithColor * 1.6 + G.horizonColor * 0.35, smoothstep(-0.05, 0.6, dir.y)) * mix(0.9, 1.06, m);
+    col = mix(col, deck, smoothstep(0.55, 1.0, G.rain));
+  }
+  col = col + disk * cloudTrans;
   return vec4f(col, 1.0);
 }

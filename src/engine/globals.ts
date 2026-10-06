@@ -29,11 +29,15 @@ export function weatherAtmosphere(a: Atmosphere, season: number, rain: number): 
   let sunColor = tint(a.sunColor, [1.06, 0.93, 0.82], [0.88, 0.93, 1.05], [1.0, 1.02, 0.98]);
   let horizonColor = tint(a.horizonColor, [1.08, 0.94, 0.85], [1.0, 1.05, 1.15], [0.98, 1.03, 1.02]);
   let zenithColor = a.zenithColor;
-  // Overcast: the sun is a dim smudge, the sky a flat grey-blue.
-  const grey = (c: number[], level: number) => c.map((v) => v + (level * (c[0] + c[1] + c[2]) / 3 - v) * rain) as [number, number, number];
-  sunColor = sunColor.map((v) => v * (1 - 0.75 * rain)) as [number, number, number];
-  horizonColor = grey(horizonColor, 0.85);
-  zenithColor = grey(zenithColor, 1.1);
+  // Overcast: soft, cool neutral greys (greying the warm evening colors would turn them brown),
+  // as bright as the sky they replace; the sun is only a diffuse glow.
+  const toward = (c: number[], target: number[]) => {
+    const lum = (c[0] + c[1] + c[2]) / 3;
+    return c.map((v, i) => v + (target[i] * lum - v) * rain) as [number, number, number];
+  };
+  sunColor = toward(sunColor, [0.95, 1.0, 1.08]).map((v) => v * (1 - 0.7 * rain)) as [number, number, number];
+  horizonColor = toward(horizonColor, [0.97, 1.0, 1.04]);
+  zenithColor = toward(zenithColor, [0.9, 0.98, 1.12]);
   return { ...a, sunColor, horizonColor, zenithColor, fogDensity: a.fogDensity * (1 + 1.6 * rain + 0.3 * wi), exposure: a.exposure * (1 + 0.25 * rain) };
 }
 

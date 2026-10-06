@@ -51,6 +51,23 @@ async function main(): Promise<void> {
     return;
   }
   // GPU timings for the frame counter when the adapter supports timestamp queries.
+  // Loading screen: progress follows real work (each texture, model and pipeline).
+  const loadingEl = document.getElementById("loading");
+  const loadBar = loadingEl?.querySelector<HTMLElement>(".ld-bar span");
+  const loadStage = loadingEl?.querySelector<HTMLElement>(".ld-stage");
+  let loadTotal = 0;
+  let loadDone = 0;
+  const stage = (label: string) => {
+    if (loadStage) loadStage.textContent = label;
+  };
+  const track = <T,>(p: Promise<T>): Promise<T> => {
+    loadTotal++;
+    return p.then((v) => {
+      loadDone++;
+      if (loadBar) loadBar.style.width = `${Math.round((loadDone / Math.max(loadTotal, 1)) * 100)}%`;
+      return v;
+    });
+  };
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   const canTime = adapter?.features.has("timestamp-query") ?? false;
   const gpu = await init({ requiredFeatures: canTime ? ["timestamp-query"] : [] });
@@ -72,12 +89,13 @@ async function main(): Promise<void> {
     msaa: true,
   });
   const life = new LifeMap(gpu);
+  stage("shaping the hills…");
   const [pebbles, rock, scree, forestFloor, mountains] = await Promise.all([
-    loadTexture(gpu, "assets/textures/pebbles.jpg", { srgb: true }),
-    loadTexture(gpu, "assets/textures/rock_diff.jpg", { srgb: true }),
-    loadTexture(gpu, "assets/textures/scree_diff.jpg", { srgb: true }),
-    loadTexture(gpu, "assets/textures/forest_floor.jpg", { srgb: true }),
-    loadMountains(gpu),
+    track(loadTexture(gpu, "assets/textures/pebbles.jpg", { srgb: true })),
+    track(loadTexture(gpu, "assets/textures/rock_diff.jpg", { srgb: true })),
+    track(loadTexture(gpu, "assets/textures/scree_diff.jpg", { srgb: true })),
+    track(loadTexture(gpu, "assets/textures/forest_floor.jpg", { srgb: true })),
+    track(loadMountains(gpu)),
   ]);
   const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree, forestFloor);
   const grass = new Grass(gpu, globals.uniforms, life.buffer, mountains, settings.grass);
@@ -87,14 +105,15 @@ async function main(): Promise<void> {
   const camera = new Camera();
   const input = new Input(canvas);
   const audio = new Audio();
+  stage("planting trees and flowers…");
   const [trees, beds, water, undergrowth, sunflowers, lanterns, torii] = await Promise.all([
-    Trees.load(gpu, globals.uniforms),
-    FlowerBeds.load(gpu, globals.uniforms, life.buffer),
-    Water.load(gpu, globals.uniforms),
-    Undergrowth.load(gpu, globals.uniforms, life.buffer),
-    Sunflowers.load(gpu, globals.uniforms),
-    Lanterns.load(gpu, globals.uniforms),
-    Torii.load(gpu, globals.uniforms),
+    track(Trees.load(gpu, globals.uniforms)),
+    track(FlowerBeds.load(gpu, globals.uniforms, life.buffer)),
+    track(Water.load(gpu, globals.uniforms)),
+    track(Undergrowth.load(gpu, globals.uniforms, life.buffer)),
+    track(Sunflowers.load(gpu, globals.uniforms)),
+    track(Lanterns.load(gpu, globals.uniforms)),
+    track(Torii.load(gpu, globals.uniforms)),
   ]);
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
@@ -113,6 +132,8 @@ async function main(): Promise<void> {
     // Storage unavailable: start in summer.
   }
   let atmSeason = -1;
+  /** Exposure of the current atmosphere (time of day, season, weather). */
+  let atmExposure = GOLDEN_HOUR.exposure * 0.8;
   let shownSeason = "";
   let seasonSave = 0;
   let rain = 0;
@@ -126,9 +147,11 @@ async function main(): Promise<void> {
   let seasonTimer = 0;
   stream.add(player.pos, PALETTES[0]);
 
+  stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
   );
+
 
   let playing = false;
   const start = () => {
@@ -253,11 +276,16 @@ async function main(): Promise<void> {
     loop = frameLoop(gpu, tick, fpsTarget > 0 ? { fps: fpsTarget } : undefined);
   };
 
+  /**
+   * Resolution changes wait for the start of the next frame: resizing destroys the scene
+   * textures, and this frame's (already encoded) passes still reference them.
+   */
+  let pendingScale: number | null = null;
   function adaptResolution(now: number): void {
     if (!current.autoResolution || !gpuTimer) {
       if (dynScale !== 1) {
         dynScale = 1;
-        renderer.setRenderScale(current.renderScale);
+        pendingScale = current.renderScale;
       }
       return;
     }
@@ -274,11 +302,21 @@ async function main(): Promise<void> {
       dynScale = next;
       lastScaleChange = now;
       overBudget = underBudget = 0;
-      renderer.setRenderScale(current.renderScale * dynScale);
+      pendingScale = current.renderScale * dynScale;
     }
   }
 
+  let framesShown = 0;
   function tick(frame: Frame): void {
+    if (pendingScale !== null) {
+      renderer.setRenderScale(pendingScale);
+      pendingScale = null;
+    }
+    // The loading screen fades once the world has drawn a few frames (streaming warmed up).
+    if (++framesShown === 20) {
+      stage("");
+      loadingEl?.classList.add("done");
+    }
     const t = debug.fixedTime ?? time.time;
     const rawDt = Math.min(time.deltaTime, 1 / 15);
     dtSmooth += (rawDt - dtSmooth) * 0.2;
@@ -370,7 +408,8 @@ async function main(): Promise<void> {
       atmSeason = season;
       const atm = weatherAtmosphere(mixAtmosphere(GOLDEN_HOUR, NIGHT, k), season, rain);
       globals.setAtmosphere(atm);
-      renderer.setPost({ exposure: atm.exposure * 0.8, bloomStrength: 0.1 + 0.12 * k });
+      atmExposure = atm.exposure * 0.8;
+      renderer.setPost({ bloomStrength: 0.1 + 0.12 * k });
       audio.setNight(k);
     }
 
@@ -441,9 +480,8 @@ async function main(): Promise<void> {
       const deep = Math.min(1, Math.max(0, (camera.position[0] - 1000) / 900));
       const canopyTarget = eco.forest * deep * (1 - Math.min(1, Math.max(0, (camera.position[1] - eco.height - 12) / 20)));
       canopy += (canopyTarget - canopy) * 0.3;
-      // Eyes adapt only partly: the deep forest should feel darker.
-      const atmExposure = mixAtmosphere(GOLDEN_HOUR, NIGHT, night * night * (3 - 2 * night)).exposure;
-      renderer.setPost({ exposure: atmExposure * 0.8 * (1 - canopy * 0.45) });
+      // Eyes adapt only partly: the deep forest should feel darker (applied with the rest of
+      // the exposure, below; a single writer, so weather and canopy never fight).
     }
     // Light shafts toward the sun (only when it is in front of the camera).
     {
@@ -505,7 +543,7 @@ async function main(): Promise<void> {
       chainTimer = window.setTimeout(() => chainEl.classList.remove("show"), lanternEvent.complete ? 6000 : 2500);
     }
     lanterns.animate(dt, globals.lamps, t);
-    renderer.setPost({ time: t });
+    renderer.setPost({ time: t, exposure: atmExposure * (1 - canopy * 0.45) });
     audio.update(explore ? 0.15 : (player.speed - 7.5) / 13.5, explore ? 2 : player.altitude);
 
     renderer.render(frame, (pass) => {

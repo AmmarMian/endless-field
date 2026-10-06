@@ -13,6 +13,13 @@ const TRAIL_STEP = 0.9;
 /** Seconds for a sample's push to fade (the grass springs back). */
 const TRAIL_LIFE = 2.2;
 
+/** Ground height averaged over ~2 m (camera clearance without tracing every bump). */
+function smoothGround(x: number, z: number): number {
+  return (
+    (terrainHeight(x, z) * 2 + terrainHeight(x + 2, z) + terrainHeight(x - 2, z) + terrainHeight(x, z + 2) + terrainHeight(x, z - 2)) / 6
+  );
+}
+
 function damp(current: number, target: number, rate: number, dt: number): number {
   return target + (current - target) * Math.exp(-rate * dt);
 }
@@ -98,6 +105,10 @@ export class Player {
     this.ceilingInit = true;
     const room = this.ceilingGround + MAX_ALT - this.pos[1];
     targetPitch = Math.min(targetPitch, Math.max(-0.35, room * 0.12));
+    // Soft floor: nearing the grass, a dive eases into skimming along the ground's slope
+    // (instead of hitting a hard clamp every frame, which shook the camera).
+    const floorY = Math.max(ground, ahead) + 0.75;
+    targetPitch = Math.max(targetPitch, groundSlope + (floorY - this.pos[1]) * 0.6);
     targetPitch = Math.max(-0.9, Math.min(0.9, targetPitch));
     this.pitch = damp(this.pitch, targetPitch, 2.5, dt);
 
@@ -106,10 +117,8 @@ export class Player {
     this.pos[1] += f[1] * this.speed * dt;
     this.pos[2] += f[2] * this.speed * dt;
     const g = terrainHeight(this.pos[0], this.pos[2]);
-    if (this.pos[1] < g + 0.55) {
-      this.pos[1] = g + 0.55;
-      this.pitch = Math.max(this.pitch, 0);
-    }
+    // Backstop for sudden rises in the ground: lift, without snapping the pitch.
+    if (this.pos[1] < g + 0.45) this.pos[1] = g + 0.45;
     // Backstop only (e.g. flying off a cliff edge): settle down smoothly.
     if (this.pos[1] > this.ceilingGround + MAX_ALT + 3) this.pos[1] = damp(this.pos[1], this.ceilingGround + MAX_ALT + 3, 2, dt);
 
@@ -147,14 +156,18 @@ export class Player {
       this.pos[1] + 1.6 - f[1] * 2.5,
       this.pos[2] - (f[2] / flat) * back,
     ];
-    const ground = terrainHeight(desired[0], desired[2]);
+    const ground = smoothGround(desired[0], desired[2]);
     desired[1] = Math.max(desired[1], ground + 1.3);
     if (!this.camInit) {
       this.camPos.splice(0, 3, ...desired);
       this.camInit = true;
     }
     for (let i = 0; i < 3; i++) this.camPos[i] = damp(this.camPos[i], desired[i], 4.5, dt);
-    this.camPos[1] = Math.max(this.camPos[1], terrainHeight(this.camPos[0], this.camPos[2]) + 1.1);
+    // Keep above the ground under the camera, eased over a few meters of ground so small
+    // bumps do not jolt it; a hard limit only prevents dipping into the terrain.
+    const under = smoothGround(this.camPos[0], this.camPos[2]) + 1.1;
+    if (this.camPos[1] < under) this.camPos[1] = damp(this.camPos[1], under, 10, dt);
+    this.camPos[1] = Math.max(this.camPos[1], terrainHeight(this.camPos[0], this.camPos[2]) + 0.35);
     camera.position.splice(0, 3, ...this.camPos);
     camera.target.splice(0, 3, this.pos[0] + f[0] * 4, this.pos[1] + f[1] * 4 + 0.3, this.pos[2] + f[2] * 4);
     camera.fovY = ((60 + this.gust * 12) * Math.PI) / 180;

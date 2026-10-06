@@ -180,6 +180,7 @@ async function main(): Promise<void> {
     start,
     player,
     trees,
+    camera,
     sunflowers,
     beds,
     height: terrainHeight,

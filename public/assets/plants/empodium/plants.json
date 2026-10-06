@@ -1,0 +1,48 @@
+{
+  "name": "empodium",
+  "source": "flower_empodium by Poly Haven (CC0), https://polyhaven.com/a/flower_empodium",
+  "vertexBytes": 42740,
+  "indexCount": 7203,
+  "variants": [
+    {
+      "name": "flower_empodium_a_LOD0",
+      "firstIndex": 0,
+      "indexCount": 1794,
+      "height": 0.635,
+      "radius": 0.428
+    },
+    {
+      "name": "flower_empodium_b_LOD0",
+      "firstIndex": 1794,
+      "indexCount": 1797,
+      "height": 0.449,
+      "radius": 0.283
+    },
+    {
+      "name": "flower_empodium_c_LOD0",
+      "firstIndex": 3591,
+      "indexCount": 1800,
+      "height": 0.42,
+      "radius": 0.322
+    },
+    {
+      "name": "flower_empodium_d_LOD0",
+      "firstIndex": 5391,
+      "indexCount": 1080,
+      "height": 0.395,
+      "radius": 0.318
+    },
+    {
+      "name": "flower_empodium_e_LOD0",
+      "firstIndex": 6471,
+      "indexCount": 732,
+      "height": 0.344,
+      "radius": 0.229
+    }
+  ],
+  "bloomColor": [
+    1.0,
+    0.85,
+    0.15
+  ]
+}

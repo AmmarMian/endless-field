@@ -1,0 +1,48 @@
+{
+  "name": "ursinia",
+  "source": "flower_ursinia by Poly Haven (CC0), https://polyhaven.com/a/flower_ursinia",
+  "vertexBytes": 90680,
+  "indexCount": 12948,
+  "variants": [
+    {
+      "name": "flower_ursinia_a_LOD0",
+      "firstIndex": 0,
+      "indexCount": 2598,
+      "height": 0.357,
+      "radius": 0.633
+    },
+    {
+      "name": "flower_ursinia_b_LOD0",
+      "firstIndex": 2598,
+      "indexCount": 2520,
+      "height": 0.282,
+      "radius": 0.479
+    },
+    {
+      "name": "flower_ursinia_c_LOD0",
+      "firstIndex": 5118,
+      "indexCount": 2562,
+      "height": 0.325,
+      "radius": 0.375
+    },
+    {
+      "name": "flower_ursinia_d_LOD0",
+      "firstIndex": 7680,
+      "indexCount": 2634,
+      "height": 0.29,
+      "radius": 0.229
+    },
+    {
+      "name": "flower_ursinia_e_LOD0",
+      "firstIndex": 10314,
+      "indexCount": 2634,
+      "height": 0.143,
+      "radius": 0.209
+    }
+  ],
+  "bloomColor": [
+    1.0,
+    0.62,
+    0.12
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "name": "jacaranda",
+  "source": "Jacaranda Tree by Poly Haven (CC0), https://polyhaven.com/a/jacaranda_tree",
+  "bounds": {
+    "min": [
+      -12.920000076293945,
+      -0.1469999998807907,
+      -9.954000473022461
+    ],
+    "max": [
+      11.496999740600586,
+      19.32200050354004,
+      9.201000213623047
+    ]
+  },
+  "height": 19.322,
+  "canopy": {
+    "center": [
+      0.4440000057220459,
+      11.718000411987305,
+      -0.5730000138282776
+    ],
+    "radius": 10.298
+  },
+  "lods": [
+    {
+      "file": "lod0.bin",
+      "vertexCount": 288098,
+      "vertexBytes": 5761960,
+      "indexCount": 521088,
+      "groups": {
+        "bark": {
+          "firstIndex": 0,
+          "indexCount": 158820
+        },
+        "leaves": {
+          "firstIndex": 158820,
+          "indexCount": 362268
+        }
+      }
+    },
+    {
+      "file": "lod1.bin",
+      "vertexCount": 85649,
+      "vertexBytes": 1712980,
+      "indexCount": 146589,
+      "groups": {
+        "bark": {
+          "firstIndex": 0,
+          "indexCount": 37911
+        },
+        "leaves": {
+          "firstIndex": 37911,
+          "indexCount": 108678
+        }
+      }
+    }
+  ],
+  "lodDistances": [
+    55,
+    140
+  ],
+  "impostor": {
+    "frames": 8,
+    "cols": 4,
+    "rows": 2,
+    "tile": 512,
+    "size": 26.901,
+    "centerY": 13.304
+  },
+  "textures": {
+    "leaves": "leaves.png",
+    "branches_diff": "branches_diff.jpg",
+    "branches_nor": "branches_nor.jpg",
+    "trunk_diff": "trunk_diff.jpg",
+    "trunk_nor": "trunk_nor.jpg"
+  }
+}

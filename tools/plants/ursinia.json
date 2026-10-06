@@ -1,0 +1,15 @@
+{
+  "name": "ursinia",
+  "credit": "flower_ursinia by Poly Haven (CC0), https://polyhaven.com/a/flower_ursinia",
+  "src": "assets-src/flower_ursinia/flower_ursinia.gltf",
+  "alpha": "assets-src/flower_ursinia/textures/flower_ursinia_alpha_1k.png",
+  "out": "public/assets/plants/ursinia",
+  "scale": 2.2,
+  "target_tris": 900,
+  "error": 0.01,
+  "bloom_color": [
+    1.0,
+    0.62,
+    0.12
+  ]
+}

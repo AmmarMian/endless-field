@@ -1,0 +1,303 @@
+import { clock, frameLoop, init, timer, type Frame, type FrameLoopHandle } from "vgpu";
+import { SettingsPanel, loadSettings, type Settings } from "./ui/settings";
+import { Camera, type Vec3 } from "./engine/camera";
+import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere } from "./engine/globals";
+import { Renderer } from "./engine/renderer";
+import { loadTexture } from "./engine/textures";
+import { Audio } from "./game/audio";
+import { Input } from "./game/input";
+import { PetalStream } from "./game/petals";
+import { Player } from "./game/player";
+import { Flowers, PALETTES } from "./world/flowers";
+import { Grass } from "./world/grass";
+import { LifeMap } from "./world/life";
+import { Terrain } from "./world/terrain";
+import { Fireflies } from "./world/fireflies";
+import { Water } from "./world/water";
+import { riverCenter, riverHalfWidth, riverWater, terrainHeight } from "./world/height";
+import { Trees } from "./world/trees";
+import { FlowerBeds } from "./world/beds";
+
+const canvas = document.getElementById("view") as HTMLCanvasElement;
+const errorBox = document.getElementById("error")!;
+const titleEl = document.getElementById("title")!;
+const controlsEl = document.getElementById("controls")!;
+const petalsEl = document.getElementById("petals")!;
+const statsEl = document.getElementById("stats")!;
+
+const params = new URLSearchParams(location.search);
+
+function showError(message: string): void {
+  errorBox.hidden = false;
+  errorBox.textContent = message;
+}
+
+async function main(): Promise<void> {
+  if (!navigator.gpu) {
+    showError("Endless Field needs WebGPU.\nTry a recent Chrome, Edge or Safari.");
+    return;
+  }
+  // GPU timings for the frame counter when the adapter supports timestamp queries.
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
+  const canTime = adapter?.features.has("timestamp-query") ?? false;
+  const gpu = await init({ requiredFeatures: canTime ? ["timestamp-query"] : [] });
+  const settings: Settings = loadSettings();
+  gpu.onError((e) => {
+    console.error(e);
+    showError(String((e as Error).message ?? e));
+  });
+
+  const globals = new Globals(gpu, GOLDEN_HOUR);
+  const renderer = new Renderer(gpu, canvas, globals.uniforms, {
+    renderScale: settings.renderScale,
+    msaa: true,
+  });
+  const life = new LifeMap(gpu);
+  const pebbles = await loadTexture(gpu, "/assets/textures/pebbles.jpg", { srgb: true });
+  const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles);
+  const grass = new Grass(gpu, globals.uniforms, life.buffer, settings.grass);
+  const flowers = new Flowers(gpu, globals.uniforms);
+  const fireflies = new Fireflies(gpu, globals.uniforms);
+  const stream = new PetalStream(gpu, globals.uniforms);
+  const camera = new Camera();
+  const input = new Input(canvas);
+  const audio = new Audio();
+  const [trees, beds, water] = await Promise.all([
+    Trees.load(gpu, globals.uniforms),
+    FlowerBeds.load(gpu, globals.uniforms, life.buffer),
+    Water.load(gpu, globals.uniforms),
+  ]);
+  const player = new Player(0, 30, 0.4);
+  stream.add(player.pos, PALETTES[0]);
+
+  await Promise.all(
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
+  );
+
+  let playing = false;
+  const start = () => {
+    if (playing) return;
+    playing = true;
+    titleEl.classList.add("gone");
+    controlsEl.classList.add("show");
+    setTimeout(() => controlsEl.classList.remove("show"), 9000);
+    audio.start();
+  };
+  canvas.addEventListener("pointerdown", start);
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Space" || e.code === "Enter") start();
+  });
+
+  let current = settings;
+  let onFpsTarget: ((fps: number) => void) | undefined;
+  const applySettings = (s: Settings) => {
+    const fpsChanged = s.fpsTarget !== current.fpsTarget;
+    current = s;
+    if (fpsChanged) onFpsTarget?.(s.fpsTarget);
+    renderer.setRenderScale(s.renderScale);
+    renderer.setBloom(s.bloom);
+    grass.setQuality(s.grass);
+  };
+  const panel = new SettingsPanel(settings, applySettings);
+  applySettings(settings);
+  const gpuTimer = canTime ? timer(gpu) : undefined;
+  const spans = gpuTimer ? { scene: gpuTimer.span("scene"), post: gpuTimer.span("post") } : undefined;
+  let gpuMs = 0;
+  gpuTimer?.onResults((r) => {
+    gpuMs = gpuMs * 0.85 + ((r.scene ?? 0) + (r.post ?? 0)) * 0.15;
+  });
+  let cpuMs = 0;
+  let night = settings.night ? 1 : 0;
+  let atmosphereDirty = true;
+  const debug = {
+    fixedCamera: null as null | { pos: Vec3; target: Vec3 },
+    fixedTime: null as null | number,
+    hide: { fireflies: false },
+    start,
+    player,
+    trees,
+    beds,
+    height: terrainHeight,
+    river: { center: riverCenter, water: riverWater, halfWidth: riverHalfWidth },
+    grassCounts: () => grass.counts(),
+    bloom: (x: number, z: number, r: number) => life.bloom(x, z, r, 0.01),
+    /** HDR scene texels at normalized (u, v), for debugging tone and exposure. */
+    sceneAt: async (u: number, v: number) => {
+      const [w, h] = renderer.scene.size;
+      const x = Math.min(w - 1, Math.floor(u * w));
+      const y = Math.min(h - 1, Math.floor(v * h));
+      const f = await renderer.scene.color.readFloats({ mipLevel: 0, region: { origin: [x, y, 0], size: [1, 1, 1] } });
+      return Array.from(f).map((n) => +n.toFixed(3));
+    },
+  };
+  (window as unknown as { __ef: typeof debug }).__ef = debug;
+
+  const time = clock(gpu);
+  let fpsAccum = 0;
+  let fpsFrames = 0;
+  let fps = 0;
+  let windAngle = 0.6;
+  let lastTrail: [number, number] = [player.pos[0], player.pos[2]];
+
+  // Smoothed simulation step: frame-time spikes do not jerk the camera or the stream.
+  let dtSmooth = 1 / 60;
+  // Dynamic resolution: render scale follows the GPU budget with hysteresis.
+  let dynScale = 1;
+  let overBudget = 0;
+  let underBudget = 0;
+  let lastScaleChange = 0;
+  let loop: FrameLoopHandle | undefined;
+  const startLoop = (fpsTarget: number) => {
+    loop?.stop();
+    loop = frameLoop(gpu, tick, fpsTarget > 0 ? { fps: fpsTarget } : undefined);
+  };
+
+  function adaptResolution(now: number): void {
+    if (!current.autoResolution || !gpuTimer) {
+      if (dynScale !== 1) {
+        dynScale = 1;
+        renderer.setRenderScale(current.renderScale);
+      }
+      return;
+    }
+    const budget = 1000 / (current.fpsTarget > 0 ? current.fpsTarget : 60);
+    if (gpuMs > budget * 0.85) overBudget++;
+    else overBudget = 0;
+    if (gpuMs < budget * 0.55) underBudget++;
+    else underBudget = 0;
+    if (now - lastScaleChange < 1.0) return;
+    let next = dynScale;
+    if (overBudget > 20) next = Math.max(0.5, dynScale - 0.1);
+    else if (underBudget > 180) next = Math.min(1, dynScale + 0.05);
+    if (next !== dynScale) {
+      dynScale = next;
+      lastScaleChange = now;
+      overBudget = underBudget = 0;
+      renderer.setRenderScale(current.renderScale * dynScale);
+    }
+  }
+
+  function tick(frame: Frame): void {
+    const t = debug.fixedTime ?? time.time;
+    const rawDt = Math.min(time.deltaTime, 1 / 15);
+    dtSmooth += (rawDt - dtSmooth) * 0.2;
+    const dt = dtSmooth;
+    input.update();
+    const frameStart = performance.now();
+    if (input.wasPressed("KeyF")) panel.set({ showStats: !current.showStats });
+    if (input.wasPressed("KeyO")) panel.toggle();
+    if (input.wasPressed("KeyN")) panel.set({ night: !current.night });
+
+    // Day/night eases over ~4 s; the atmosphere, bloom and sound follow.
+    const nightTarget = current.night ? 1 : 0;
+    if (night !== nightTarget || atmosphereDirty) {
+      atmosphereDirty = false;
+      night = nightTarget > night ? Math.min(1, night + dt / 4) : Math.max(0, night - dt / 4);
+      const k = night * night * (3 - 2 * night);
+      const atm = mixAtmosphere(GOLDEN_HOUR, NIGHT, k);
+      globals.setAtmosphere(atm);
+      renderer.setPost({ exposure: atm.exposure * 0.8, bloomStrength: 0.1 + 0.12 * k });
+      audio.setNight(k);
+    }
+
+    // Before the first click the wind wanders toward flowers on its own.
+    const target = flowers.nearestClosed(player.pos[0], player.pos[2]);
+    player.update(dt, input, playing ? null : { toward: target ? [target.x, target.z] : undefined });
+
+    // Slide around trunks instead of passing through them.
+    for (const tr of trees.near(player.pos[0], player.pos[2], 12)) {
+      const r = trees.trunkRadius(tr) + 0.6;
+      const dx = player.pos[0] - tr.x;
+      const dz = player.pos[2] - tr.z;
+      const d = Math.hypot(dx, dz);
+      if (d < r && player.pos[1] < tr.y + 3 * tr.scale) {
+        player.pos[0] = tr.x + (dx / (d || 1)) * r;
+        player.pos[2] = tr.z + (dz / (d || 1)) * r;
+      }
+    }
+
+    const touched = flowers.update(dt, player.pos[0], player.pos[1], player.pos[2], 2.4 + Math.min(stream.count, 60) * 0.02 + player.gust);
+    for (const f of touched) {
+      stream.add([f.x, f.y + f.height, f.z], f.color);
+      life.bloom(f.x, f.z, 9 + Math.random() * 4);
+      audio.bloom();
+    }
+    for (const c of flowers.completedClusters(touched)) {
+      life.bloom(c.x, c.z, 34, 7);
+      audio.cluster();
+    }
+    stream.update(dt, player.pos, player.forward, player.gust);
+    // Once carrying collected petals, the stream leaves a faint wake of new growth.
+    if (stream.count > 1 && player.altitude < 6) {
+      if (Math.hypot(player.pos[0] - lastTrail[0], player.pos[2] - lastTrail[1]) > 2.5) {
+        lastTrail = [player.pos[0], player.pos[2]];
+        life.bloom(player.pos[0], player.pos[2], 2.5 + Math.min(stream.count, 40) * 0.06, 0.8, 0.45);
+      }
+    }
+
+    if (debug.fixedCamera) {
+      camera.position.splice(0, 3, ...debug.fixedCamera.pos);
+      camera.target.splice(0, 3, ...debug.fixedCamera.target);
+    } else {
+      player.updateCamera(camera, dt, stream.length(player.gust));
+    }
+    camera.aspect = renderer.aspect;
+    camera.update();
+
+    windAngle += Math.sin(t * 0.05) * 0.02 * dt;
+    player.writeTrail(globals.trail);
+    globals.updateFrame(camera, t, renderer.viewport, {
+      night: night * night * (3 - 2 * night),
+      playerPos: player.pos,
+      playerSpeed: player.speed,
+      gust: player.gust,
+      windDir: [Math.cos(windAngle), Math.sin(windAngle)],
+      windStrength: 0.68 + 0.17 * Math.sin(t * 0.13),
+    });
+    life.update(dt);
+    terrain.update(camera.position[0], camera.position[2]);
+    grass.update(camera.position[0], camera.position[2]);
+    fireflies.update(camera.position[0], camera.position[2]);
+    water.update(camera.position[0], camera.position[2]);
+    trees.update(camera.position, camera.frustum, current.drawDistance);
+    beds.update(camera.position, camera.frustum, 80 * current.drawDistance);
+    renderer.setPost({ time: t });
+    audio.update((player.speed - 7.5) / 13.5, player.altitude);
+
+    renderer.render(frame, (pass) => {
+      // Rough front-to-back for early depth rejection: blades and props first, ground last.
+      grass.encode(pass);
+      trees.encode(pass);
+      beds.encode(pass);
+      flowers.encode(pass);
+      stream.encode(pass);
+      water.encode(pass);
+      terrain.encode(pass);
+      flowers.encodeGlow(pass);
+      if (!debug.hide.fireflies) fireflies.encode(pass, night);
+    }, spans);
+
+    petalsEl.textContent = stream.count > 1 ? `${stream.count} petals` : "";
+    cpuMs = cpuMs * 0.9 + (performance.now() - frameStart) * 0.1;
+    fpsAccum += time.deltaTime;
+    fpsFrames++;
+    if (fpsAccum > 0.5) {
+      fps = fpsFrames / fpsAccum;
+      fpsAccum = 0;
+      fpsFrames = 0;
+      statsEl.textContent = current.showStats
+        ? `${fps.toFixed(0)} fps  ${(1000 / Math.max(fps, 1)).toFixed(1)} ms\n` +
+          `cpu ${cpuMs.toFixed(1)} ms${gpuTimer ? `  gpu ${gpuMs.toFixed(1)} ms` : ""}\n` +
+          `${renderer.viewport.join("x")}  ${current.preset}${current.fpsTarget ? `  cap ${current.fpsTarget}` : ""}`
+        : "";
+    }
+    adaptResolution(time.time);
+  }
+  startLoop(current.fpsTarget);
+  onFpsTarget = startLoop;
+}
+
+main().catch((e: unknown) => {
+  console.error(e);
+  showError(String((e as Error)?.message ?? e));
+});

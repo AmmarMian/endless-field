@@ -1,0 +1,15 @@
+{
+  "name": "heliophila",
+  "credit": "flower_heliophila by Poly Haven (CC0), https://polyhaven.com/a/flower_heliophila",
+  "src": "assets-src/flower_heliophila/flower_heliophila.gltf",
+  "alpha": "assets-src/flower_heliophila/textures/flower_heliophila_alpha_1k.png",
+  "out": "public/assets/plants/heliophila",
+  "scale": 1.8,
+  "target_tris": 1600,
+  "error": 0.01,
+  "bloom_color": [
+    0.85,
+    0.9,
+    1.0
+  ]
+}

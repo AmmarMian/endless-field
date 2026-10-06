@@ -1,0 +1,78 @@
+{
+  "name": "island",
+  "source": "Island Tree 02 by Poly Haven (CC0), https://polyhaven.com/a/island_tree_02",
+  "bounds": {
+    "min": [
+      -2.052000045776367,
+      -0.017000000923871994,
+      -1.1139999628067017
+    ],
+    "max": [
+      2.1549999713897705,
+      3.390000104904175,
+      2.9570000171661377
+    ]
+  },
+  "height": 3.39,
+  "canopy": {
+    "center": [
+      0.05000000074505806,
+      2.2249999046325684,
+      1.194000005722046
+    ],
+    "radius": 1.826
+  },
+  "lods": [
+    {
+      "file": "lod0.bin",
+      "vertexCount": 153235,
+      "vertexBytes": 3064700,
+      "indexCount": 308532,
+      "groups": {
+        "bark": {
+          "firstIndex": 0,
+          "indexCount": 129846
+        },
+        "leaves": {
+          "firstIndex": 129846,
+          "indexCount": 178686
+        }
+      }
+    },
+    {
+      "file": "lod1.bin",
+      "vertexCount": 44718,
+      "vertexBytes": 894360,
+      "indexCount": 82413,
+      "groups": {
+        "bark": {
+          "firstIndex": 0,
+          "indexCount": 28809
+        },
+        "leaves": {
+          "firstIndex": 28809,
+          "indexCount": 53604
+        }
+      }
+    }
+  ],
+  "lodDistances": [
+    45,
+    110
+  ],
+  "impostor": {
+    "frames": 8,
+    "cols": 4,
+    "rows": 2,
+    "tile": 512,
+    "size": 6.898,
+    "centerY": 3.432
+  },
+  "textures": {
+    "leaves": "leaves.png",
+    "trunk_diff": "trunk_diff.jpg",
+    "trunk_nor": "trunk_nor.jpg",
+    "branches_diff": "branches_diff.jpg",
+    "branches_nor": "branches_nor.jpg"
+  }
+}

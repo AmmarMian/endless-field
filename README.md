@@ -1,0 +1,65 @@
+# Endless Field
+
+A *Flower*-inspired (thatgamecompany) wind game: an endless procedural grassland rendered
+with WebGPU through [vgpu](https://github.com/vercel-labs/vgpu). You are the wind. Carry a
+stream of petals, bloom glowing flowers, and watch the dry golden field turn green behind you.
+
+## Run
+
+```sh
+npm install
+npm run dev        # http://localhost:5173
+npm run build      # typecheck + production build
+./tools/check.sh   # validate every WGSL entry shader against a real WebGPU device
+```
+
+Needs a WebGPU browser (recent Chrome / Edge / Safari).
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| Mouse / touch position | Steer |
+| Hold click / Space | Gust (speed up) |
+| Shift / W, Ctrl / S | Rise, dive |
+| A / D | Turn |
+| O | Settings (quality presets, render scale, grass density, draw distance, frame cap, auto resolution) |
+| F | Frame counter (fps, CPU and GPU ms) |
+| N | Day / night |
+
+## What is in it
+
+- **Grass**: GPU-driven. A compute pass places world-anchored blades around the camera,
+  frustum-culls them, computes wind ripples and the stream's push, and appends instances for
+  indirect draws. Three LOD rings reach the horizon with dithered crossfades.
+- **World**: endless procedural hills, subtle biomes (meadow, grove, savanna, forest), a
+  meandering river with shallows, a pebble shore and reeds, flower beds, and sparse trees on
+  crests. Terrain, river, biome and bed functions are mirrored in WGSL and TypeScript so the
+  CPU and GPU always agree.
+- **Gameplay**: closed flowers glow; passing through blooms them with a chime, adds their
+  petal to your stream and restores the land around them.
+- **Night**: moon and stars, swarming fireflies, glowing flowers and bioluminescent grass.
+- **Rendering**: HDR + 4x MSAA, reversed-Z, bloom, ACES tone mapping, GPU timers, frame cap
+  and dynamic resolution.
+
+## Asset pipeline
+
+Raw downloads go to `assets-src/` (git-ignored); built web assets live in `public/assets/`.
+
+```sh
+node tools/fetch-polyhaven.mjs jacaranda_tree 1k
+blender -b --factory-startup --python tools/blender/build_tree.py -- tools/trees/jacaranda.json
+blender -b --factory-startup --python tools/blender/build_plants.py -- tools/plants/gazania.json
+```
+
+- Trees: each leaf card is refit as a 2-triangle quad, bark is simplified with meshoptimizer,
+  and Blender bakes an 8-view impostor (albedo + normals) for far LODs.
+- Plants: variants are re-centered, simplified, and their diffuse + alpha merged with color
+  bleeding for clean mips.
+
+## Credits
+
+All third-party assets are CC0 from [Poly Haven](https://polyhaven.com):
+Jacaranda Tree, Island Tree 02, Gazania, Ursinia, Empodium, Dandelion 01, Heliophila
+(models) and Ganges River Pebbles (texture). Everything else (grass, flowers, petals, sky,
+water, audio) is procedural.

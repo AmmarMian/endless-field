@@ -1,0 +1,48 @@
+{
+  "name": "dandelion",
+  "source": "dandelion_01 by Poly Haven (CC0), https://polyhaven.com/a/dandelion_01",
+  "vertexBytes": 119820,
+  "indexCount": 17991,
+  "variants": [
+    {
+      "name": "dandelion_01_a_LOD0",
+      "firstIndex": 0,
+      "indexCount": 3600,
+      "height": 0.382,
+      "radius": 0.36
+    },
+    {
+      "name": "dandelion_01_b_LOD0",
+      "firstIndex": 3600,
+      "indexCount": 3597,
+      "height": 0.264,
+      "radius": 0.361
+    },
+    {
+      "name": "dandelion_01_c_LOD0",
+      "firstIndex": 7197,
+      "indexCount": 3600,
+      "height": 0.237,
+      "radius": 0.22
+    },
+    {
+      "name": "dandelion_01_d_LOD0",
+      "firstIndex": 10797,
+      "indexCount": 3600,
+      "height": 0.129,
+      "radius": 0.212
+    },
+    {
+      "name": "dandelion_01_e_LOD0",
+      "firstIndex": 14397,
+      "indexCount": 3594,
+      "height": 0.094,
+      "radius": 0.289
+    }
+  ],
+  "bloomColor": [
+    0.98,
+    0.8,
+    0.1
+  ]
+}

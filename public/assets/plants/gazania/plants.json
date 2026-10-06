@@ -1,0 +1,69 @@
+{
+  "name": "gazania",
+  "source": "flower_gazania by Poly Haven (CC0), https://polyhaven.com/a/flower_gazania",
+  "vertexBytes": 168400,
+  "indexCount": 19707,
+  "variants": [
+    {
+      "name": "flower_gazania_a_LOD0",
+      "firstIndex": 0,
+      "indexCount": 1248,
+      "height": 0.134,
+      "radius": 0.275
+    },
+    {
+      "name": "flower_gazania_b_LOD0",
+      "firstIndex": 1248,
+      "indexCount": 1344,
+      "height": 0.142,
+      "radius": 0.44
+    },
+    {
+      "name": "flower_gazania_c_LOD0",
+      "firstIndex": 2592,
+      "indexCount": 2256,
+      "height": 0.205,
+      "radius": 0.41
+    },
+    {
+      "name": "flower_gazania_d_LOD0",
+      "firstIndex": 4848,
+      "indexCount": 2700,
+      "height": 0.292,
+      "radius": 0.429
+    },
+    {
+      "name": "flower_gazania_h_LOD0",
+      "firstIndex": 7548,
+      "indexCount": 3621,
+      "height": 0.477,
+      "radius": 0.606
+    },
+    {
+      "name": "flower_gazania_g_LOD0",
+      "firstIndex": 11169,
+      "indexCount": 3009,
+      "height": 0.362,
+      "radius": 0.477
+    },
+    {
+      "name": "flower_gazania_f_LOD0",
+      "firstIndex": 14178,
+      "indexCount": 2835,
+      "height": 0.321,
+      "radius": 0.52
+    },
+    {
+      "name": "flower_gazania_e_LOD0",
+      "firstIndex": 17013,
+      "indexCount": 2694,
+      "height": 0.307,
+      "radius": 0.41
+    }
+  ],
+  "bloomColor": [
+    1.0,
+    0.45,
+    0.08
+  ]
+}

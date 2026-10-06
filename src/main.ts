@@ -39,8 +39,9 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
-const WIND_HINT = "arrows / WASD (ZQSD) or mouse to steer · space to gust · up / down to rise and dive · M free roam · K map";
-const EXPLORE_HINT = "free roam · WASD / ZQSD move · arrows (or click + mouse) look · shift sprint · V fly (space / C up and down) · M back to the wind · K map";
+const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
+const EXPLORE_HINT = "<kbd>WASD</kbd> move · <kbd>←</kbd><kbd>→</kbd> look · <kbd>Shift</kbd> sprint · <kbd>V</kbd> fly · <kbd>Space</kbd><kbd>C</kbd> up / down · <kbd>M</kbd> wind";
+controlsEl.innerHTML = WIND_HINT;
 
 const params = new URLSearchParams(location.search);
 
@@ -362,13 +363,13 @@ async function main(): Promise<void> {
         motes.reset();
         windTrail.reset();
       }
-      controlsEl.textContent = explore ? EXPLORE_HINT : WIND_HINT;
+      controlsEl.innerHTML = explore ? EXPLORE_HINT : WIND_HINT;
       controlsEl.classList.add("show");
       clearTimeout(hintTimer);
       hintTimer = window.setTimeout(() => controlsEl.classList.remove("show"), 7000);
     }
 
-    if (input.wasPressed("v")) {
+    if (input.wasPressed("l")) {
       const next = FILTERS[(FILTERS.indexOf(current.filter) + 1) % FILTERS.length];
       panel.set({ filter: next });
       seasonEl.textContent = FILTER_NAMES[next];

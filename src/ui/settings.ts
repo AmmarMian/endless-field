@@ -64,64 +64,121 @@ function saveSettings(s: Settings): void {
   }
 }
 
-/** Small settings panel; calls `onChange` with the full settings whenever anything changes. */
+type Row =
+  | { k: keyof Settings; label: string; type: "choice"; options: [string | number, string][] }
+  | { k: keyof Settings; label: string; type: "toggle"; on?: string; off?: string }
+  | { k: keyof Settings; label: string; type: "range"; min: number; max: number; step: number }
+  | { k: keyof Settings; label: string; type: "number" }
+  | { label: string; type: "action"; run: (p: SettingsPanel) => void }
+  | { label: string; type: "keys"; keys: string };
+
+interface Page {
+  id: string;
+  label: string;
+  icon: string;
+  rows: Row[];
+}
+
+const PAGES: Page[] = [
+  {
+    id: "look",
+    label: "Look",
+    icon: "◐",
+    rows: [
+      { k: "filter", label: "Film simulation", type: "choice", options: [["none", "Natural"], ["painterly", "Painterly"], ["watercolor", "Watercolor"], ["film", "Film"], ["miniature", "Miniature"], ["ink", "Ink wash"]] },
+      { k: "dof", label: "Depth of field", type: "toggle" },
+      { k: "bloom", label: "Bloom", type: "toggle" },
+    ],
+  },
+  {
+    id: "world",
+    label: "World",
+    icon: "△",
+    rows: [
+      { k: "seasonMode", label: "Season", type: "choice", options: [["summer", "Summer"], ["autumn", "Autumn"], ["winter", "Winter"], ["spring", "Spring"], ["cycle", "Turning"]] },
+      { k: "weather", label: "Weather", type: "choice", options: [["auto", "Showers"], ["clear", "Clear"], ["rain", "Rain"]] },
+      { k: "night", label: "Time", type: "toggle", on: "Night", off: "Day" },
+      { k: "seed", label: "World seed", type: "number" },
+      { label: "New world", type: "action", run: (p) => p.set({ seed: 1 + Math.floor(Math.random() * 999998) }) },
+    ],
+  },
+  {
+    id: "sound",
+    label: "Sound",
+    icon: "♪",
+    rows: [{ k: "music", label: "Music", type: "toggle" }],
+  },
+  {
+    id: "system",
+    label: "System",
+    icon: "▤",
+    rows: [
+      { k: "preset", label: "Quality", type: "choice", options: [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"], ["custom", "Custom"]] },
+      { k: "renderScale", label: "Render scale", type: "range", min: 0.5, max: 1, step: 0.05 },
+      { k: "autoResolution", label: "Auto resolution", type: "toggle" },
+      { k: "grass", label: "Grass density", type: "choice", options: [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["ultra", "Ultra"]] },
+      { k: "drawDistance", label: "Draw distance", type: "range", min: 0.5, max: 1.5, step: 0.05 },
+      { k: "fpsTarget", label: "Frame rate", type: "choice", options: [[0, "Display"], [60, "60"], [30, "30"]] },
+      { k: "showStats", label: "Frame counter", type: "toggle" },
+    ],
+  },
+  {
+    id: "keys",
+    label: "Keys",
+    icon: "⌘",
+    rows: [
+      { label: "Steer", type: "keys", keys: "WASD · arrows · mouse" },
+      { label: "Gust", type: "keys", keys: "Space · hold click" },
+      { label: "Rise / dive", type: "keys", keys: "↑ ↓" },
+      { label: "Free roam", type: "keys", keys: "M" },
+      { label: "Map", type: "keys", keys: "K" },
+      { label: "Film simulation", type: "keys", keys: "L" },
+      { label: "Day / night", type: "keys", keys: "N" },
+      { label: "Next season", type: "keys", keys: "Y" },
+      { label: "Rain", type: "keys", keys: "R" },
+      { label: "Frame counter", type: "keys", keys: "F" },
+      { label: "Menu", type: "keys", keys: "O" },
+    ],
+  },
+];
+
+/** Keys whose change does not turn the quality preset into "custom". */
+const FREE_KEYS = ["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter", "dof"];
+
+/**
+ * Settings, styled as a camera menu: tabbed pages of rows, each value stepped with ‹ ›.
+ * Mouse or keyboard (↑↓ select, ←→ change, Q/E or Tab page, Enter toggle, Esc close).
+ */
 export class SettingsPanel {
   private readonly root: HTMLElement;
-  private readonly fields: Record<string, HTMLInputElement | HTMLSelectElement> = {};
+  private readonly tabs: HTMLElement;
+  private readonly body: HTMLElement;
+  private readonly hint: HTMLElement;
+  private page = 0;
+  private row = 0;
 
   constructor(private settings: Settings, private readonly onChange: (s: Settings) => void) {
     const gear = document.createElement("button");
     gear.id = "gear";
-    gear.title = "Settings (O)";
-    gear.textContent = "⚙";
+    gear.title = "Menu (O)";
+    gear.innerHTML = `<span class="dot"></span>MENU`;
     this.root = document.createElement("div");
     this.root.id = "settings";
+    this.root.className = "osd";
     this.root.hidden = true;
     this.root.innerHTML = `
-      <h2>Settings</h2>
-      <label>Quality <select data-k="preset">
-        <option value="low">Low</option><option value="medium">Medium</option>
-        <option value="high">High</option><option value="ultra">Ultra</option><option value="custom">Custom</option>
-      </select></label>
-      <label>Render scale <input data-k="renderScale" type="range" min="0.5" max="1" step="0.05"><output></output></label>
-      <label>Grass density <select data-k="grass">
-        <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option>
-      </select></label>
-      <label>Draw distance <input data-k="drawDistance" type="range" min="0.5" max="1.5" step="0.05"><output></output></label>
-      <label>Target frame rate <select data-k="fpsTarget">
-        <option value="0">Display</option><option value="60">60</option><option value="30">30</option>
-      </select></label>
-      <label class="check"><input data-k="autoResolution" type="checkbox"> Auto resolution (hold frame rate)</label>
-      <label class="check"><input data-k="bloom" type="checkbox"> Bloom</label>
-      <label class="check"><input data-k="showStats" type="checkbox"> Frame counter</label>
-      <label class="check"><input data-k="night" type="checkbox"> Night</label>
-      <label class="check"><input data-k="music" type="checkbox"> Music</label>
-      <label>Season <select data-k="seasonMode">
-        <option value="cycle">Turning</option><option value="summer">Summer</option><option value="autumn">Autumn</option>
-        <option value="winter">Winter</option><option value="spring">Spring</option>
-      </select></label>
-      <label>Weather <select data-k="weather">
-        <option value="auto">Showers</option><option value="clear">Clear</option><option value="rain">Rain</option>
-      </select></label>
-      <label>Look <select data-k="filter">
-        <option value="none">Natural</option><option value="painterly">Painterly</option><option value="watercolor">Watercolor</option>
-        <option value="film">Film</option><option value="miniature">Miniature</option><option value="ink">Ink wash</option>
-      </select></label>
-      <label class="check"><input data-k="dof" type="checkbox"> Depth of field</label>
-      <label>World seed <input data-k="seed" type="number" min="0" max="999999" step="1"></label>
-      <button type="button" class="new-world">New world</button>
-      <p class="keys">O settings · F frame counter · M free roam · N day / night · Y next season · R rain · V look · K map</p>`;
+      <div class="osd-head"><span class="osd-mode">MENU</span><nav class="osd-tabs"></nav></div>
+      <div class="osd-body"></div>
+      <div class="osd-foot"></div>`;
+    this.tabs = this.root.querySelector(".osd-tabs")!;
+    this.body = this.root.querySelector(".osd-body")!;
+    this.hint = this.root.querySelector(".osd-foot")!;
     document.getElementById("hud")!.append(gear, this.root);
-    for (const el of this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-k]")) {
-      this.fields[el.dataset.k!] = el;
-      // The seed regenerates the world (a reload), so it applies on commit, not per keystroke.
-      el.addEventListener(el.dataset.k === "seed" ? "change" : "input", () => this.read(el.dataset.k!));
-    }
-    this.root.querySelector(".new-world")!.addEventListener("click", () => this.set({ seed: 1 + Math.floor(Math.random() * 999998) }));
     gear.addEventListener("click", () => this.toggle());
     // Keep clicks on the panel from reaching the game.
     for (const el of [gear, this.root]) el.addEventListener("pointerdown", (e) => e.stopPropagation());
-    this.write();
+    window.addEventListener("keydown", (e) => this.key(e), { capture: true });
+    this.render();
   }
 
   get open(): boolean {
@@ -138,41 +195,163 @@ export class SettingsPanel {
 
   set(partial: Partial<Settings>): void {
     this.settings = { ...this.settings, ...partial };
-    this.write();
+    this.commit();
+  }
+
+  private commit(): void {
     saveSettings(this.settings);
+    this.render();
     this.onChange(this.settings);
   }
 
-  private read(key: string): void {
-    const el = this.fields[key];
-    let next: Settings;
-    if (key === "preset") {
-      const p = el.value as Preset | "custom";
-      next = p === "custom" ? { ...this.settings, preset: p } : { ...this.settings, preset: p, ...PRESETS[p] };
+  /** Applies one value the way the old form did: presets fill in their values. */
+  private apply(k: keyof Settings, value: unknown): void {
+    if (k === "preset") {
+      const p = value as Preset | "custom";
+      this.settings = p === "custom" ? { ...this.settings, preset: p } : { ...this.settings, preset: p, ...PRESETS[p] };
     } else {
-      const value =
-        el instanceof HTMLInputElement && el.type === "checkbox"
-          ? el.checked
-          : (el instanceof HTMLInputElement && (el.type === "range" || el.type === "number")) || key === "fpsTarget"
-            ? Number(el.value)
-            : el.value;
-      next = { ...this.settings, [key]: value };
-      if (key === "seed") next.seed = Math.max(0, Math.floor(Number(el.value) || 0));
-      if (!["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter", "dof"].includes(key)) next.preset = "custom";
+      this.settings = { ...this.settings, [k]: value };
+      if (!FREE_KEYS.includes(k)) this.settings.preset = "custom";
     }
-    this.settings = next;
-    this.write();
-    saveSettings(next);
-    this.onChange(next);
+    this.commit();
   }
 
-  private write(): void {
-    for (const [k, el] of Object.entries(this.fields)) {
-      const v = (this.settings as unknown as Record<string, unknown>)[k];
-      if (el instanceof HTMLInputElement && el.type === "checkbox") el.checked = Boolean(v);
-      else el.value = String(v);
-      const out = el.parentElement?.querySelector("output");
-      if (out) out.textContent = Number(v).toFixed(2);
+  /** Steps a row's value by `dir` (-1 / +1); toggles flip, actions run. */
+  private step(r: Row, dir: number): void {
+    if (r.type === "action") return r.run(this);
+    if (r.type === "keys" || r.type === "number") return;
+    const v = this.settings[r.k];
+    if (r.type === "toggle") this.apply(r.k, !v);
+    else if (r.type === "range") {
+      const next = Math.round((Number(v) + dir * r.step) / r.step) * r.step;
+      this.apply(r.k, Math.min(r.max, Math.max(r.min, Number(next.toFixed(3)))));
+    } else {
+      const i = r.options.findIndex(([o]) => o === v);
+      this.apply(r.k, r.options[(i + dir + r.options.length) % r.options.length][0]);
     }
+  }
+
+  private key(e: KeyboardEvent): void {
+    if (!this.open) return;
+    const typing = e.target instanceof HTMLInputElement;
+    if (typing && e.key !== "Escape") return;
+    const rows = PAGES[this.page].rows;
+    const go = (fn: () => void) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      fn();
+      this.render();
+    };
+    switch (e.key) {
+      case "ArrowUp":
+        return go(() => (this.row = (this.row - 1 + rows.length) % rows.length));
+      case "ArrowDown":
+        return go(() => (this.row = (this.row + 1) % rows.length));
+      case "ArrowLeft":
+        return go(() => this.step(rows[this.row], -1));
+      case "ArrowRight":
+      case "Enter":
+        return go(() => this.step(rows[this.row], 1));
+      case "Tab":
+      case "e":
+      case "E":
+        return go(() => this.selectPage(this.page + (e.shiftKey ? -1 : 1)));
+      case "q":
+      case "Q":
+        return go(() => this.selectPage(this.page - 1));
+      case "Escape":
+        return go(() => {
+          (document.activeElement as HTMLElement | null)?.blur();
+          this.toggle(false);
+        });
+    }
+  }
+
+  private selectPage(i: number): void {
+    this.page = (i + PAGES.length) % PAGES.length;
+    this.row = 0;
+  }
+
+  private valueText(r: Row): string {
+    if (r.type === "action") return "▸";
+    if (r.type === "keys") return r.keys;
+    const v = this.settings[r.k];
+    if (r.type === "toggle") return v ? (r.on ?? "On") : (r.off ?? "Off");
+    if (r.type === "range") return Number(v).toFixed(2);
+    if (r.type === "choice") return r.options.find(([o]) => o === v)?.[1] ?? String(v);
+    return String(v);
+  }
+
+  private render(): void {
+    this.tabs.replaceChildren(
+      ...PAGES.map((p, i) => {
+        const t = document.createElement("button");
+        t.className = "osd-tab" + (i === this.page ? " on" : "");
+        t.innerHTML = `<i>${p.icon}</i><span>${p.label}</span>`;
+        t.addEventListener("click", () => {
+          this.selectPage(i);
+          this.render();
+        });
+        return t;
+      }),
+    );
+    const page = PAGES[this.page];
+    this.body.replaceChildren(
+      ...page.rows.map((r, i) => {
+        const el = document.createElement("div");
+        el.className = `osd-row ${r.type}` + (i === this.row ? " sel" : "");
+        const label = document.createElement("span");
+        label.className = "lbl";
+        label.textContent = r.label;
+        const val = document.createElement("span");
+        val.className = "val";
+        if (r.type === "number") {
+          const input = document.createElement("input");
+          input.type = "number";
+          input.min = "0";
+          input.max = "999999";
+          input.value = String(this.settings[r.k]);
+          // The seed regenerates the world (a reload), so it applies on commit.
+          input.addEventListener("change", () => this.apply(r.k, Math.max(0, Math.floor(Number(input.value) || 0))));
+          val.append(input);
+        } else if (r.type === "choice" || r.type === "toggle" || r.type === "range") {
+          const prev = document.createElement("button");
+          prev.textContent = "‹";
+          prev.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.row = i;
+            this.step(r, -1);
+          });
+          const next = document.createElement("button");
+          next.textContent = "›";
+          next.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.row = i;
+            this.step(r, 1);
+          });
+          const text = document.createElement("b");
+          text.textContent = this.valueText(r);
+          if (r.type === "toggle" && this.settings[r.k]) text.className = "is-on";
+          if (r.type === "range") {
+            const meter = document.createElement("span");
+            meter.className = "meter";
+            const k = (Number(this.settings[r.k]) - r.min) / (r.max - r.min);
+            meter.style.setProperty("--k", String(k));
+            val.append(prev, meter, text, next);
+          } else val.append(prev, text, next);
+        } else {
+          val.textContent = this.valueText(r);
+        }
+        el.append(label, val);
+        el.addEventListener("click", () => {
+          const was = this.row === i;
+          this.row = i;
+          if (r.type === "toggle" || r.type === "action" || (was && r.type === "choice")) this.step(r, 1);
+          else this.render();
+        });
+        return el;
+      }),
+    );
+    this.hint.innerHTML = `<span><kbd>↑</kbd><kbd>↓</kbd> select</span><span><kbd>←</kbd><kbd>→</kbd> change</span><span><kbd>Q</kbd><kbd>E</kbd> page</span><span><kbd>O</kbd> close</span>`;
   }
 }

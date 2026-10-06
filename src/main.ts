@@ -119,7 +119,6 @@ async function main(): Promise<void> {
     grass.setQuality(s.grass);
   };
   const panel = new SettingsPanel(settings, applySettings);
-  const valley = (x: number) => riverCenter(x) + riverHalfWidth(x) * 4 + 25;
   const worldMap = new WorldMap(
     document.getElementById("hud") ?? document.body,
     [
@@ -134,9 +133,6 @@ async function main(): Promise<void> {
       { label: "forest edge", x: 520, z: 120, yaw: Math.PI / 2 },
       { label: "autumn forest", x: 900, z: 120, yaw: Math.PI / 2 },
       { label: "deep forest", x: 1650, z: 150, yaw: Math.PI / 2 },
-      { label: "foothills", x: -900, z: valley(-900), yaw: -Math.PI / 2 },
-      { label: "mountains", x: -1450, z: valley(-1450), yaw: -Math.PI / 2 },
-      { label: "river source", x: SOURCE_X + 140, z: riverCenter(SOURCE_X + 140) + 18, yaw: -Math.PI / 2 },
     ],
     (x, z, yaw) => {
       start();

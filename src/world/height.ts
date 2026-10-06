@@ -68,7 +68,10 @@ function smoothstep(a: number, b: number, x: number): number {
 // ---- River (mirror of the WGSL river functions).
 export const RIVER_Z = -170;
 
-export const SOURCE_X = -1900;
+// Mountains (and the mountain source of the river) live on the mountains-dev branch; here the
+// river is a lowland river along its whole course.
+const MOUNTAINS = false;
+export const SOURCE_X = -1e6;
 const UPPER_LEN = 1500;
 
 export function riverUpper(x: number): number {
@@ -158,6 +161,7 @@ export function setMountains(layers: Float32Array[], size: number): void {
 }
 
 export function mountainZone(x: number, z: number): number {
+  if (!MOUNTAINS) return 0;
   const dist = Math.hypot(x, z);
   if (dist < 600) return 0;
   const west = 1 - smoothstep(-1500, -800, x);
@@ -187,7 +191,7 @@ function sampleLayer(layer: number, u: number, v: number): number {
 }
 
 export function mountainHeight(x: number, z: number): number {
-  if (Math.hypot(x, z) < 250) return 0;
+  if (!MOUNTAINS || Math.hypot(x, z) < 250) return 0;
   const gx = x / MTN_CELL - 0.5;
   const gz = z / MTN_CELL - 0.5;
   const bx = Math.floor(gx);

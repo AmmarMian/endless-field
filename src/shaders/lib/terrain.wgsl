@@ -54,7 +54,10 @@ fn terrainBase(xz: vec2f) -> f32 {
 export const RIVER_Z: f32 = -170.0;
 
 // The river springs from a mountain massif to the west and runs endlessly east.
-export const SOURCE_X: f32 = -1900.0;
+// Mountains (and the mountain source of the river) live on the mountains-dev branch; here the
+// river is a lowland river along its whole course.
+const MOUNTAINS = false;
+export const SOURCE_X: f32 = -1.0e6;
 const UPPER_LEN: f32 = 1500.0;
 
 // 1 at the spring, 0 once the river has come down to the lowland.
@@ -184,6 +187,9 @@ fn mtnHash(c: vec2i) -> u32 {
 
 // Range mask: zero near spawn, and broken into ranges by very low-frequency noise.
 export fn mountainZone(xz: vec2f) -> f32 {
+  if (!MOUNTAINS) {
+    return 0.0;
+  }
   let dist = length(xz);
   if (dist < 600.0) {
     return 0.0;
@@ -203,7 +209,7 @@ export fn mountainZone(xz: vec2f) -> f32 {
 
 export fn mountainHeight(xz: vec2f, tex: texture_2d_array<f32>, samp: sampler, lod: f32) -> f32 {
   // No massif reaches within ~250 m of spawn (zones start at 600 m, stamps span 1200 m).
-  if (length(xz) < 250.0) {
+  if (!MOUNTAINS || length(xz) < 250.0) {
     return 0.0;
   }
   let g = xz / MTN_CELL - 0.5;

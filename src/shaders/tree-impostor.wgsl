@@ -1,7 +1,7 @@
 // Far-tree impostor: a camera-facing billboard that blends the two nearest baked views.
 // The atlas holds `frames` orthographic views around the tree (albedo + tree-space normals).
 import { Globals } from "./lib/globals.wgsl";
-import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway } from "./lib/tree.wgsl";
 
 struct ImpostorParams {
@@ -25,6 +25,8 @@ struct ImpostorParams {
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) world: vec3f,
+  // Morning fog evaluated per vertex (see morningFog).
+  @location(14) fog: vec4f,
   @location(1) uv: vec2f,
   @location(2) @interpolate(flat) frames: vec2f,
   @location(3) blend: f32,
@@ -64,6 +66,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.world = world;
+  out.fog = morningFog(out.world, G.camPos, SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor), vec4f(G.mist, G.mistBase, G.canopy, G.time));
   out.uv = vec2f(c.x, 1.0 - c.y);
   out.frames = vec2f(f0 % imp.frames, f1 % imp.frames);
   out.blend = f - f0;
@@ -106,6 +109,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let leafy = smoothstep(0.0, 0.08, albedo.g - albedo.r);
   let rgb = mix(albedo.rgb, autumnLeaf(albedo.rgb, frag.autumn.y, frag.autumn.x), leafy) * imp.leafTint;
   var col = rgb * (ambientSky(n, s) * 0.6 + G.sunColor * (wrapDiffuse(n, l, 0.5) + back) * 0.8);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
 }

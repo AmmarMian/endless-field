@@ -190,6 +190,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   col = mix(col, rapidBody, frag.rapids * 0.85);
   col = mix(col, foamCol * mix(0.8, 1.0, white), clamp(white * 0.6 + boil * 0.75, 0.0, 1.0));
 
-  col = applyFog(col, p, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFog(col, p, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
 }

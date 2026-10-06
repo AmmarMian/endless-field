@@ -2,7 +2,7 @@
 // quadratic Bezier; NSEG picks the LOD (near blades get more segments).
 import { Globals } from "./lib/globals.wgsl";
 import { Blade, fieldColor } from "./lib/field.wgsl";
-import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFogPre, morningFog, ambientSky } from "./lib/atmosphere.wgsl";
 
 override NSEG: u32 = 5u;
 
@@ -12,6 +12,8 @@ override NSEG: u32 = 5u;
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) world: vec3f,
+  // Morning fog evaluated per vertex (see morningFog).
+  @location(14) fog: vec4f,
   @location(1) normal: vec3f,
   @location(2) t: f32,
   @location(3) color: vec3f,
@@ -109,6 +111,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   var out: VOut;
   out.pos = G.viewProj * vec4f(pos, 1.0);
   out.world = pos;
+  out.fog = morningFog(out.world, G.camPos, SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor), vec4f(G.mist, G.mistBase, G.canopy, G.time));
   out.normal = n;
   out.t = t;
   out.side = sideSign;
@@ -150,6 +153,6 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   var col = albedo * (ambientSky(n, s) * 0.55 * ao + G.sunColor * ndl * mix(0.6, 1.0, frag.t));
   col = col + G.sunColor * (trans + vec3f(spec));
   col = col + frag.glow * pow(frag.t, 6.0);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, 1.0);
 }

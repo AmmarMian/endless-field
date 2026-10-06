@@ -9,6 +9,8 @@ export class Input {
   /** True while the pointer is over UI or a menu is open: steering eases back to center. */
   suspended = false;
   private pointerDown = false;
+  /** The pointer left the window: steering eases back to straight flight. */
+  private outside = false;
   /** Keyboard steering, eased toward the held direction; owns steering until the mouse moves. */
   private keySteer = 0;
   private keyboardMode = false;
@@ -23,7 +25,10 @@ export class Input {
       target.addEventListener(type, fn as EventListener, opts);
       this.listeners.push(() => target.removeEventListener(type, fn as EventListener));
     };
+    on(document.documentElement, "pointerleave", () => (this.outside = true));
+    on(document.documentElement, "pointerenter", () => (this.outside = false));
     on(window, "pointermove", (e) => {
+      this.outside = false;
       // Moving toward the HUD (settings gear, panel) must not steer the wind.
       const overUi = (e.target as HTMLElement | null)?.closest?.("#gear, #settings") != null;
       if (overUi || this.suspended) return;
@@ -63,7 +68,7 @@ export class Input {
 
   update(dt = 1 / 60): void {
     const k = this.keys;
-    if (this.suspended) {
+    if (this.suspended || (this.outside && !this.keyboardMode)) {
       this.steerX *= 0.85;
       this.steerY *= 0.85;
     }

@@ -1,6 +1,6 @@
 // Tree meshes (LOD0/LOD1). One vertex stage; `fs_bark` / `fs_leaves` are selected per draw.
 import { Globals } from "./lib/globals.wgsl";
-import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway } from "./lib/tree.wgsl";
 
 struct TreeParams {
@@ -24,6 +24,8 @@ struct TreeParams {
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) world: vec3f,
+  // Morning fog evaluated per vertex (see morningFog).
+  @location(14) fog: vec4f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) extra: vec4f,
@@ -61,6 +63,7 @@ fn vs_main(
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.world = world;
+  out.fog = morningFog(out.world, G.camPos, SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor), vec4f(G.mist, G.mistBase, G.canopy, G.time));
   out.normal = rotateYaw(n.xyz, inst.rot.xy);
   out.uv = t;
   out.extra = e;
@@ -107,7 +110,7 @@ fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   // Darken toward the ground where grass and roots crowd the trunk.
   let ao = mix(0.45, 1.0, smoothstep(0.0, 2.5, frag.localY));
   var col = albedo * (ambientSky(n, s) * 0.55 * ao * mix(0.5, 1.0, frag.shade) + G.sunColor * wrapDiffuse(n, l, 0.2) * 0.9 * frag.shade * frag.shade);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, 1.0);
 }
 
@@ -140,6 +143,6 @@ fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec
   let diff = wrapDiffuse(n, l, 0.5);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.9;
   var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.55, 1.0, frag.shade) + G.sunColor * (diff * ao + back * (0.4 + 0.6 * ao)) * 0.85 * frag.shade);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
 }

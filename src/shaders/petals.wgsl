@@ -83,6 +83,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   var col = base * (ambientSky(n, s) * 0.7 + G.sunColor * (max(dot(n, l), 0.0) * 0.6 + back * 0.6 + 0.08));
   // Daylight: lit naturally with only a faint self-glow; the glow grows at night.
   col = col + base * (mix(0.0, 0.7, G.night) + 0.1 * frag.glow);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, alpha);
 }

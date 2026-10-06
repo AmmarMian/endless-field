@@ -227,6 +227,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Backlit sheen: blades glow when the sun is behind them, strongest at grazing angles.
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * mix(1.0, 0.5, ndv);
   col = col + G.sunColor * albedo * back * 0.9 * farMix * mix(1.0, wave, grassy);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
 }

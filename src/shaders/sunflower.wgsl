@@ -3,7 +3,7 @@
 // rides on the stem tip, tilting with the tip slope and twisting with the torsion mode;
 // leaves and petals add their own flutter driven by the local wind speed.
 import { Globals } from "./lib/globals.wgsl";
-import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { lodKeep, rotateYaw } from "./lib/tree.wgsl";
 
 struct Plant {
@@ -29,6 +29,8 @@ struct State {
 struct VOut {
   @builtin(position) pos: vec4f,
   @location(0) world: vec3f,
+  // Morning fog evaluated per vertex (see morningFog).
+  @location(14) fog: vec4f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) ao: f32,
@@ -110,6 +112,7 @@ fn vs_main(
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.world = world;
+  out.fog = morningFog(out.world, G.camPos, SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor), vec4f(G.mist, G.mistBase, G.canopy, G.time));
   out.normal = rotateYaw(nrm, cs);
   out.uv = t;
   out.ao = e.z;
@@ -169,6 +172,6 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   // At night the petals hold a faint warm glow so the field stays readable in the dark.
   let petalLike = select(0.0, 1.0, frag.part == 3u) + select(0.0, smoothstep(0.25, 0.6, albedo.r - albedo.b), frag.part == 2u && front);
   col = col + albedo * vec3f(1.0, 0.75, 0.35) * petalLike * G.night * 0.14;
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
 }

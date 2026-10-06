@@ -178,6 +178,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   }
   var col = frag.albedo * (ambientSky(n, s) * 0.6 + G.sunColor * (ndl * 0.85 + back * trans * 0.5));
   col = col + frag.emissive;
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
 }

@@ -1,3 +1,4 @@
+import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 // Sky gradient, sun and aerial perspective. The sky pass and every surface's fog share
 // these functions so distant geometry dissolves into exactly the sky behind it.
 
@@ -31,25 +32,82 @@ export fn sunDisk(dir: vec3f, s: SkyParams) -> vec3f {
 }
 
 // Height-attenuated exponential fog toward the sky color in the view direction.
-export fn applyFog(colIn: vec3f, worldPos: vec3f, camPos: vec3f, density: f32, s: SkyParams, mist: vec3f) -> vec3f {
+// Henyey-Greenstein phase function (g > 0 scatters forward, toward the light).
+fn hgPhase(cosT: f32, g: f32) -> f32 {
+  let g2 = g * g;
+  return (1.0 - g2) / (12.566371 * pow(max(1.0 + g2 - 2.0 * g * cosT, 1e-4), 1.5));
+}
+
+// Morning fog density (1/m) at a point: radiation fog pooled under an inversion cap over the
+// eastern forest, broken into drifting banks.
+fn fogDensity(p: vec3f, cap: f32, t: f32, boost: f32) -> f32 {
+  let forest = smoothstep(300.0, 900.0, p.x);
+  if (forest <= 0.0) {
+    return 0.0;
+  }
+  // Under the cap the air is saturated; above it the fog thins within a few meters.
+  let layer = 1.0 - smoothstep(cap - 6.0, cap + 4.0, p.y);
+  let drift = vec2f(0.8, 0.6) * t * 0.6;
+  // Fog banks tens of meters across, drifting downwind and slowly reshaping with height.
+  let banks = simplex2d((p.xz - drift) * 0.016 + vec2f(p.y * 0.03, 0.0));
+  let cover = smoothstep(-0.5, 0.6, banks);
+  return (0.012 + 0.02 * boost) * forest * layer * cover;
+}
+
+// Morning fog along the view ray to `worldPos`: rgb = in-scattered light, a = transmittance.
+// Smooth in space, so overdraw-heavy shaders (grass, leaves) evaluate it per vertex.
+// mist: x = local fog boost near the camera, y = ground height under the camera,
+// z = canopy gloom around the camera, w = time.
+export fn morningFog(worldPos: vec3f, camPos: vec3f, s: SkyParams, mist: vec4f) -> vec4f {
   let d = worldPos - camPos;
   let dist = length(d);
   let dir = d / max(dist, 1e-4);
-  var col = colIn;
-  // Ground mist: a dense layer hugging the ground (base mist.y), lit by forward-scattered sun.
-  if (mist.x > 0.001) {
-    let mk = 0.11;
-    let km = mk * dir.y;
-    var optM = dist;
-    if (abs(km) > 1e-4) {
-      optM = (1.0 - exp(-km * dist)) / km;
-    }
-    let amountM = 1.0 - exp(-mist.x * 0.016 * exp(-mk * max(camPos.y - mist.y, -25.0)) * optM);
-    let fwd = pow(max(dot(dir, s.sunDir), 0.0), 5.0);
-    // mist.z: canopy gloom around the camera darkens the mist in the deep forest.
-    let mistCol = (mix(s.horizon * 0.55 + s.zenith * 0.25, s.sunColor * 0.5, 0.35) + s.sunColor * 0.45 * fwd) * mix(1.0, 0.32, mist.z);
-    col = mix(col, mistCol, clamp(amountM, 0.0, 0.85));
+  // Fog pools under an inversion cap ~16 m above the local ground, and only forms over the
+  // forest (x > 300): only the part of the ray inside that slab is marched.
+  let cap = mist.y + 16.0;
+  let top = cap + 4.0;
+  if (max(camPos.x, worldPos.x) <= 300.0 || min(camPos.y, worldPos.y) >= top) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
   }
+  var t0 = 0.0;
+  var t1 = min(dist, 700.0);
+  if (camPos.y > top) {
+    t0 = (top - camPos.y) / min(dir.y, -1e-4);
+  } else if (dir.y > 1e-4) {
+    t1 = min(t1, (top - camPos.y) / dir.y);
+  }
+  if (t1 <= t0) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  // Banks vary over tens of meters, so three samples integrate the slab well.
+  let steps = 3;
+  let dt = (t1 - t0) / f32(steps);
+  var trans = 1.0;
+  var light = vec3f(0.0);
+  let cosT = dot(dir, s.sunDir);
+  // Sun light reaching into the fog (the canopy dims it), plus sky light from above.
+  let sunIn = s.sunColor * (hgPhase(cosT, 0.6) * 9.0 + 0.25) * mix(1.0, 0.35, mist.z);
+  let skyIn = (s.horizon * 0.6 + s.zenith * 0.4) * mix(1.0, 0.45, mist.z);
+  for (var i = 0; i < steps; i = i + 1) {
+    let tt = t0 + (f32(i) + 0.5) * dt;
+    let rho = fogDensity(camPos + dir * tt, cap, mist.w, mist.x);
+    let a = 1.0 - exp(-rho * dt);
+    light = light + trans * a * (sunIn + skyIn);
+    trans = trans * (1.0 - a);
+  }
+  return vec4f(light, trans);
+}
+
+export fn applyFog(colIn: vec3f, worldPos: vec3f, camPos: vec3f, density: f32, s: SkyParams, mist: vec4f) -> vec3f {
+  return applyFogPre(colIn, worldPos, camPos, density, s, morningFog(worldPos, camPos, s, mist));
+}
+
+// applyFog with the morning fog already evaluated (e.g. interpolated from the vertices).
+export fn applyFogPre(colIn: vec3f, worldPos: vec3f, camPos: vec3f, density: f32, s: SkyParams, fog: vec4f) -> vec3f {
+  let d = worldPos - camPos;
+  let dist = length(d);
+  let dir = d / max(dist, 1e-4);
+  let col = colIn * fog.a + fog.rgb;
   let heightFall = 0.018;
   let h0 = camPos.y;
   // Analytic integral of density * exp(-heightFall * y) along the ray.

@@ -177,7 +177,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     let gravel = vec3f(0.29, 0.25, 0.19) * mix(0.7, 1.15, fine) * mix(0.85, 1.08, coarse);
     let stoneN = simplex2d(xz * 1.4 + vec2f(4.0, -2.0));
     let stone = vec3f(0.36, 0.34, 0.31) * mix(0.85, 1.1, simplex2d(xz * 3.3) * 0.5 + 0.5);
-    let pathCol = mix(gravel, stone, smoothstep(0.55, 0.6, stoneN) * (1.0 - smoothstep(0.6, 1.0, pd / PATH_WIDTH)));
+    // Raked-looking gravel: fine grain, a few larger pebbles.
+    let pebble = smoothstep(0.62, 0.7, simplex2d(xz * 11.0 + vec2f(2.0, 7.0)) * 0.5 + 0.5);
+    let pathCol = mix(gravel, stone * 1.05, pebble * 0.6 + 0.0 * stoneN);
     albedo = mix(albedo, pathCol, pathAmt * (1.0 - farMix * 0.3));
   }
   // Alpine zones on the mountains: short turf, then scree and rock on steep ground, and snow

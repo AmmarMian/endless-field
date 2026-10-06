@@ -25,6 +25,7 @@ import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
 import { SUNFLOWERS, Sunflowers, gradeSunflowerField } from "./world/sunflowers";
 import { Lanterns } from "./world/lanterns";
+import { Torii } from "./world/torii";
 import { PATH, pathZ } from "./world/lantern-path";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -85,13 +86,14 @@ async function main(): Promise<void> {
   const camera = new Camera();
   const input = new Input(canvas);
   const audio = new Audio();
-  const [trees, beds, water, undergrowth, sunflowers, lanterns] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii] = await Promise.all([
     Trees.load(gpu, globals.uniforms),
     FlowerBeds.load(gpu, globals.uniforms, life.buffer),
     Water.load(gpu, globals.uniforms),
     Undergrowth.load(gpu, globals.uniforms, life.buffer),
     Sunflowers.load(gpu, globals.uniforms),
     Lanterns.load(gpu, globals.uniforms),
+    Torii.load(gpu, globals.uniforms),
   ]);
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
@@ -120,7 +122,7 @@ async function main(): Promise<void> {
   stream.add(player.pos, PALETTES[0]);
 
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
   );
 
   let playing = false;
@@ -302,12 +304,13 @@ async function main(): Promise<void> {
 
     // Seasons: the year turns in ~20 minutes, each bloom nudges it on; or one is held.
     if (input.wasPressed("y")) {
-      if (current.season !== "cycle") panel.set({ season: "cycle" });
-      season = (Math.floor(season + 0.5) + 1) % 4;
+      // Next season: held seasons step to the next one; a turning year jumps ahead.
+      if (current.seasonMode === "cycle") season = (Math.floor(season + 0.5) + 1) % 4;
+      else panel.set({ seasonMode: SEASONS[(SEASONS.indexOf(current.seasonMode) + 1) % 4] });
     }
-    if (current.season === "cycle") season = (season + dt * (4 / 1200)) % 4;
+    if (current.seasonMode === "cycle") season = (season + dt * (4 / 1200)) % 4;
     else {
-      const target = SEASONS.indexOf(current.season);
+      const target = SEASONS.indexOf(current.seasonMode);
       let d = target - season;
       d -= Math.round(d / 4) * 4;
       season = (season + Math.sign(d) * Math.min(Math.abs(d), dt * 0.5) + 4) % 4;
@@ -374,7 +377,7 @@ async function main(): Promise<void> {
         stream.add([f.x, f.y + f.height, f.z], f.color);
         life.bloom(f.x, f.z, 9 + Math.random() * 4);
         audio.bloom();
-        if (current.season === "cycle") season = (season + 0.02) % 4;
+        if (current.seasonMode === "cycle") season = (season + 0.02) % 4;
       }
       for (const c of flowers.completedClusters(touched)) {
         life.bloom(c.x, c.z, 34, 7);
@@ -486,6 +489,7 @@ async function main(): Promise<void> {
       if (!debug.hide.beds) beds.encode(pass);
       if (!debug.hide.sunflowers) sunflowers.encode(pass);
       lanterns.encode(pass);
+      torii.encode(pass);
       undergrowth.encode(pass);
       flowers.encode(pass);
       if (!explore) stream.encode(pass);

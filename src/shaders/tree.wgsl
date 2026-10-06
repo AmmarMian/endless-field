@@ -1,6 +1,6 @@
 // Tree meshes (LOD0/LOD1). One vertex stage; `fs_bark` / `fs_leaves` are selected per draw.
 import { SNOW, seasonHash, seasonWeights, springLeaf } from "./lib/season.wgsl";
-import { Globals } from "./lib/globals.wgsl";
+import { Globals, TRAIL_LEN } from "./lib/globals.wgsl";
 import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway, windGust } from "./lib/tree.wgsl";
@@ -89,11 +89,30 @@ fn vs_main(
   );
   let windW = vec3f(G.windDir.x, 0.0, G.windDir.y);
   world = world + (branch * 0.05 + windW * 0.06 * gust) * reach * strength * scale;
+  // The player's wind: passing through or beside a tree pushes its leaves and twigs away from
+  // the trail and sets the leaves rustling (as the grass parts).
+  var rustle = 0.0;
+  if (distance(inst.root.xz, G.playerPos.xz) < 25.0) {
+    var push = vec3f(0.0);
+    for (var i = 0u; i < TRAIL_LEN; i = i + 1u) {
+      let tp = G.trail[i];
+      if (tp.w <= 0.001) {
+        continue;
+      }
+      let d = world - tp.xyz;
+      let d2 = dot(d, d);
+      let radius = 3.2 + G.gust * 2.0;
+      push = push + d / max(sqrt(d2), 0.1) * exp(-d2 / (radius * radius)) * tp.w;
+    }
+    let pl = length(push);
+    rustle = min(pl, 1.5);
+    world = world + push * 0.22 * clamp(0.3 + reach, 0.0, 1.3) * select(0.35, 1.0, e.w > 0.9);
+  }
   if (e.w > 0.9) {
     let ph = e.y * 6.2831 + dot(local, vec3f(3.1, 2.3, 2.7));
     let flutter = sin(G.time * (7.0 + e.y * 5.0) + ph) * 0.7 + sin(G.time * 12.5 + ph * 1.7) * 0.3;
     let wn = rotateYaw(n.xyz, inst.rot.xy);
-    world = world + wn * flutter * 0.045 * scale * (0.25 + strength * 1.1) * clamp(0.4 + reach, 0.0, 1.2);
+    world = world + wn * flutter * 0.045 * scale * (0.25 + strength * 1.1 + rustle * 1.6) * clamp(0.4 + reach, 0.0, 1.2);
   }
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);

@@ -13,13 +13,13 @@ export interface Settings {
   /** 0 = follow the display refresh rate. */
   fpsTarget: number;
   autoResolution: boolean;
-  /** "cycle" turns the seasons; otherwise one season is held. */
-  season: "cycle" | "summer" | "autumn" | "winter" | "spring";
+  /** "cycle" turns the seasons; otherwise one season is held (the default: summer). */
+  seasonMode: "cycle" | "summer" | "autumn" | "winter" | "spring";
   /** World seed: 0 is the original landscape; any other value generates a different one. */
   seed: number;
 }
 
-export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "night" | "fpsTarget" | "autoResolution" | "seed" | "season">> = {
+export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "night" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode">> = {
   low: { renderScale: 0.6, grass: "low", drawDistance: 0.7, bloom: false },
   medium: { renderScale: 0.8, grass: "medium", drawDistance: 0.9, bloom: true },
   high: { renderScale: 1, grass: "high", drawDistance: 1, bloom: true },
@@ -32,7 +32,7 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "medium" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, season: "cycle" };
+  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer" };
 }
 
 export function loadSettings(): Settings {
@@ -84,7 +84,7 @@ export class SettingsPanel {
       <label class="check"><input data-k="bloom" type="checkbox"> Bloom</label>
       <label class="check"><input data-k="showStats" type="checkbox"> Frame counter</label>
       <label class="check"><input data-k="night" type="checkbox"> Night</label>
-      <label>Season <select data-k="season">
+      <label>Season <select data-k="seasonMode">
         <option value="cycle">Turning</option><option value="summer">Summer</option><option value="autumn">Autumn</option>
         <option value="winter">Winter</option><option value="spring">Spring</option>
       </select></label>
@@ -138,7 +138,7 @@ export class SettingsPanel {
             : el.value;
       next = { ...this.settings, [key]: value };
       if (key === "seed") next.seed = Math.max(0, Math.floor(Number(el.value) || 0));
-      if (!["showStats", "night", "fpsTarget", "autoResolution", "seed", "season"].includes(key)) next.preset = "custom";
+      if (!["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode"].includes(key)) next.preset = "custom";
     }
     this.settings = next;
     this.write();

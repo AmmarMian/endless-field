@@ -82,7 +82,7 @@ export class Lanterns {
     const n = this.items.length;
     out[3] = n;
     out[7] = this.items[0].x;
-    out[11] = n > 1 ? (this.items[n - 1].x - this.items[0].x) / (n - 1) : 1;
+    out[11] = n > 1 ? (this.items[this.items.length - 1].x - this.items[0].x) / (this.items.length - 1) : 1;
   }
 
   /** Lit state, flare (decays after a touch), and the current in-order chain. */

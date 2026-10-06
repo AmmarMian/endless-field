@@ -2,7 +2,8 @@ import { draw, geometry, sampler, storage, type Draw, type FramePass, type Gpu, 
 import plantShader from "../shaders/plants.wgsl";
 import { loadTexture } from "../engine/textures";
 import { ecology } from "./ecology";
-import { riverInfo, terrainHeightM } from "./height";
+import { biome, canopyLight } from "./biome";
+import { riverBed, riverInfo, riverUpper, terrainHeightM } from "./height";
 
 /** Per-species shading: dry tint before restoration, and night glow of non-leaf texels. */
 interface SpeciesDef {
@@ -18,16 +19,22 @@ const DEFS: SpeciesDef[] = [
   { name: "mushrooms", dryTint: 0, nightGlow: 1.6, range: 60 },
   { name: "logs", dryTint: 0, nightGlow: 0, range: 220 },
   { name: "rocks", dryTint: 0, nightGlow: 0, range: 260 },
+  { name: "lilies", dryTint: 0, nightGlow: 0.9, range: 120 },
+  { name: "irises", dryTint: 0.4, nightGlow: 0.6, range: 110 },
+  { name: "riverrocks", dryTint: 0, nightGlow: 0, range: 220 },
 ];
 const FERN = 0;
 const MUSHROOMS = 1;
 const LOGS = 2;
 const ROCKS = 3;
+const LILIES = 4;
+const IRISES = 5;
+const RIVERROCKS = 6;
 
 const CELL = 24;
 const LOAD_RADIUS = 280;
 const MAX = 32768;
-const STRIDE = 8;
+const STRIDE = 12;
 const PER_FRAME = 10;
 
 interface Variant {
@@ -37,6 +44,7 @@ interface Variant {
 }
 
 interface Item {
+  shade: number;
   species: number;
   variant: number;
   x: number;
@@ -127,20 +135,24 @@ export class Undergrowth {
     const z0 = cz * CELL;
     const eco = ecology(x0 + CELL / 2, z0 + CELL / 2);
     const out: Item[] = [];
-    const place = (species: number, x: number, z: number, scale: number, sink = 0, variant = -1) => {
-      const [d, , hw] = riverInfo(x, z);
-      if (d < hw * 1.3) return;
+    const place = (species: number, x: number, z: number, scale: number, sink = 0, variant = -1, y?: number) => {
+      if (y === undefined) {
+        const [d, , hw] = riverInfo(x, z);
+        if (d < hw * 1.3) return;
+      }
       out.push({
+        shade: canopyLight(x, biome(x, z)[2]),
         species,
         variant: variant >= 0 ? variant : Math.floor(r() * this.variantCount(species)),
         x,
-        y: terrainHeightM(x, z) - sink * scale,
+        y: (y ?? terrainHeightM(x, z)) - sink * scale,
         z,
         scale,
         yaw: r() * Math.PI * 2,
         seed: r(),
       });
     };
+    this.riverLife(x0, z0, r, place);
     if (eco.temperature < 0.25) return out;
     const shade = eco.forest + Math.max(0, eco.moisture - 0.55) * 1.2;
 
@@ -172,6 +184,37 @@ export class Undergrowth {
       for (let i = 0; i < n; i++) place(ROCKS, x0 + r() * CELL, z0 + r() * CELL, 0.5 + r() * 0.9 + eco.elevation / 200, 0.3);
     }
     return out;
+  }
+
+  /** Lilies on calm lowland water, irises along the waterline, boulders in the channel. */
+  private riverLife(
+    x0: number,
+    z0: number,
+    r: () => number,
+    place: (species: number, x: number, z: number, scale: number, sink?: number, variant?: number, y?: number) => void,
+  ): void {
+    const [dc, , hwc] = riverInfo(x0 + CELL / 2, z0 + CELL / 2);
+    if (dc > hwc * 2 + CELL) return;
+    const tries = 26;
+    for (let i = 0; i < tries; i++) {
+      const x = x0 + r() * CELL;
+      const z = z0 + r() * CELL;
+      const [d, water, hw, px] = riverInfo(x, z);
+      const k = d / hw;
+      const upper = riverUpper(px);
+      if (k < 0.95 && k > 0.45 && upper < 0.05 && r() < 0.35) {
+        // Lily pads float where the current slackens near the banks.
+        place(LILIES, x, z, 0.8 + r() * 0.5, 0, -1, water + 0.05);
+      } else if (k > 0.85 && k < 1.45 && r() < 0.25) {
+        place(IRISES, x, z, 0.8 + r() * 0.5, 0, -1, terrainHeightM(x, z) - 0.05);
+      } else if (k < 1.1 && r() < (upper > 0.05 ? 0.2 : 0.05)) {
+        // Boulders sit half-buried in the bed, breaking the surface in the mountain stream.
+        const bed = riverBed(Math.min(d, hw), water, hw, upper);
+        place(RIVERROCKS, x, z, 0.6 + r() * (upper > 0.05 ? 1.1 : 0.6), 0.35, -1, bed + 0.2);
+      } else if (k > 1.0 && k < 1.8 && r() < 0.08) {
+        place(RIVERROCKS, x, z, 0.4 + r() * 0.5, 0.3, -1, terrainHeightM(x, z));
+      }
+    }
   }
 
   private stream(px: number, pz: number): void {
@@ -228,7 +271,7 @@ export class Undergrowth {
           if (n >= MAX) break;
           const d = Math.hypot(it.x - cam[0], it.z - cam[2]);
           const fade = Math.min(1, Math.max(0, (range - d) / (range * 0.2)));
-          s.data.set([it.x, it.y, it.z, it.scale, Math.cos(it.yaw), Math.sin(it.yaw), it.seed, fade], n * STRIDE);
+          s.data.set([it.x, it.y, it.z, it.scale, Math.cos(it.yaw), Math.sin(it.yaw), it.seed, fade, 0, it.shade, 0, 0], n * STRIDE);
           n++;
         }
         s.counts[vi] = n - s.firsts[vi];

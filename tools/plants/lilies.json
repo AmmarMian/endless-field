@@ -1,0 +1,9 @@
+{
+  "name": "lilies",
+  "src": "assets-src/props/lilies/lilies.gltf",
+  "scale": 1.0,
+  "target_tris": 1200,
+  "credit": "Modeled in Blender (tools/blender/model_river.py)",
+  "out": "public/assets/plants/lilies",
+  "error": 0.01
+}

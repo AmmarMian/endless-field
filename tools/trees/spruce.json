@@ -4,10 +4,25 @@
   "src": "assets-src/spruce_a/spruce_a.gltf",
   "alpha": "assets-src/spruce_a/twig_alpha.png",
   "out": "public/assets/trees/spruce",
-  "lod0": { "trunk": 1.0, "branches": 0.7, "error": 0.004 },
-  "lod1": { "trunk": 0.3, "branches": 0.15, "error": 0.02 },
+  "lod0": {
+    "trunk": 1.0,
+    "branches": 0.7,
+    "error": 0.004
+  },
+  "lod1": {
+    "trunk": 0.3,
+    "branches": 0.15,
+    "error": 0.02
+  },
   "lod1_leaf_keep": 0.4,
-  "lod_distances": [40, 110],
-  "impostor": { "frames": 8, "cols": 4, "tile": 512 },
+  "lod_distances": [
+    46,
+    120
+  ],
+  "impostor": {
+    "frames": 8,
+    "cols": 4,
+    "tile": 512
+  },
   "seed": 5
 }

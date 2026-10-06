@@ -2,13 +2,14 @@
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { LifeCell, lifeIndex, lifeKey } from "./lib/field.wgsl";
-import { biome, canopyLight } from "./lib/biome.wgsl";
 
 struct Plant {
   // xyz = root, w = scale
   root: vec4f,
   // xy = (cos, sin) yaw, z = seed, w = distance fade
   rot: vec4f,
+  // y = light under the canopy (computed once on the CPU)
+  env: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -68,7 +69,7 @@ fn vs_main(
   let cell = vec2i(floor(inst.root.xz));
   let lc = life[lifeIndex(cell)];
   out.life = select(0.0, lc.life, lc.key == lifeKey(cell));
-  out.shade = canopyLight(inst.root.x, biome(inst.root.xz).z);
+  out.shade = inst.env.y;
   return out;
 }
 

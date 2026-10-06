@@ -1,13 +1,13 @@
 // Tree meshes (LOD0/LOD1). One vertex stage; `fs_bark` / `fs_leaves` are selected per draw.
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
-import { TreeInstance, rotateYaw, treeSway } from "./lib/tree.wgsl";
-import { biome, canopyLight } from "./lib/biome.wgsl";
+import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway } from "./lib/tree.wgsl";
 
 struct TreeParams {
   height: f32,
   leafTint: f32,
-  pad0: f32,
+  // 1 for broadleaf species that turn in autumn, 0 for evergreens.
+  deciduous: f32,
   pad1: f32,
 }
 
@@ -30,6 +30,8 @@ struct VOut {
   @location(4) @interpolate(flat) seed: f32,
   @location(5) localY: f32,
   @location(6) shade: f32,
+  @location(7) @interpolate(flat) autumn: f32,
+  @location(8) @interpolate(flat) lodFade: f32,
 }
 
 fn sky() -> SkyParams {
@@ -66,7 +68,9 @@ fn vs_main(
   out.localY = local.y * scale;
   // Under the canopy (lower ~60% of the tree) the forest's shade applies; crowns stay lit.
   let under = 1.0 - smoothstep(0.35, 0.75, heightN);
-  out.shade = mix(1.0, canopyLight(inst.root.x, biome(inst.root.xz).z), under);
+  out.shade = mix(1.0, inst.env.y, under);
+  out.autumn = inst.env.x * tree.deciduous;
+  out.lodFade = inst.rot.w;
   return out;
 }
 
@@ -86,6 +90,9 @@ fn perturb(n: vec3f, world: vec3f, uv: vec2f, tn: vec3f) -> vec3f {
 
 @fragment
 fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
+  if (!lodKeep(frag.lodFade, frag.pos.xy)) {
+    discard;
+  }
   let s = sky();
   var n = normalize(frag.normal);
   if (!front) {
@@ -106,6 +113,9 @@ fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
 
 @fragment
 fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
+  if (!lodKeep(frag.lodFade, frag.pos.xy)) {
+    discard;
+  }
   let s = sky();
   let texel = textureSample(leaves, samp, frag.uv);
   // Crisp alpha-to-coverage: sharpen alpha to a ~1px ramp, and boost it in smaller mips so
@@ -126,7 +136,7 @@ fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec
   let l = G.sunDir;
   let ao = frag.extra.z;
   let hue = 0.92 + 0.16 * fract(frag.seed * 7.13);
-  let albedo = texel.rgb * hue * tree.leafTint;
+  let albedo = autumnLeaf(texel.rgb * hue * tree.leafTint, frag.seed, frag.autumn);
   let diff = wrapDiffuse(n, l, 0.5);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.9;
   var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.55, 1.0, frag.shade) + G.sunColor * (diff * ao + back * (0.4 + 0.6 * ao)) * 0.85 * frag.shade);

@@ -1,0 +1,41 @@
+{
+  "name": "riverrocks",
+  "source": "Modeled in Blender; lichen_rock texture by Poly Haven (CC0)",
+  "vertexBytes": 18240,
+  "indexCount": 3840,
+  "variants": [
+    {
+      "name": "riverrock_0",
+      "firstIndex": 0,
+      "indexCount": 960,
+      "height": 0.231,
+      "radius": 0.584
+    },
+    {
+      "name": "riverrock_1",
+      "firstIndex": 960,
+      "indexCount": 960,
+      "height": 0.459,
+      "radius": 1.145
+    },
+    {
+      "name": "riverrock_2",
+      "firstIndex": 1920,
+      "indexCount": 960,
+      "height": 0.76,
+      "radius": 2.156
+    },
+    {
+      "name": "riverrock_3",
+      "firstIndex": 2880,
+      "indexCount": 960,
+      "height": 0.186,
+      "radius": 0.396
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

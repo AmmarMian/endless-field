@@ -18,71 +18,51 @@ const BLADE_BYTES = 64;
 export interface GrassLodConfig {
   label: string;
   segments: number;
-  spacing: number;
+  /** Finest grid spacing (blade identity), and this ring's multiple of it. */
+  baseSpacing: number;
+  k: number;
+  /** Multiple of the next (coarser) ring, 0 for the last ring. */
+  kNext: number;
   rInner: number;
   rOuter: number;
   fade: number;
   widthScale: number;
+  widthNext: number;
   heightScale: number;
-  thinStart: number;
-  thinEnd: number;
-  thinMin: number;
 }
 
 export type GrassQuality = "low" | "medium" | "high" | "ultra";
 
+/**
+ * Nested LOD rings: each ring keeps every 3rd blade (per axis) of the ring inside it, so a
+ * blade keeps its place and shape as it moves between rings; only the extra blades of a
+ * ring fade out at its outer edge, and the survivors widen to keep the field covered.
+ */
 export function grassLods(quality: GrassQuality): GrassLodConfig[] {
-  const nearSpacing = { low: 0.15, medium: 0.115, high: 0.09, ultra: 0.075 }[quality];
-  const farSpacing = { low: 0.42, medium: 0.33, high: 0.27, ultra: 0.23 }[quality];
-  const nearRadius = { low: 20, medium: 26, high: 30, ultra: 36 }[quality];
-  const horizonSpacing = { low: 1, medium: 0.95, high: 0.8, ultra: 0.65 }[quality];
-  const horizonRadius = { low: 0, medium: 200, high: 260, ultra: 300 }[quality];
-  return [
-    {
-      label: "grass-near",
-      segments: 7,
-      spacing: nearSpacing,
-      rInner: 0,
-      rOuter: nearRadius,
-      fade: 4,
-      widthScale: 1,
-      heightScale: 1,
-      thinStart: 1e5,
-      thinEnd: 2e5,
-      thinMin: 1,
-    },
-    {
-      label: "grass-far",
-      segments: 2,
-      spacing: farSpacing,
-      rInner: nearRadius,
-      rOuter: 130,
-      fade: 4,
-      widthScale: farSpacing / nearSpacing * 0.75,
-      heightScale: 1,
-      thinStart: nearRadius + 10,
-      thinEnd: 130,
-      thinMin: 0.4,
-    },
-    // Horizon ring: very sparse, wide blades so the field reaches the fog when flying high.
-    ...(quality === "low"
-      ? []
-      : [
-          {
-            label: "grass-horizon",
-            segments: 2,
-            spacing: horizonSpacing,
-            rInner: 124,
-            rOuter: horizonRadius,
-            fade: 6,
-            widthScale: (horizonSpacing / nearSpacing) * 0.6,
-            heightScale: 1.1,
-            thinStart: 130,
-            thinEnd: horizonRadius,
-            thinMin: 0.45,
-          },
-        ]),
-  ];
+  const base = { low: 0.15, medium: 0.115, high: 0.09, ultra: 0.075 }[quality];
+  const radii = {
+    low: [24, 70, 140],
+    medium: [32, 85, 160, 250],
+    high: [42, 100, 180, 320],
+    ultra: [55, 120, 200, 340],
+  }[quality];
+  const widths = [1, 2.25, 6, 16];
+  return radii.map((rOuter, i) => {
+    const last = i === radii.length - 1;
+    return {
+      label: ["grass-near", "grass-mid", "grass-far", "grass-horizon"][i],
+      segments: i === 0 ? 7 : i === 1 ? 3 : 2,
+      baseSpacing: base,
+      k: 3 ** i,
+      kNext: last ? 0 : 3 ** (i + 1),
+      rInner: i === 0 ? 0 : radii[i - 1],
+      rOuter,
+      fade: last ? rOuter * 0.35 : Math.min(10, (rOuter - (i === 0 ? 0 : radii[i - 1])) * 0.3),
+      widthScale: widths[i],
+      widthNext: last ? widths[i] : widths[i + 1],
+      heightScale: i === 3 ? 1.1 : 1,
+    };
+  });
 }
 
 interface Lod {
@@ -125,7 +105,8 @@ export class Grass {
   private build(quality: GrassQuality): void {
     const { gpu, globals, life, mountains } = this;
     this.lods = grassLods(quality).map((config) => {
-      const gridSize = Math.ceil((config.rOuter * 2) / config.spacing) + 2;
+      const spacing = config.baseSpacing * config.k;
+      const gridSize = Math.ceil((config.rOuter * 2) / spacing) + 2;
       const blades = storage(gpu, gridSize * gridSize * BLADE_BYTES, "read-write");
       const args = storage(gpu, 16, { indirect: true });
       const verts = (2 * (config.segments - 1) + 1) * 3;
@@ -136,15 +117,19 @@ export class Grass {
           P: {
             centerCell: [0, 0],
             gridSize,
-            spacing: config.spacing,
+            spacing,
             rInner: config.rInner,
             rOuter: config.rOuter,
             fade: config.fade,
             widthScale: config.widthScale,
             heightScale: config.heightScale,
-            thinStart: config.thinStart,
-            thinEnd: config.thinEnd,
-            thinMin: config.thinMin,
+            thinStart: 0,
+            thinEnd: 1,
+            thinMin: 1,
+            baseSpacing: config.baseSpacing,
+            k: config.k,
+            kNext: config.kNext,
+            widthNext: config.widthNext,
           },
           blades,
           args,
@@ -172,7 +157,7 @@ export class Grass {
     for (const lod of this.lods) {
       lod.args.write(lod.reset);
       lod.cull.set({
-        P: { centerCell: [Math.round(camX / lod.config.spacing), Math.round(camZ / lod.config.spacing)] },
+        P: { centerCell: [Math.round(camX / (lod.config.baseSpacing * lod.config.k)), Math.round(camZ / (lod.config.baseSpacing * lod.config.k))] },
       });
       const groups = Math.ceil(lod.gridSize / 16);
       lod.cull.dispatch(groups, groups);

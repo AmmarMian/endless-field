@@ -1,0 +1,9 @@
+{
+  "name": "riverrocks",
+  "src": "assets-src/props/riverrocks/riverrocks.gltf",
+  "scale": 1.0,
+  "target_tris": 700,
+  "credit": "Modeled in Blender; lichen_rock texture by Poly Haven (CC0)",
+  "out": "public/assets/plants/riverrocks",
+  "error": 0.01
+}

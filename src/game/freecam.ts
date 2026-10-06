@@ -18,7 +18,6 @@ export class FreeCam {
   private bob = 0;
   private readonly keys = new Set<string>();
   private readonly trail: { p: Vec3; age: number }[] = [];
-  private trailTimer = 0;
   private active = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -104,10 +103,9 @@ export class FreeCam {
       this.pos[1] += (target - this.pos[1]) * Math.min(1, dt * 12);
     }
 
-    this.trailTimer += dt;
     for (const t of this.trail) t.age += dt;
-    if (!this.fly && moving && this.trailTimer > 0.12) {
-      this.trailTimer = 0;
+    const head = this.trail[0];
+    if (!this.fly && (!head || Math.hypot(head.p[0] - this.pos[0], head.p[2] - this.pos[2]) > 0.5)) {
       this.trail.unshift({ p: [this.pos[0], g + 0.3, this.pos[2]], age: 0 });
       if (this.trail.length > TRAIL_LEN) this.trail.length = TRAIL_LEN;
     }
@@ -118,7 +116,7 @@ export class FreeCam {
     out.fill(0);
     this.trail.forEach((t, i) => {
       const k = Math.max(0, 1 - t.age / 2.5);
-      out.set([t.p[0], t.p[1], t.p[2], k * 0.45], i * 4);
+      out.set([t.p[0], t.p[1], t.p[2], k * k * (3 - 2 * k) * 0.45], i * 4);
     });
   }
 

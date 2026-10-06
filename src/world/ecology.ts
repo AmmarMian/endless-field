@@ -63,8 +63,9 @@ function bell(v: number, center: number, width: number): number {
 export function treeSuitability(eco: Eco): number[] {
   const steep = clamp01((eco.slope - 0.25) / 0.3);
   const cold = eco.temperature < 0.28 ? 0 : 1;
-  const jacaranda = clamp01((eco.temperature - 0.75) / 0.2) * bell(eco.moisture, 0.42, 0.22) * (1 - steep) * (1 - eco.forest);
-  const island = clamp01((eco.temperature - 0.6) / 0.25) * bell(eco.moisture, 0.68, 0.22) * (1 - steep * 0.6) * (1 - eco.forest * 0.7);
+  const jacaranda = clamp01((eco.temperature - 0.75) / 0.2) * bell(eco.moisture, 0.42, 0.22) * (1 - steep) * (1 - eco.forest) + eco.forest * 0.3;
+  // The eastern forest is mixed: broadleaves (autumn color) among the evergreen spruce.
+  const island = clamp01((eco.temperature - 0.6) / 0.25) * bell(eco.moisture, 0.68, 0.22) * (1 - steep * 0.6) * (1 - eco.forest * 0.7) + eco.forest * 0.75;
   const spruce = (bell(eco.temperature, 0.55, 0.3) * clamp01((eco.moisture - 0.4) / 0.3) + eco.forest * 0.9) * (1 - steep * 0.3);
   return [jacaranda * cold, island * cold, spruce * cold];
 }

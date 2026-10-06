@@ -1,4 +1,5 @@
 // Usage: node tools/shot.mjs <out.png> [--url URL] [--wait ms] [--eval "js"] [--size WxH]
+// After the wait, `window.__ef.probe()` (if the eval defined one) is reported as `probe`.
 // Captures the running app with WebGPU in Chromium, prints console errors and pixel stats.
 import { chromium } from "playwright";
 
@@ -48,6 +49,7 @@ const stats = await page.evaluate(async () => {
     grass: ef?.grassCounts ? await ef.grassCounts() : null,
     stats: document.getElementById("stats")?.textContent ?? "",
     mode: document.getElementById("petals")?.textContent ?? "",
+    probe: ef?.probe ? ef.probe() : undefined,
   };
 });
 console.log(JSON.stringify(stats));

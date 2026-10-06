@@ -9,7 +9,7 @@ const SPACING: Record<string, number> = { gazania: 0.55, ursinia: 0.55, empodium
 const LOAD_RADIUS = 170;
 const DRAW_RADIUS = 140;
 const MAX_PLANTS = 16384;
-const STRIDE = 8;
+const STRIDE = 12;
 
 interface Variant {
   firstIndex: number;
@@ -184,7 +184,7 @@ export class FlowerBeds {
           const d = Math.hypot(p.x - cam[0], p.z - cam[2]);
           // Shrink plants away near the draw limit instead of popping.
           const fade = 1 - Math.min(1, Math.max(0, (d - (drawRadius - 15)) / 15));
-          s.data.set([p.x, p.y, p.z, p.scale, Math.cos(p.yaw), Math.sin(p.yaw), p.seed, fade], n * STRIDE);
+          s.data.set([p.x, p.y, p.z, p.scale, Math.cos(p.yaw), Math.sin(p.yaw), p.seed, fade, 0, 1, 0, 0], n * STRIDE);
           n++;
         }
         s.counts[vi] = n - s.firsts[vi];

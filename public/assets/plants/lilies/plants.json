@@ -1,0 +1,41 @@
+{
+  "name": "lilies",
+  "source": "Modeled in Blender (tools/blender/model_river.py)",
+  "vertexBytes": 37800,
+  "indexCount": 7110,
+  "variants": [
+    {
+      "name": "lily_0",
+      "firstIndex": 0,
+      "indexCount": 1170,
+      "height": 0.143,
+      "radius": 0.269
+    },
+    {
+      "name": "lily_1",
+      "firstIndex": 1170,
+      "indexCount": 1080,
+      "height": 0.021,
+      "radius": 1.043
+    },
+    {
+      "name": "lily_2",
+      "firstIndex": 2250,
+      "indexCount": 1710,
+      "height": 0.121,
+      "radius": 1.009
+    },
+    {
+      "name": "lily_3",
+      "firstIndex": 3960,
+      "indexCount": 3150,
+      "height": 0.136,
+      "radius": 0.809
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

@@ -15,6 +15,7 @@ import impostorShader from "../shaders/tree-impostor.wgsl";
 import { loadTexture } from "../engine/textures";
 import { riverInfo, terrainHeightM as terrainHeight } from "./height";
 import { ecology, treeDensity, treeSuitability, type Eco } from "./ecology";
+import { biome, canopyLight } from "./biome";
 
 interface LodInfo {
   file: string;
@@ -40,12 +41,17 @@ interface Species {
   buffers: StorageBuffer[];
   data: Float32Array<ArrayBuffer>[];
   counts: number[];
+  /** Triangles per instance for LOD0 and LOD1. */
+  tris: number[];
   meshDraws: { bark: Draw; leaves: Draw }[];
   impostor: Draw;
   scale: [number, number];
 }
 
 interface TreeInstance {
+  /** Forest amount (autumn color) and light under the canopy, computed once. */
+  forest: number;
+  shade: number;
   species: number;
   x: number;
   y: number;
@@ -68,7 +74,9 @@ const FADE = 150;
 /** Cells generated per frame; the rest queue so fast flight never hitches. */
 const CELLS_PER_FRAME = 6;
 const MAX_INSTANCES = 8192;
-const STRIDE = 8;
+const STRIDE = 12;
+/** Mesh triangles per frame before LOD distances start shrinking (dense broadleaf forest). */
+const TRI_BUDGET = 4_500_000;
 
 function cellRandom(cx: number, cz: number): () => number {
   let s = (Math.imul(cx, 0x27d4eb2d) ^ Math.imul(cz, 0x165667b1) ^ 0x2545f491) >>> 0;
@@ -139,7 +147,7 @@ export class Trees {
           const set = {
             G: globals,
             trees: buffers[li],
-            tree: { height: manifest.height, leafTint, pad0: 0, pad1: 0 },
+            tree: { height: manifest.height, leafTint, deciduous: spec.name === "spruce" ? 0 : 1, pad1: 0 },
             samp: linear,
             trunkDiff,
             trunkNor,
@@ -178,7 +186,7 @@ export class Trees {
           set: {
             G: globals,
             trees: buffers[2],
-            imp: { frames: im.frames, cols: im.cols, rows: im.rows, size: im.size, centerY: im.centerY, height: manifest.height, leafTint, pad: 0 },
+            imp: { frames: im.frames, cols: im.cols, rows: im.rows, size: im.size, centerY: im.centerY, height: manifest.height, leafTint, deciduous: spec.name === "spruce" ? 0 : 1 },
             samp: clampLinear,
             albedoAtlas: impAlbedo,
             normalAtlas: impNormal,
@@ -189,6 +197,7 @@ export class Trees {
           buffers,
           data: [0, 1, 2].map(() => new Float32Array(MAX_INSTANCES * STRIDE)),
           counts: [0, 0, 0],
+          tris: manifest.lods.slice(0, 2).map((l) => (l.groups.bark.indexCount + l.groups.leaves.indexCount) / 3),
           meshDraws,
           impostor,
           scale: spec.scale,
@@ -227,7 +236,9 @@ export class Trees {
       const [s0, s1] = SPECIES[species].scale;
       // Trees grow taller where conditions suit them best.
       const vigor = 0.85 + 0.15 * Math.min(1, eco.moisture * 1.4);
-      return { species, x, y: eco.height - 0.15, z, yaw: rnd() * Math.PI * 2, scale: (s0 + (s1 - s0) * rnd()) * vigor, seed: rnd() };
+      const forest = biome(x, z)[2];
+      const shade = canopyLight(x, forest);
+      return { species, forest, shade, x, y: eco.height - 0.15, z, yaw: rnd() * Math.PI * 2, scale: (s0 + (s1 - s0) * rnd()) * vigor, seed: rnd() };
     };
     const center = ecology((cx + 0.5) * CELL, (cz + 0.5) * CELL);
     const density = treeDensity(center);
@@ -307,8 +318,15 @@ export class Trees {
     return t.y + this.species[t.species].manifest.height * t.scale;
   }
 
-  update(cam: readonly number[], frustum: Float32Array, lodBias = 1): void {
+  /** Adaptive factor on the LOD distances, eased toward the triangle budget. */
+  detail = 1;
+  /** Mesh triangles submitted last frame (debug). */
+  lastTris = 0;
+
+  update(cam: readonly number[], frustum: Float32Array, drawBias = 1): void {
     this.stream(cam[0], cam[2]);
+    const lodBias = drawBias * this.detail;
+    let tris = 0;
     for (const s of this.species) s.counts.fill(0);
     for (const t of this.instances) {
       const s = this.species[t.species];
@@ -323,15 +341,41 @@ export class Trees {
       }
       if (!visible) continue;
       const dist = Math.hypot(t.x - cam[0], cy - cam[1], t.z - cam[2]);
-      if (dist > VIEW * lodBias) continue;
+      if (dist > VIEW * drawBias) continue;
       // Grow in at the far edge instead of popping.
-      const grow = Math.min(1, Math.max(0, (VIEW * lodBias - dist) / FADE));
-      const d = dist / (t.scale * lodBias);
-      const lod = d < m.lodDistances[0] ? 0 : d < m.lodDistances[1] ? 1 : 2;
-      const n = s.counts[lod]++;
-      if (n >= MAX_INSTANCES) continue;
-      s.data[lod].set([t.x, t.y, t.z, t.scale * (0.2 + 0.8 * grow * grow), Math.cos(t.yaw), Math.sin(t.yaw), t.seed, 0], n * STRIDE);
+      const grow = Math.min(1, Math.max(0, (VIEW * drawBias - dist) / FADE));
+      // LOD by apparent size: distance normalized to a ~12 m tree (not by instance scale,
+      // which made small models scaled up stay at full detail far too long).
+      const d = dist / (Math.max(1, h / 12) * lodBias);
+      // Dithered LOD crossfade: across a band past each switch distance the tree is drawn in
+      // both levels with complementary screen-space dither masks (w > 0: keep where the
+      // dither is below w; w < 0: keep where it is at or above -w), so detail never pops.
+      const scale = t.scale * (0.2 + 0.8 * grow * grow);
+      const put = (lod: number, w: number) => {
+        const n = s.counts[lod]++;
+        if (n >= MAX_INSTANCES) return;
+        if (lod < 2) tris += s.tris[lod];
+        s.data[lod].set([t.x, t.y, t.z, scale, Math.cos(t.yaw), Math.sin(t.yaw), t.seed, w, t.forest, t.shade, 0, 0], n * STRIDE);
+      };
+      const [l0, l1] = m.lodDistances;
+      const band = 0.18;
+      if (d < l0) put(0, 1);
+      else if (d < l0 * (1 + band)) {
+        const k = (d - l0) / (l0 * band);
+        put(0, 1 - k);
+        put(1, -(1 - k));
+      } else if (d < l1) put(1, 1);
+      else if (d < l1 * (1 + band)) {
+        const k = (d - l1) / (l1 * band);
+        put(1, 1 - k);
+        put(2, -(1 - k));
+      } else put(2, 1);
     }
+    // Mesh triangles grow with the area inside the LOD radii (~ detail^2); ease toward the
+    // factor that meets the budget. Slow enough that the dithered crossfade hides the change.
+    const target = Math.min(1, Math.max(0.3, this.detail * Math.sqrt(TRI_BUDGET / Math.max(tris, 1))));
+    this.detail += (target - this.detail) * 0.05;
+    this.lastTris = tris;
     for (const s of this.species) {
       for (let lod = 0; lod < 3; lod++) {
         if (s.counts[lod]) s.buffers[lod].write(s.data[lod].subarray(0, Math.min(s.counts[lod], MAX_INSTANCES) * STRIDE));
@@ -339,16 +383,19 @@ export class Trees {
     }
   }
 
+  /** Debug: skip drawing a LOD level (profiling). */
+  skipLod = [false, false, false];
+
   encode(pass: FramePass): void {
     for (const s of this.species) {
       for (let lod = 0; lod < 2; lod++) {
         const n = Math.min(s.counts[lod], MAX_INSTANCES);
-        if (!n) continue;
+        if (!n || this.skipLod[lod]) continue;
         pass.draw(s.meshDraws[lod].bark, { instances: n });
         pass.draw(s.meshDraws[lod].leaves, { instances: n });
       }
       const ni = Math.min(s.counts[2], MAX_INSTANCES);
-      if (ni) pass.draw(s.impostor, { instances: ni });
+      if (ni && !this.skipLod[2]) pass.draw(s.impostor, { instances: ni });
     }
   }
 }

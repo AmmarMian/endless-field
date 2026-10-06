@@ -15,3 +15,9 @@ export function biome(x: number, z: number): [number, number, number] {
   const forest = Math.max(smoothstep(0.36, 0.48, m), east);
   return [smoothstep(0.1, 0.3, m) * (1 - east), smoothstep(0.08, 0.28, -m) * (1 - east), forest];
 }
+
+/** Mirror of canopyLight() in biome.wgsl: light reaching the floor under the forest canopy. */
+export function canopyLight(x: number, forest: number): number {
+  const deep = smoothstep(1000, 1900, x);
+  return 1 - forest * (0.35 + (0.7 - 0.35) * deep);
+}

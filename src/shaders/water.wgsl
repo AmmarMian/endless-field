@@ -24,6 +24,9 @@ struct VOut {
   @location(2) across: f32,
   @location(3) rapids: f32,
   @location(4) speed: f32,
+  // Unsigned distance from the centerline in half-widths: continuous everywhere, unlike
+  // `across`, whose sign flips where the closest point jumps between meander branches.
+  @location(5) dist: f32,
 }
 
 fn sky() -> SkyParams {
@@ -53,6 +56,7 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   out.rapids = smoothstep(0.12, 0.45, abs(drop));
   // Channel-center depth drives the Manning speed; the fragment shader slows it at the banks.
   out.speed = riverSpeed(px, 1.7 * mix(1.0, 0.45, smoothstep(0.0, 1.0, out.rapids)));
+  out.dist = min(r.x / r.z, 4.0);
   return out;
 }
 
@@ -71,7 +75,7 @@ fn waveHeight(p: vec2f, s: f32, t: f32, detail: f32) -> f32 {
 
 @fragment
 fn fs_main(frag: VOut) -> @location(0) vec4f {
-  if (abs(frag.across) > 1.6) {
+  if (frag.dist > 1.6 || abs(frag.across) > 1.6) {
     discard;
   }
   let s = sky();

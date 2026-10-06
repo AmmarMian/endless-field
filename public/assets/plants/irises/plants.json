@@ -1,0 +1,34 @@
+{
+  "name": "irises",
+  "source": "Modeled in Blender (tools/blender/model_river.py)",
+  "vertexBytes": 16800,
+  "indexCount": 2346,
+  "variants": [
+    {
+      "name": "iris_0",
+      "firstIndex": 0,
+      "indexCount": 762,
+      "height": 1.291,
+      "radius": 0.38
+    },
+    {
+      "name": "iris_1",
+      "firstIndex": 762,
+      "indexCount": 1128,
+      "height": 1.296,
+      "radius": 0.424
+    },
+    {
+      "name": "iris_2",
+      "firstIndex": 1890,
+      "indexCount": 456,
+      "height": 1.336,
+      "radius": 0.46
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

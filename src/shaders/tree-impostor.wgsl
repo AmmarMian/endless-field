@@ -2,7 +2,7 @@
 // The atlas holds `frames` orthographic views around the tree (albedo + tree-space normals).
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
-import { TreeInstance, rotateYaw, treeSway } from "./lib/tree.wgsl";
+import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway } from "./lib/tree.wgsl";
 
 struct ImpostorParams {
   frames: f32,
@@ -12,7 +12,7 @@ struct ImpostorParams {
   centerY: f32,
   height: f32,
   leafTint: f32,
-  pad: f32,
+  deciduous: f32,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -29,6 +29,9 @@ struct VOut {
   @location(2) @interpolate(flat) frames: vec2f,
   @location(3) blend: f32,
   @location(4) @interpolate(flat) rot: vec2f,
+  // x = autumn amount, y = tree seed
+  @location(5) @interpolate(flat) autumn: vec2f,
+  @location(6) @interpolate(flat) lodFade: f32,
 }
 
 @vertex
@@ -65,6 +68,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   out.frames = vec2f(f0 % imp.frames, f1 % imp.frames);
   out.blend = f - f0;
   out.rot = inst.rot.xy;
+  out.autumn = vec2f(inst.env.x * imp.deciduous, inst.rot.z);
+  out.lodFade = inst.rot.w;
   return out;
 }
 
@@ -76,6 +81,9 @@ fn atlasUv(frame: f32, uv: vec2f) -> vec2f {
 
 @fragment
 fn fs_main(frag: VOut) -> @location(0) vec4f {
+  if (!lodKeep(frag.lodFade, frag.pos.xy)) {
+    discard;
+  }
   let s = SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor);
   let uv0 = atlasUv(frag.frames.x, frag.uv);
   let uv1 = atlasUv(frag.frames.y, frag.uv);
@@ -94,7 +102,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let v = normalize(G.camPos - frag.world);
   let l = G.sunDir;
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.6;
-  let rgb = albedo.rgb * imp.leafTint;
+  // Bark stays as baked; only leafy (green-dominant) texels turn.
+  let leafy = smoothstep(0.0, 0.08, albedo.g - albedo.r);
+  let rgb = mix(albedo.rgb, autumnLeaf(albedo.rgb, frag.autumn.y, frag.autumn.x), leafy) * imp.leafTint;
   var col = rgb * (ambientSky(n, s) * 0.6 + G.sunColor * (wrapDiffuse(n, l, 0.5) + back) * 0.8);
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, a);

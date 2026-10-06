@@ -7,8 +7,10 @@ const GUST = 21;
 const CRUISE_ALT = 1.7;
 const MAX_ALT = 45;
 const TRAIL_LEN = 24;
-const TRAIL_INTERVAL = 0.09;
-const TRAIL_LIFE = TRAIL_LEN * TRAIL_INTERVAL;
+/** Meters between trail samples. */
+const TRAIL_STEP = 0.9;
+/** Seconds for a sample's push to fade (the grass springs back). */
+const TRAIL_LIFE = 2.2;
 
 function damp(current: number, target: number, rate: number, dt: number): number {
   return target + (current - target) * Math.exp(-rate * dt);
@@ -23,7 +25,6 @@ export class Player {
   gust = 0;
   /** Recorded leader positions, newest first, for the grass push. */
   private readonly trail: { p: Vec3; age: number }[] = [];
-  private trailTimer = 0;
   private readonly camPos: Vec3 = [0, 0, 0];
   private camInit = false;
 
@@ -99,11 +100,11 @@ export class Player {
     }
     if (this.pos[1] > g + MAX_ALT) this.pos[1] = damp(this.pos[1], g + MAX_ALT, 2, dt);
 
-    // Trail for the grass push: newest first, fading with age.
-    this.trailTimer += dt;
+    // Trail for the grass push: newest first, fading with age. Samples are dropped by distance
+    // (not time) and the head follows the wind continuously, so the push slides smoothly.
     for (const t of this.trail) t.age += dt;
-    if (this.trailTimer >= TRAIL_INTERVAL) {
-      this.trailTimer = 0;
+    const head = this.trail[0];
+    if (!head || Math.hypot(head.p[0] - this.pos[0], head.p[2] - this.pos[2]) > TRAIL_STEP) {
       this.trail.unshift({ p: [this.pos[0], this.pos[1], this.pos[2]], age: 0 });
       if (this.trail.length > TRAIL_LEN) this.trail.length = TRAIL_LEN;
     }
@@ -113,9 +114,13 @@ export class Player {
   writeTrail(out: Float32Array): void {
     out.fill(0);
     const strengthBySpeed = 0.55 + 0.45 * Math.min(1, (this.speed - CRUISE * 0.5) / (GUST - CRUISE * 0.5));
-    this.trail.forEach((t, i) => {
+    const gain = strengthBySpeed * (1 + this.gust * 0.6);
+    // Slot 0 is the live position of the wind; history follows.
+    out.set([this.pos[0], this.pos[1], this.pos[2], gain], 0);
+    this.trail.slice(0, TRAIL_LEN - 1).forEach((t, i) => {
       const k = Math.max(0, 1 - t.age / TRAIL_LIFE);
-      out.set([t.p[0], t.p[1], t.p[2], k * k * strengthBySpeed * (1 + this.gust * 0.6)], i * 4);
+      // Smoothstep fade so a sample releases the grass gently at the end of its life.
+      out.set([t.p[0], t.p[1], t.p[2], k * k * (3 - 2 * k) * gain], (i + 1) * 4);
     });
   }
 

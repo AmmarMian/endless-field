@@ -23,6 +23,12 @@ struct CullParams {
   thinStart: f32,
   thinEnd: f32,
   thinMin: f32,
+  // Nested LOD: blade identity lives on the finest grid (baseSpacing); this ring holds every
+  // k-th blade of it, and every kNext-th blade continues into the next, coarser ring.
+  baseSpacing: f32,
+  k: i32,
+  kNext: i32,
+  widthNext: f32,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -37,6 +43,12 @@ fn sampleLife(xz: vec2f) -> f32 {
   let cell = vec2i(floor(xz));
   let c = life[lifeIndex(cell)];
   return select(0.0, c.life, c.key == lifeKey(cell));
+}
+
+// Which of the 3x3 child cells represents coarse cell `c` at `level` (random per cell).
+fn subPick(c: vec2i, level: i32) -> vec2i {
+  let hh = pcg2d(bitcast<vec2u>(c) ^ vec2u(u32(level) * 0x632BE5ABu, 0x7F4A7C15u));
+  return vec2i(i32(hh.x % 3u), i32(hh.y % 3u));
 }
 
 fn inFrustum(c: vec3f, r: f32) -> bool {
@@ -56,36 +68,40 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   }
   let half = i32(P.gridSize / 2u);
   let cell = P.centerCell + vec2i(id.xy) - vec2i(half);
-  let h = pcg2d(bitcast<vec2u>(cell) ^ vec2u(0x9E3779B9u, 0x85EBCA6Bu));
+  // Identity on the finest grid: the same blade has the same position, height and rotation in
+  // every ring, so moving between rings never swaps one set of blades for another. A coarse
+  // cell is represented by a randomly chosen fine blade (picked level by level), so coarse
+  // rings are scattered over their whole cells instead of lining up in rows.
+  let level = i32(round(log2(f32(P.k)) / log2(3.0)));
+  var cellN = cell;
+  for (var l = level; l > 0; l = l - 1) {
+    cellN = cellN * 3 + subPick(cellN, l);
+  }
+  let h = pcg2d(bitcast<vec2u>(cellN) ^ vec2u(0x9E3779B9u, 0x85EBCA6Bu));
   let h2 = pcg2d(h);
   let jitter = vec2f(unitFloat(h.x), unitFloat(h.y));
-  let xz = (vec2f(cell) + jitter) * P.spacing;
+  let xz = (vec2f(cellN) + jitter) * P.baseSpacing;
 
   let dist = length(xz - G.camPos.xz);
-  if (dist > P.rOuter || dist < P.rInner - P.fade) {
+  // Inside rInner the finer ring owns every one of this ring's blades; past rOuter the
+  // coarser ring takes over the ones that continue.
+  if (dist > P.rOuter || dist < P.rInner) {
     return;
   }
-  // Thin the far ring stochastically; survivors widen to keep coverage. Every threshold
-  // below is crossed gradually: a blade grows out of the ground as the level passes its own
-  // random threshold, so blades never pop in as the camera approaches.
-  let keep = mix(1.0, P.thinMin, smoothstep(P.thinStart, P.thinEnd, dist));
-  let r0 = unitFloat(h2.x);
-  if (r0 > keep) {
-    return;
-  }
-  let fadeOut = 1.0 - smoothstep(P.rOuter - P.fade, P.rOuter, dist);
-  let fadeIn = smoothstep(P.rInner - P.fade, P.rInner, dist);
+  // This blade continues into the next ring if it is its parent cell's chosen representative.
+  let parent = vec2i(floor(vec2f(cell) / 3.0));
+  let continues = P.kNext > 0 && all(subPick(parent, level + 1) == cell - parent * 3);
+  let edge = smoothstep(P.rOuter - P.fade, P.rOuter, dist);
   let dither = unitFloat(h.y ^ h2.x);
-  let isFarRing = P.rInner > 0.0;
-  // Inner edges crossfade with the previous ring; the outer edge thins over a long band so
-  // the field never ends in a visible line.
-  let longFade = 1.0 - smoothstep(P.rOuter - P.fade * 8.0, P.rOuter, dist);
-  let presence = select(fadeOut, fadeIn * longFade, isFarRing);
+  // Blades that do not continue shrink back into the ground across the outer band (each at
+  // its own threshold); the ones that continue stay and widen toward the next ring's width.
+  let presence = select(1.0 - edge, 1.0, continues);
   if (dither > presence) {
     return;
   }
-  // Ramps are compressed so every blade reaches full height wherever presence/keep is 1.
-  let fade = smoothstep(r0 * 0.85, r0 * 0.85 + 0.15, keep) * smoothstep(dither * 0.75, dither * 0.75 + 0.25, presence);
+  let fade = select(smoothstep(dither * 0.75, dither * 0.75 + 0.25, presence), 1.0, continues);
+  let widthMul = select(1.0, mix(1.0, P.widthNext / P.widthScale, edge), continues);
+  let keep = 1.0;
 
   // Meadow structure: large patches of tall grass and shorter lawns.
   let patchN = simplex2d(xz * 0.018) * 0.5 + 0.5;
@@ -143,9 +159,15 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let groundN = terrainNormalM(xz, y, 1.5, river.w, mtnTex, mtnSamp);
   // Distant rings: wide sparse blades on steep ground read as spikes on ridgelines and
   // curtains on valley walls; the ground shading carries those areas instead.
-  if (P.rInner > 0.0 && (groundN.y < 0.82 || (P.rInner > 100.0 && mtn > 15.0))) {
+  // Far away, blades on steep ground or high mountain turf shrink away gradually with distance
+  // (the ground shading carries those areas) - the same in every ring, so nothing pops.
+  let steepFar = select(1.0, 1.0 - smoothstep(22.0, 45.0, dist), groundN.y < 0.82);
+  let mtnFar = select(1.0, 1.0 - smoothstep(90.0, 140.0, dist), mtn > 15.0);
+  let farFade = steepFar * mtnFar;
+  if (farFade <= 0.01) {
     return;
   }
+  height = height * farFade;
   var alpine = 0.0;
   if (mtn > 1.0) {
     alpine = smoothstep(60.0, 150.0, mtn);
@@ -197,7 +219,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   let angle = unitFloat(h.x ^ h2.y) * 6.2831853;
-  var width = mix(0.035, 0.06, unitFloat(h2.x ^ h.y)) * P.widthScale / sqrt(keep);
+  var width = mix(0.035, 0.06, unitFloat(h2.x ^ h.y)) * P.widthScale * widthMul;
   width = width * mix(1.0, 0.7, kind.x) * select(1.0, 0.75, isReed);
   // Waterside plants stay green even before the land is restored.
   let lifeV = max(max(sampleLife(xz), select(0.0, 0.4, isReed)), alpineGreen);

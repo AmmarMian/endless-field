@@ -16,8 +16,8 @@
   },
   "lod1_leaf_keep": 0.3,
   "lod_distances": [
-    55,
-    140
+    44,
+    100
   ],
   "impostor": {
     "frames": 8,

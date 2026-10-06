@@ -113,6 +113,20 @@ export class Motes {
     this.path.length = 0;
   }
 
+  /** Lets go of everything held, scattering it outward to fall in its own way. */
+  release(): number {
+    let n = 0;
+    for (const m of this.motes) {
+      if (!m.carried) continue;
+      m.carried = false;
+      m.vel[0] += (Math.random() - 0.5) * 3;
+      m.vel[1] += 0.5 + Math.random() * 1.5;
+      m.vel[2] += (Math.random() - 0.5) * 3;
+      n++;
+    }
+    return n;
+  }
+
   /** A puff of pollen from a flower the wind brushed. */
   puff(at: Vec3, color: [number, number, number]): void {
     for (let i = 0; i < 6; i++) {
@@ -222,7 +236,7 @@ export class Motes {
     for (let i = this.motes.length - 1; i >= 0; i--) {
       const m = this.motes[i];
       m.age += dt;
-      if (m.carried && m.age > m.hold) m.carried = false;
+      if (m.carried && (m.age > m.hold || env.altitude > 7)) m.carried = false;
       if (m.carried) {
         // Held in the wake: an orbit around a slot on the wind's path.
         const s = 0.5 + m.slot * length;

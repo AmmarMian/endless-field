@@ -39,7 +39,7 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
-const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
+const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>X</kbd> let go · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
 const EXPLORE_HINT = "<kbd>WASD</kbd> move · <kbd>←</kbd><kbd>→</kbd> look · <kbd>Shift</kbd> sprint · <kbd>V</kbd> fly · <kbd>Space</kbd><kbd>C</kbd> up / down · <kbd>M</kbd> wind";
 controlsEl.innerHTML = WIND_HINT;
 
@@ -365,6 +365,8 @@ async function main(): Promise<void> {
       hintTimer = window.setTimeout(() => controlsEl.classList.remove("show"), 7000);
     }
 
+    // Let go of everything the wind is carrying.
+    if (input.wasPressed("x") && !explore) motes.release();
     if (input.wasPressed("l")) {
       const next = FILTERS[(FILTERS.indexOf(current.filter) + 1) % FILTERS.length];
       panel.set({ filter: next });

@@ -127,6 +127,7 @@ const PAGES: Page[] = [
       { label: "Steer", type: "keys", keys: "WASD · arrows · mouse" },
       { label: "Gust", type: "keys", keys: "Space · hold click" },
       { label: "Rise / dive", type: "keys", keys: "↑ ↓" },
+      { label: "Let go", type: "keys", keys: "X" },
       { label: "Free roam", type: "keys", keys: "M" },
       { label: "Map", type: "keys", keys: "K" },
       { label: "Film simulation", type: "keys", keys: "L" },

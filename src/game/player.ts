@@ -6,7 +6,7 @@ const CRUISE = 7.5;
 const GUST = 21;
 const CRUISE_ALT = 1.7;
 /** The wind skims the field; it never climbs above the treetops of a meadow. */
-const MAX_ALT = 5;
+const MAX_ALT = 10;
 const TRAIL_LEN = 24;
 /** Meters between trail samples. */
 const TRAIL_STEP = 0.9;
@@ -28,6 +28,8 @@ export class Player {
   private readonly trail: { p: Vec3; age: number }[] = [];
   private readonly camPos: Vec3 = [0, 0, 0];
   private camInit = false;
+  private ceilingGround = 0;
+  private ceilingInit = false;
 
   constructor(x: number, z: number, yaw: number) {
     this.pos[0] = x;
@@ -42,6 +44,7 @@ export class Player {
     this.yaw = yaw;
     this.pitch = 0;
     this.trail.length = 0;
+    this.ceilingInit = false;
     // Jumps (map teleports) cut the camera instead of sweeping across the world.
     this.camInit = false;
   }
@@ -89,6 +92,12 @@ export class Player {
     if (input.rise) targetPitch = 0.55;
     else if (input.dive) targetPitch = -0.45;
     else if (sy !== 0) targetPitch = -sy * 0.75 + groundSlope * 0.5;
+    // Soft ceiling over a smoothed ground (so it does not trace every bump): the climb eases
+    // off as the wind nears it instead of being clamped, which made the camera judder.
+    this.ceilingGround = this.ceilingInit ? damp(this.ceilingGround, ground, 1.2, dt) : ground;
+    this.ceilingInit = true;
+    const room = this.ceilingGround + MAX_ALT - this.pos[1];
+    targetPitch = Math.min(targetPitch, Math.max(-0.35, room * 0.12));
     targetPitch = Math.max(-0.9, Math.min(0.9, targetPitch));
     this.pitch = damp(this.pitch, targetPitch, 2.5, dt);
 
@@ -101,10 +110,8 @@ export class Player {
       this.pos[1] = g + 0.55;
       this.pitch = Math.max(this.pitch, 0);
     }
-    if (this.pos[1] > g + MAX_ALT) {
-      this.pos[1] = damp(this.pos[1], g + MAX_ALT, 6, dt);
-      this.pitch = Math.min(this.pitch, 0.05);
-    }
+    // Backstop only (e.g. flying off a cliff edge): settle down smoothly.
+    if (this.pos[1] > this.ceilingGround + MAX_ALT + 3) this.pos[1] = damp(this.pos[1], this.ceilingGround + MAX_ALT + 3, 2, dt);
 
     // Trail for the grass push: newest first, fading with age. Samples are dropped by distance
     // (not time) and the head follows the wind continuously, so the push slides smoothly.

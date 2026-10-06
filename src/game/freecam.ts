@@ -5,7 +5,7 @@ const EYE = 1.65;
 const WALK = 6;
 const FLY = 30;
 /** Highest a flying explorer may go above the ground (meters). */
-const MAX_FLY = 5;
+const MAX_FLY = 10;
 const TRAIL_LEN = 24;
 
 /**
@@ -18,6 +18,7 @@ export class FreeCam {
   pitch = 0;
   fly = false;
   private bob = 0;
+  private ceilingGround = 0;
   private readonly keys = new Set<string>();
   private readonly trail: { p: Vec3; age: number }[] = [];
   private active = false;
@@ -50,6 +51,7 @@ export class FreeCam {
     const above = this.pos[1] - terrainHeight(this.pos[0], this.pos[2]);
     this.fly = above > 4;
     if (above > MAX_FLY) this.pos[1] -= above - MAX_FLY;
+    this.ceilingGround = terrainHeight(this.pos[0], this.pos[2]);
     void this.canvas.requestPointerLock?.();
   }
 
@@ -105,8 +107,13 @@ export class FreeCam {
     const g = this.ground(this.pos[0], this.pos[2]);
     const moving = Math.hypot(vx, vz) > 0.1;
     if (this.fly) {
-      // Stay close to the ground: the world is built to be seen from within it.
-      this.pos[1] = Math.min(Math.max(this.pos[1] + vy * dt, g + 0.8), g + MAX_FLY);
+      // Stay close to the ground: the world is built to be seen from within it. The ceiling
+      // follows a smoothed ground and is approached softly, so it never judders.
+      this.ceilingGround += (g - this.ceilingGround) * Math.min(1, dt * 1.2);
+      const top = this.ceilingGround + MAX_FLY;
+      let y = this.pos[1] + vy * dt;
+      if (y > top) y += (top - y) * Math.min(1, dt * 3);
+      this.pos[1] = Math.max(y, g + 0.8);
     } else {
       this.bob += dt * (moving ? 9 * Math.sqrt(sprint) : 0);
       const target = g + EYE + (moving ? Math.sin(this.bob) * 0.035 : 0);

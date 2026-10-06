@@ -34,6 +34,14 @@ export class Player {
     this.yaw = yaw;
   }
 
+  /** Continue from a new pose (e.g. where free roam left off), without camera snapping. */
+  teleport(pos: Vec3, yaw: number): void {
+    this.pos.splice(0, 3, pos[0], Math.max(pos[1], terrainHeight(pos[0], pos[2]) + 1.2), pos[2]);
+    this.yaw = yaw;
+    this.pitch = 0;
+    this.trail.length = 0;
+  }
+
   get forward(): Vec3 {
     const cp = Math.cos(this.pitch);
     return [Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp];

@@ -122,8 +122,8 @@ export function riverInfo(x: number, z: number): [number, number, number, number
 }
 
 export function terrainHeight(x: number, z: number): number {
-  const h = terrainBase(x, z);
   const [d, water, hw, px] = riverInfo(x, z);
+  const h = terrainBase(x, z) + riverRise(px) * (1 - smoothstep(hw * 2, 700, d));
   if (d > hw * 7) return h;
   const bed = riverBed(d, water, hw, riverUpper(px));
   const beach = water - 0.12 + smoothstep(hw * 0.95, hw * 1.9, d) * 0.7 + Math.max(d - hw * 1.9, 0) * 0.12;
@@ -224,14 +224,11 @@ function riverValley(natural: number, d: number, water: number, hw: number, px: 
   const uw = smoothstep(0, 0.1, upper);
   if (uw <= 0) return natural;
   const bed = riverBed(d, water, hw, upper);
-  const rise = riverRise(px);
-  const lift = rise * (1 - smoothstep(hw * 2, 700, d));
-  const lifted = natural + lift * (1 - smoothstep(0, 1, Math.max(natural - (water - rise), 0) / Math.max(rise, 1)));
   const wallN = gnoise(x / 45 + 3.3, z / 45 + 8.1);
   const bumps = gnoise(x / 9, z / 9) * 1.6 * smoothstep(hw * 1.5, hw * 4, d);
   const cut = d < hw ? bed : water + 0.3 + Math.max(d - hw * 1.15, 0) * (0.5 + 0.25 * wallN) + bumps;
   const fill = d < hw ? bed : water + 0.3 - Math.max(d - hw * 1.6, 0) * 0.28;
-  const clamped = Math.min(Math.max(lifted, fill), Math.max(cut, fill));
+  const clamped = Math.min(Math.max(natural, fill), Math.max(cut, fill));
   return natural + (clamped - natural) * uw;
 }
 

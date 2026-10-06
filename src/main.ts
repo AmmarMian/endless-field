@@ -17,6 +17,7 @@ import { Fireflies } from "./world/fireflies";
 import { Water } from "./world/water";
 import { mountainZone, riverCenter, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
 import { biome } from "./world/biome";
+import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
 import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
@@ -124,6 +125,10 @@ async function main(): Promise<void> {
   });
   let cpuMs = 0;
   let night = settings.night ? 1 : 0;
+  let mist = 0;
+  let canopy = 0;
+  let mistBase = 0;
+  let mistTimer = 0;
   let atmosphereDirty = true;
   const debug = {
     fixedCamera: null as null | { pos: Vec3; target: Vec3 },
@@ -213,6 +218,9 @@ async function main(): Promise<void> {
         freecam.enter(camera);
       } else {
         freecam.exit();
+        // The wind picks up where you were exploring.
+        player.teleport(freecam.pos, freecam.yaw);
+        stream.regroup(player.pos);
       }
       controlsEl.textContent = explore ? EXPLORE_HINT : WIND_HINT;
       controlsEl.classList.add("show");
@@ -287,10 +295,46 @@ async function main(): Promise<void> {
     camera.update();
 
     windAngle += Math.sin(t * 0.05) * 0.02 * dt;
+    // Mist: dense in the forest and over wet hollows, thicker at night; eased so it rolls in.
+    mistTimer -= dt;
+    if (mistTimer <= 0) {
+      mistTimer = 0.25;
+      const eco = ecology(camera.position[0], camera.position[2]);
+      const target = Math.min(1.2, eco.forest * 0.9 + Math.max(0, eco.moisture - 0.68) * 1.6) * (1 + night * 0.6);
+      mist += (target - mist) * 0.35;
+      mistBase += (eco.height - mistBase) * (mistBase === 0 ? 1 : 0.35);
+      const deep = Math.min(1, Math.max(0, (camera.position[0] - 1000) / 900));
+      const canopyTarget = eco.forest * deep * (1 - Math.min(1, Math.max(0, (camera.position[1] - eco.height - 12) / 20)));
+      canopy += (canopyTarget - canopy) * 0.3;
+      // Eyes adapt only partly: the deep forest should feel darker.
+      const atmExposure = mixAtmosphere(GOLDEN_HOUR, NIGHT, night * night * (3 - 2 * night)).exposure;
+      renderer.setPost({ exposure: atmExposure * 0.8 * (1 - canopy * 0.45) });
+    }
+    // Light shafts toward the sun (only when it is in front of the camera).
+    {
+      const sx = camera.position[0] + globals.sunDir[0] * 1000;
+      const sy = camera.position[1] + globals.sunDir[1] * 1000;
+      const sz = camera.position[2] + globals.sunDir[2] * 1000;
+      const m = camera.viewProj;
+      const cx = m[0] * sx + m[4] * sy + m[8] * sz + m[12];
+      const cy = m[1] * sx + m[5] * sy + m[9] * sz + m[13];
+      const cw = m[3] * sx + m[7] * sy + m[11] * sz + m[15];
+      if (cw > 0) {
+        const u = (cx / cw) * 0.5 + 0.5;
+        const v = 0.5 - (cy / cw) * 0.5;
+        const onScreen = Math.max(0, 1 - Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5)) / 0.9);
+        renderer.setShafts([u, v], (0.18 + mist * 0.55) * onScreen * (1 - night));
+      } else {
+        renderer.setShafts([0.5, 0.5], 0);
+      }
+    }
     if (explore) freecam.writeTrail(globals.trail);
     else player.writeTrail(globals.trail);
     globals.updateFrame(camera, t, renderer.viewport, {
       night: night * night * (3 - 2 * night),
+      mist,
+      mistBase,
+      canopy,
       explore: explore ? 1 : 0,
       playerPos: explore ? freecam.pos : player.pos,
       playerSpeed: explore ? 0 : player.speed,

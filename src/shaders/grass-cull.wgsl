@@ -65,26 +65,27 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   if (dist > P.rOuter || dist < P.rInner - P.fade) {
     return;
   }
-  // Thin the far ring stochastically; survivors widen to keep coverage.
+  // Thin the far ring stochastically; survivors widen to keep coverage. Every threshold
+  // below is crossed gradually: a blade grows out of the ground as the level passes its own
+  // random threshold, so blades never pop in as the camera approaches.
   let keep = mix(1.0, P.thinMin, smoothstep(P.thinStart, P.thinEnd, dist));
   let r0 = unitFloat(h2.x);
   if (r0 > keep) {
     return;
   }
-  // LOD crossfade by dithering blades in/out at full height (shrinking both rings in the
-  // overlap leaves a visible trough). The outermost edge still shrinks into the ground.
   let fadeOut = 1.0 - smoothstep(P.rOuter - P.fade, P.rOuter, dist);
   let fadeIn = smoothstep(P.rInner - P.fade, P.rInner, dist);
   let dither = unitFloat(h.y ^ h2.x);
   let isFarRing = P.rInner > 0.0;
-  // Inner edges crossfade with the previous ring; the outer edge thins out stochastically
-  // over a long band so the field never ends in a visible line.
+  // Inner edges crossfade with the previous ring; the outer edge thins over a long band so
+  // the field never ends in a visible line.
   let longFade = 1.0 - smoothstep(P.rOuter - P.fade * 8.0, P.rOuter, dist);
   let presence = select(fadeOut, fadeIn * longFade, isFarRing);
   if (dither > presence) {
     return;
   }
-  let fade = select(1.0, mix(0.6, 1.0, longFade), isFarRing);
+  // Ramps are compressed so every blade reaches full height wherever presence/keep is 1.
+  let fade = smoothstep(r0 * 0.85, r0 * 0.85 + 0.15, keep) * smoothstep(dither * 0.75, dither * 0.75 + 0.25, presence);
 
   // Meadow structure: large patches of tall grass and shorter lawns.
   let patchN = simplex2d(xz * 0.018) * 0.5 + 0.5;
@@ -134,7 +135,8 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let y = riverValley(baseY + mRaw * mountainCorridor(river), river, xz);
   let mtn = max(y - (terrainBroad(xz) * 0.6 + 22.0), 0.0) * smoothstep(0.0, 30.0, y - baseY + mRaw);
   let root = vec3f(xz.x, y, xz.y);
-  if (!inFrustum(root + vec3f(0.0, height * 0.5, 0.0), height * 0.8 + 0.6)) {
+  // Bent blades can lean up to ~1.6x their height sideways: cull with a sphere that covers it.
+  if (!inFrustum(root + vec3f(0.0, height * 0.5, 0.0), height * 1.7 + 0.8)) {
     return;
   }
   // Alpine ecology: turf shortens with altitude; rock and snow leave only sparse tufts.

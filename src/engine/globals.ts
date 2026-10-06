@@ -57,9 +57,11 @@ export function vec4Views(flat: Float32Array): Float32Array[] {
 export class Globals {
   readonly uniforms: SharedUniforms;
   readonly trail = new Float32Array(24 * 4);
+  sunDir: [number, number, number] = [0, 1, 0];
   private readonly trailViews = vec4Views(this.trail);
 
   constructor(gpu: Gpu, atmosphere: Atmosphere) {
+    this.sunDir = atmosphere.sunDir;
     this.uniforms = uniforms(gpu, {
       viewProj: new Float32Array(16),
       invViewProj: new Float32Array(16),
@@ -79,14 +81,19 @@ export class Globals {
       viewport: [1, 1],
       night: 0,
       explore: 0,
+      mist: 0,
+      mistBase: 0,
+      canopy: 0,
       pad0: 0,
       pad1: 0,
+      pad2: 0,
       frustum: vec4Views(new Float32Array(24)),
       trail: this.trailViews,
     });
   }
 
   setAtmosphere(a: Atmosphere): void {
+    this.sunDir = a.sunDir;
     this.uniforms.set({
       sunDir: a.sunDir,
       sunColor: a.sunColor,

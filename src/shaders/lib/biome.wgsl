@@ -11,3 +11,13 @@ export fn biome(xz: vec2f) -> vec3f {
   let forest = max(smoothstep(0.36, 0.48, m), east);
   return vec3f(smoothstep(0.1, 0.3, m) * (1.0 - east), smoothstep(0.08, 0.28, -m) * (1.0 - east), forest);
 }
+
+// The forest's dense core: shade under the canopy deepens eastward into the realm.
+export fn deepForest(x: f32) -> f32 {
+  return smoothstep(1000.0, 1900.0, x);
+}
+
+// Light reaching the forest floor (1 open .. ~0.3 under the dense core canopy).
+export fn canopyLight(x: f32, forest: f32) -> f32 {
+  return 1.0 - forest * mix(0.35, 0.7, deepForest(x));
+}

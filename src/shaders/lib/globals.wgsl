@@ -20,8 +20,14 @@ export struct Globals {
   // 0 = golden afternoon, 1 = night
   night: f32,
   explore: f32,
+  // Ground mist density near the camera (forest, wet hollows) and the mist layer's base height.
+  mist: f32,
+  mistBase: f32,
+  // Deep-forest gloom around the camera (0 open land .. 1 dense core).
+  canopy: f32,
   pad0: f32,
   pad1: f32,
+  pad2: f32,
   frustum: array<vec4f, 6>,
   // xyz = trail sample position, w = push strength (fades with age).
   trail: array<vec4f, 24>,

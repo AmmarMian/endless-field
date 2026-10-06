@@ -60,6 +60,12 @@ export class PetalStream {
     });
   }
 
+  /** Gathers the stream at a new spot (after free roam). */
+  regroup(at: Vec3): void {
+    this.path.length = 0;
+    for (const p of this.petals) p.pos.splice(0, 3, at[0], at[1], at[2]);
+  }
+
   /** Arc length of the stream behind the leader; it grows slowly with the petal count. */
   length(gust: number): number {
     return (1.2 + 1.5 * Math.sqrt(this.petals.length)) * (1 + gust * 0.5);

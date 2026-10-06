@@ -50,7 +50,7 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   out.across = sideSign * min(r.x / r.z, 4.0);
   // Steep stretches (cascades between the pools of the mountain stream) become white water.
   let drop = (riverWater(px - 3.0) - riverWater(px + 3.0)) / 6.0;
-  out.rapids = smoothstep(0.04, 0.35, abs(drop));
+  out.rapids = smoothstep(0.12, 0.45, abs(drop));
   // Channel-center depth drives the Manning speed; the fragment shader slows it at the banks.
   out.speed = riverSpeed(px, 1.7 * mix(1.0, 0.45, smoothstep(0.0, 1.0, out.rapids)));
   return out;
@@ -155,10 +155,13 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let lineN = simplex2d((uv - vec2f(travel, 0.0)) * vec2f(0.08, 1.6) + vec2f(0.0, 11.0)) * 0.5 + 0.5;
   let bubbles = smoothstep(0.55, 0.85, simplex2d((uv - vec2f(travel, 0.0)) * 4.0) * 0.5 + 0.5);
   let streak = smoothstep(0.93, 0.985, lineN) * bubbles;
-  let churn = smoothstep(0.3, 0.75, simplex2d((uv - vec2f(travel * 1.3, 0.0)) * vec2f(0.6, 1.8)) * 0.5 + 0.5 + frag.rapids * 0.35);
-  let foam = clamp(shore * lace * 0.6 + streak * 0.7 + churn * frag.rapids * 0.9, 0.0, 1.0) * mix(0.5, 0.75, frag.rapids);
+  // White water on the cascades: broken, aerated patches (never a flat sheet), fading with
+  // distance so its fine structure cannot alias.
+  let churnN = simplex2d((uv - vec2f(travel * 1.3, 0.0)) * vec2f(0.5, 1.4)) * 0.6 + simplex2d((uv - vec2f(travel * 1.6, 0.0)) * 2.2) * 0.4;
+  let churn = smoothstep(0.15, 0.7, churnN * 0.5 + 0.5) * mix(1.0, 0.55, smoothstep(15.0, 60.0, camDist));
+  let foam = clamp(shore * lace * 0.6 + streak * 0.7 + churn * frag.rapids * 0.75, 0.0, 1.0) * 0.6;
   col = mix(col, (G.sunColor * 0.75 + s.zenith * 0.5) * 0.9, foam);
 
-  col = applyFog(col, p, G.camPos, G.fogDensity, s);
+  col = applyFog(col, p, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, 1.0);
 }

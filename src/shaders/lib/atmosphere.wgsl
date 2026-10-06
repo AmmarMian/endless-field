@@ -31,10 +31,25 @@ export fn sunDisk(dir: vec3f, s: SkyParams) -> vec3f {
 }
 
 // Height-attenuated exponential fog toward the sky color in the view direction.
-export fn applyFog(col: vec3f, worldPos: vec3f, camPos: vec3f, density: f32, s: SkyParams) -> vec3f {
+export fn applyFog(colIn: vec3f, worldPos: vec3f, camPos: vec3f, density: f32, s: SkyParams, mist: vec3f) -> vec3f {
   let d = worldPos - camPos;
   let dist = length(d);
   let dir = d / max(dist, 1e-4);
+  var col = colIn;
+  // Ground mist: a dense layer hugging the ground (base mist.y), lit by forward-scattered sun.
+  if (mist.x > 0.001) {
+    let mk = 0.11;
+    let km = mk * dir.y;
+    var optM = dist;
+    if (abs(km) > 1e-4) {
+      optM = (1.0 - exp(-km * dist)) / km;
+    }
+    let amountM = 1.0 - exp(-mist.x * 0.016 * exp(-mk * max(camPos.y - mist.y, -25.0)) * optM);
+    let fwd = pow(max(dot(dir, s.sunDir), 0.0), 5.0);
+    // mist.z: canopy gloom around the camera darkens the mist in the deep forest.
+    let mistCol = (mix(s.horizon * 0.55 + s.zenith * 0.25, s.sunColor * 0.5, 0.35) + s.sunColor * 0.45 * fwd) * mix(1.0, 0.32, mist.z);
+    col = mix(col, mistCol, clamp(amountM, 0.0, 0.85));
+  }
   let heightFall = 0.018;
   let h0 = camPos.y;
   // Analytic integral of density * exp(-heightFall * y) along the ray.

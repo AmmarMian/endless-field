@@ -18,6 +18,7 @@ import skyShader from "../shaders/sky.wgsl";
 import downShader from "../shaders/post-down.wgsl";
 import upShader from "../shaders/post-up.wgsl";
 import compositeShader from "../shaders/post-composite.wgsl";
+import shaftsShader from "../shaders/post-shafts.wgsl";
 
 const HDR: GPUTextureFormat = "rgba16float";
 const BLOOM_LEVELS = 5;
@@ -46,6 +47,8 @@ export class Renderer {
   private readonly downFx: Effect[] = [];
   private readonly upFx: Effect[] = [];
   private readonly composite: Effect;
+  private readonly shafts: Target;
+  private readonly shaftsFx: Effect;
   private renderScale: number;
   private bloomOn = true;
   private bloomStrength = 0.1;
@@ -88,11 +91,17 @@ export class Renderer {
         }),
       );
     }
+    this.shafts = target(gpu, { size: this.down[0].size, format: HDR, label: "shafts" });
+    this.shaftsFx = effect(gpu, shaftsShader, {
+      label: "shafts",
+      set: { bright: this.down[0], samp: linear, params: { sunUv: [0.5, 0.5], strength: 0, decay: 0.965 } },
+    });
     this.composite = effect(gpu, compositeShader, {
       label: "composite",
       set: {
         scene: this.scene,
         bloom: this.up[0],
+        shafts: this.shafts,
         samp: linear,
         params: { bloomStrength: 0.1, exposure: 0.8, vignette: 0.6, time: 0, grade: [1.0, 0.6, 0.35, 1.15] },
       },
@@ -116,6 +125,7 @@ export class Renderer {
       this.downFx[i].set({ params: { texel: src.texelSize } });
     }
     for (let i = 0; i < BLOOM_LEVELS - 1; i++) this.up[i].resize(this.down[i].size);
+    this.shafts.resize(this.down[0].size);
     for (let i = 0; i < BLOOM_LEVELS - 1; i++) {
       const coarse = i === BLOOM_LEVELS - 2 ? this.down[BLOOM_LEVELS - 1] : this.up[i + 1];
       this.upFx[i].set({ params: { texel: coarse.texelSize } });
@@ -135,6 +145,14 @@ export class Renderer {
     this.composite.set({ params: { ...values, bloomStrength: this.bloomOn ? this.bloomStrength : 0 } });
   }
 
+  /** Sun position on screen (uv) and shaft strength; strength 0 skips the effect. */
+  setShafts(sunUv: [number, number], strength: number): void {
+    this.shaftStrength = this.bloomOn ? strength : 0;
+    this.shaftsFx.set({ params: { sunUv, strength: this.shaftStrength } });
+  }
+
+  private shaftStrength = 0;
+
   setBloom(on: boolean): void {
     this.bloomOn = on;
     this.composite.set({ params: { bloomStrength: on ? this.bloomStrength : 0 } });
@@ -149,6 +167,7 @@ export class Renderer {
       for (let i = 0; i < BLOOM_LEVELS; i++) frame.pass(this.down[i], this.downFx[i]);
       for (let i = BLOOM_LEVELS - 2; i >= 0; i--) frame.pass(this.up[i], this.upFx[i]);
     }
+    frame.pass(this.shafts, this.shaftsFx);
     frame.pass({ target: this.output, timer: spans?.post }, (pass) => pass.draw(this.composite));
   }
 }

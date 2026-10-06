@@ -2,6 +2,7 @@
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { LifeCell, lifeIndex, lifeKey } from "./lib/field.wgsl";
+import { biome, canopyLight } from "./lib/biome.wgsl";
 
 struct Plant {
   // xyz = root, w = scale
@@ -34,6 +35,7 @@ struct VOut {
   @location(3) ao: f32,
   @location(4) @interpolate(flat) fade: f32,
   @location(5) @interpolate(flat) life: f32,
+  @location(6) @interpolate(flat) shade: f32,
 }
 
 fn rotY(v: vec3f, cs: vec2f) -> vec3f {
@@ -66,6 +68,7 @@ fn vs_main(
   let cell = vec2i(floor(inst.root.xz));
   let lc = life[lifeIndex(cell)];
   out.life = select(0.0, lc.life, lc.key == lifeKey(cell));
+  out.shade = canopyLight(inst.root.x, biome(inst.root.xz).z);
   return out;
 }
 
@@ -91,9 +94,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let base = mix(texel.rgb, dry, leafness * (1.0 - frag.life) * 0.6 * P.dryTint);
   let l = G.sunDir;
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * 0.8;
-  var col = base * (ambientSky(n, s) * 0.6 * frag.ao + G.sunColor * (wrapDiffuse(n, l, 0.4) + back) * 0.85 * frag.ao);
+  var col = base * (ambientSky(n, s) * 0.6 * frag.ao * mix(0.5, 1.0, frag.shade) + G.sunColor * (wrapDiffuse(n, l, 0.4) + back) * 0.85 * frag.ao * frag.shade * frag.shade);
   let petal = 1.0 - leafness;
   col = col + texel.rgb * petal * G.night * 0.9 * P.nightGlow * (0.7 + 0.3 * sin(G.time * 1.1 + frag.world.x * 0.7 + frag.world.z));
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s);
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, a);
 }

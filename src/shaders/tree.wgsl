@@ -2,6 +2,7 @@
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { TreeInstance, rotateYaw, treeSway } from "./lib/tree.wgsl";
+import { biome, canopyLight } from "./lib/biome.wgsl";
 
 struct TreeParams {
   height: f32,
@@ -28,6 +29,7 @@ struct VOut {
   @location(3) extra: vec4f,
   @location(4) @interpolate(flat) seed: f32,
   @location(5) localY: f32,
+  @location(6) shade: f32,
 }
 
 fn sky() -> SkyParams {
@@ -62,6 +64,9 @@ fn vs_main(
   out.extra = e;
   out.seed = seed;
   out.localY = local.y * scale;
+  // Under the canopy (lower ~60% of the tree) the forest's shade applies; crowns stay lit.
+  let under = 1.0 - smoothstep(0.35, 0.75, heightN);
+  out.shade = mix(1.0, canopyLight(inst.root.x, biome(inst.root.xz).z), under);
   return out;
 }
 
@@ -94,8 +99,8 @@ fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let l = G.sunDir;
   // Darken toward the ground where grass and roots crowd the trunk.
   let ao = mix(0.45, 1.0, smoothstep(0.0, 2.5, frag.localY));
-  var col = albedo * (ambientSky(n, s) * 0.55 * ao + G.sunColor * wrapDiffuse(n, l, 0.2) * 0.9);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s);
+  var col = albedo * (ambientSky(n, s) * 0.55 * ao * mix(0.5, 1.0, frag.shade) + G.sunColor * wrapDiffuse(n, l, 0.2) * 0.9 * frag.shade * frag.shade);
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, 1.0);
 }
 
@@ -124,7 +129,7 @@ fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec
   let albedo = texel.rgb * hue * tree.leafTint;
   let diff = wrapDiffuse(n, l, 0.5);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.9;
-  var col = albedo * (ambientSky(n, s) * 0.6 * ao + G.sunColor * (diff * ao + back * (0.4 + 0.6 * ao)) * 0.85);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s);
+  var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.55, 1.0, frag.shade) + G.sunColor * (diff * ao + back * (0.4 + 0.6 * ao)) * 0.85 * frag.shade);
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, a);
 }

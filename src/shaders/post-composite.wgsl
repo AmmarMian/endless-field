@@ -11,6 +11,7 @@ struct Params {
 @group(0) @binding(1) var bloom: texture_2d<f32>;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var<uniform> params: Params;
+@group(0) @binding(4) var shafts: texture_2d<f32>;
 
 // Stephen Hill's fitted ACES.
 fn aces(c: vec3f) -> vec3f {
@@ -44,7 +45,7 @@ fn hash12(p: vec2f) -> f32 {
 fn fs_main(@location(0) uv: vec2f, @builtin(position) frag: vec4f) -> @location(0) vec4f {
   var col = textureSampleLevel(scene, samp, uv, 0.0).rgb;
   let b = textureSampleLevel(bloom, samp, uv, 0.0).rgb;
-  col = col + b * params.bloomStrength;
+  col = col + b * params.bloomStrength + textureSampleLevel(shafts, samp, uv, 0.0).rgb;
   col = col * params.exposure;
   // Gentle warm lift in the shadows, Flower-like pastel response.
   let lum = dot(col, vec3f(0.2126, 0.7152, 0.0722));

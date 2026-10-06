@@ -141,7 +141,9 @@ export fn terrainHeight(xz: vec2f) -> f32 {
 }
 
 export fn terrainHeightR(xz: vec2f, r: vec4f) -> f32 {
-  let h = terrainBase(xz);
+  // The upper valley climbs with the river: the land is raised by the river's rise (fading
+  // over ~700 m) before the banks are shaped, so cross-sections stay monotonic.
+  let h = terrainBase(xz) + riverRise(r.w) * (1.0 - smoothstep(r.z * 2.0, 700.0, r.x));
   let hw = r.z;
   if (r.x > hw * 7.0) {
     return h;
@@ -248,16 +250,12 @@ export fn riverValley(natural: f32, r: vec4f, xz: vec2f) -> f32 {
     return natural;
   }
   let bed = riverBed(r.x, r.y, r.z, upper);
-  // The whole upper valley climbs with the river: lift the floor and flanks by the river's
-  // rise, fading out over a few hundred meters, so the stream never runs on a dike.
-  let lift = riverRise(r.w) * (1.0 - smoothstep(r.z * 2.0, 700.0, r.x));
-  let lifted = natural + lift * (1.0 - smoothstep(0.0, 1.0, max(natural - (r.y - riverRise(r.w)), 0.0) / max(riverRise(r.w), 1.0)));
   // Valley walls: slope and small bumps vary along the valley so they read as hillsides.
   let wallN = gnoise(xz / 45.0 + vec2f(3.3, 8.1));
   let bumps = gnoise(xz / 9.0) * 1.6 * smoothstep(r.z * 1.5, r.z * 4.0, r.x);
   let cut = select(r.y + 0.3 + max(r.x - r.z * 1.15, 0.0) * (0.5 + 0.25 * wallN) + bumps, bed, r.x < r.z);
   let fill = select(r.y + 0.3 - max(r.x - r.z * 1.6, 0.0) * 0.28, bed, r.x < r.z);
-  return mix(natural, clamp(lifted, fill, max(cut, fill)), uw);
+  return mix(natural, clamp(natural, fill, max(cut, fill)), uw);
 }
 
 export fn mountainCorridor(r: vec4f) -> f32 {

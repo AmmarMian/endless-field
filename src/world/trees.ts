@@ -246,7 +246,8 @@ export class Trees {
     }
     // Woodland: a jittered lattice, finer where the canopy closes; each candidate survives with
     // the local canopy density, so forests thin out naturally toward dry or cold ground.
-    const n = density > 0.7 ? 6 : 4;
+    // The forest's core (deep east) closes into dense stands.
+    const n = density > 0.7 ? ((cx + 0.5) * CELL > 1100 ? 7 : 6) : 4;
     const out: TreeInstance[] = [];
     for (let i = 0; i < n * n; i++) {
       const x = (cx + (i % n + 0.15 + rnd() * 0.7) / n) * CELL;

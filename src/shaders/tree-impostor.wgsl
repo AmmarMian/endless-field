@@ -96,6 +96,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.6;
   let rgb = albedo.rgb * imp.leafTint;
   var col = rgb * (ambientSky(n, s) * 0.6 + G.sunColor * (wrapDiffuse(n, l, 0.5) + back) * 0.8);
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s);
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, a);
 }

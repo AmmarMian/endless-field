@@ -5,7 +5,7 @@ import { mountainCorridor, mountainHeight, riverInfo, riverInfoAt, riverValley, 
 import { LifeCell, fieldColor, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl";
 import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
-import { biome } from "./lib/biome.wgsl";
+import { biome, canopyLight } from "./lib/biome.wgsl";
 import { bedColor, bedMask } from "./lib/beds.wgsl";
 
 struct GridParams {
@@ -182,7 +182,8 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
 
   let l = G.sunDir;
   let diff = wrapDiffuse(n, l, 0.4);
-  var col = albedo * (ambientSky(n, s) * 0.6 * ao + G.sunColor * diff * mix(0.55, 1.0, farMix));
+  let shade = canopyLight(xz.x, frag.misc.w);
+  var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.5, 1.0, shade) + G.sunColor * diff * mix(0.55, 1.0, farMix) * shade * shade);
   // Blade-scale streaks so distant ground reads as grass rather than paint.
   let streak = simplex2d(xz * vec2f(1.7, 0.6) + G.windDir * G.time * 0.4) * 0.5 + 0.5;
   col = col * mix(1.0, mix(0.82, 1.12, streak), farMix);
@@ -190,6 +191,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let v = normalize(G.camPos - frag.world);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0);
   col = col + G.sunColor * albedo * back * 0.8 * farMix;
-  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s);
+  col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec3f(G.mist, G.mistBase, G.canopy));
   return vec4f(col, 1.0);
 }

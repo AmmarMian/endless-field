@@ -26,6 +26,7 @@ Needs a WebGPU browser (recent Chrome / Edge / Safari).
 | O | Settings (quality presets, render scale, grass density, draw distance, frame cap, auto resolution) |
 | F | Frame counter (fps, CPU and GPU ms) |
 | N | Day / night |
+| M | Free roam: walk (WASD, mouse look, Shift sprint) or fly (V; Space / C up and down) |
 
 ## What is in it
 

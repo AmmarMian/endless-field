@@ -8,6 +8,7 @@ import { Audio } from "./game/audio";
 import { Input } from "./game/input";
 import { PetalStream } from "./game/petals";
 import { Player } from "./game/player";
+import { FreeCam } from "./game/freecam";
 import { Flowers, PALETTES } from "./world/flowers";
 import { Grass } from "./world/grass";
 import { LifeMap } from "./world/life";
@@ -24,6 +25,8 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
+const WIND_HINT = "move the mouse to steer · hold click or space to gust · shift to rise · ctrl to dive · M free roam";
+const EXPLORE_HINT = "free roam · click to look around · WASD move · shift sprint · V fly (space / C up and down) · M back to the wind";
 
 const params = new URLSearchParams(location.search);
 
@@ -68,6 +71,9 @@ async function main(): Promise<void> {
     Water.load(gpu, globals.uniforms),
   ]);
   const player = new Player(0, 30, 0.4);
+  const freecam = new FreeCam(canvas);
+  let explore = false;
+  let hintTimer = 0;
   stream.add(player.pos, PALETTES[0]);
 
   await Promise.all(
@@ -187,6 +193,19 @@ async function main(): Promise<void> {
     if (input.wasPressed("KeyF")) panel.set({ showStats: !current.showStats });
     if (input.wasPressed("KeyO")) panel.toggle();
     if (input.wasPressed("KeyN")) panel.set({ night: !current.night });
+    if (input.wasPressed("KeyM")) {
+      explore = !explore;
+      if (explore) {
+        start();
+        freecam.enter(camera);
+      } else {
+        freecam.exit();
+      }
+      controlsEl.textContent = explore ? EXPLORE_HINT : WIND_HINT;
+      controlsEl.classList.add("show");
+      clearTimeout(hintTimer);
+      hintTimer = window.setTimeout(() => controlsEl.classList.remove("show"), 7000);
+    }
 
     // Day/night eases over ~4 s; the atmosphere, bloom and sound follow.
     const nightTarget = current.night ? 1 : 0;
@@ -200,44 +219,54 @@ async function main(): Promise<void> {
       audio.setNight(k);
     }
 
-    // Before the first click the wind wanders toward flowers on its own.
-    const target = flowers.nearestClosed(player.pos[0], player.pos[2]);
-    player.update(dt, input, playing ? null : { toward: target ? [target.x, target.z] : undefined });
+    const obstacles = trees
+      .near(camera.position[0], camera.position[2], 14)
+      .map((tr) => ({ x: tr.x, z: tr.z, r: trees.trunkRadius(tr) + 0.6 }));
+    if (explore) {
+      freecam.update(dt, obstacles);
+      flowers.update(dt, freecam.pos[0], freecam.pos[1], freecam.pos[2], 0);
+    } else {
+      // Before the first click the wind wanders toward flowers on its own.
+      const target = flowers.nearestClosed(player.pos[0], player.pos[2]);
+      player.update(dt, input, playing ? null : { toward: target ? [target.x, target.z] : undefined });
 
-    // Slide around trunks instead of passing through them.
-    for (const tr of trees.near(player.pos[0], player.pos[2], 12)) {
-      const r = trees.trunkRadius(tr) + 0.6;
-      const dx = player.pos[0] - tr.x;
-      const dz = player.pos[2] - tr.z;
-      const d = Math.hypot(dx, dz);
-      if (d < r && player.pos[1] < tr.y + 3 * tr.scale) {
-        player.pos[0] = tr.x + (dx / (d || 1)) * r;
-        player.pos[2] = tr.z + (dz / (d || 1)) * r;
+      // Slide around trunks instead of passing through them.
+      for (const tr of trees.near(player.pos[0], player.pos[2], 12)) {
+        const r = trees.trunkRadius(tr) + 0.6;
+        const dx = player.pos[0] - tr.x;
+        const dz = player.pos[2] - tr.z;
+        const d = Math.hypot(dx, dz);
+        if (d < r && player.pos[1] < tr.y + 3 * tr.scale) {
+          player.pos[0] = tr.x + (dx / (d || 1)) * r;
+          player.pos[2] = tr.z + (dz / (d || 1)) * r;
+        }
       }
-    }
 
-    const touched = flowers.update(dt, player.pos[0], player.pos[1], player.pos[2], 2.4 + Math.min(stream.count, 60) * 0.02 + player.gust);
-    for (const f of touched) {
-      stream.add([f.x, f.y + f.height, f.z], f.color);
-      life.bloom(f.x, f.z, 9 + Math.random() * 4);
-      audio.bloom();
-    }
-    for (const c of flowers.completedClusters(touched)) {
-      life.bloom(c.x, c.z, 34, 7);
-      audio.cluster();
-    }
-    stream.update(dt, player.pos, player.forward, player.gust);
-    // Once carrying collected petals, the stream leaves a faint wake of new growth.
-    if (stream.count > 1 && player.altitude < 6) {
-      if (Math.hypot(player.pos[0] - lastTrail[0], player.pos[2] - lastTrail[1]) > 2.5) {
-        lastTrail = [player.pos[0], player.pos[2]];
-        life.bloom(player.pos[0], player.pos[2], 2.5 + Math.min(stream.count, 40) * 0.06, 0.8, 0.45);
+      const touched = flowers.update(dt, player.pos[0], player.pos[1], player.pos[2], 2.4 + Math.min(stream.count, 60) * 0.02 + player.gust);
+      for (const f of touched) {
+        stream.add([f.x, f.y + f.height, f.z], f.color);
+        life.bloom(f.x, f.z, 9 + Math.random() * 4);
+        audio.bloom();
+      }
+      for (const c of flowers.completedClusters(touched)) {
+        life.bloom(c.x, c.z, 34, 7);
+        audio.cluster();
+      }
+      stream.update(dt, player.pos, player.forward, player.gust);
+      // Once carrying collected petals, the stream leaves a faint wake of new growth.
+      if (stream.count > 1 && player.altitude < 6) {
+        if (Math.hypot(player.pos[0] - lastTrail[0], player.pos[2] - lastTrail[1]) > 2.5) {
+          lastTrail = [player.pos[0], player.pos[2]];
+          life.bloom(player.pos[0], player.pos[2], 2.5 + Math.min(stream.count, 40) * 0.06, 0.8, 0.45);
+        }
       }
     }
 
     if (debug.fixedCamera) {
       camera.position.splice(0, 3, ...debug.fixedCamera.pos);
       camera.target.splice(0, 3, ...debug.fixedCamera.target);
+    } else if (explore) {
+      freecam.apply(camera);
     } else {
       player.updateCamera(camera, dt, stream.length(player.gust));
     }
@@ -245,12 +274,14 @@ async function main(): Promise<void> {
     camera.update();
 
     windAngle += Math.sin(t * 0.05) * 0.02 * dt;
-    player.writeTrail(globals.trail);
+    if (explore) freecam.writeTrail(globals.trail);
+    else player.writeTrail(globals.trail);
     globals.updateFrame(camera, t, renderer.viewport, {
       night: night * night * (3 - 2 * night),
-      playerPos: player.pos,
-      playerSpeed: player.speed,
-      gust: player.gust,
+      explore: explore ? 1 : 0,
+      playerPos: explore ? freecam.pos : player.pos,
+      playerSpeed: explore ? 0 : player.speed,
+      gust: explore ? 0 : player.gust,
       windDir: [Math.cos(windAngle), Math.sin(windAngle)],
       windStrength: 0.68 + 0.17 * Math.sin(t * 0.13),
     });
@@ -262,7 +293,7 @@ async function main(): Promise<void> {
     trees.update(camera.position, camera.frustum, current.drawDistance);
     beds.update(camera.position, camera.frustum, 80 * current.drawDistance);
     renderer.setPost({ time: t });
-    audio.update((player.speed - 7.5) / 13.5, player.altitude);
+    audio.update(explore ? 0.15 : (player.speed - 7.5) / 13.5, explore ? 2 : player.altitude);
 
     renderer.render(frame, (pass) => {
       // Rough front-to-back for early depth rejection: blades and props first, ground last.
@@ -270,14 +301,14 @@ async function main(): Promise<void> {
       trees.encode(pass);
       beds.encode(pass);
       flowers.encode(pass);
-      stream.encode(pass);
+      if (!explore) stream.encode(pass);
       water.encode(pass);
       terrain.encode(pass);
       flowers.encodeGlow(pass);
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
     }, spans);
 
-    petalsEl.textContent = stream.count > 1 ? `${stream.count} petals` : "";
+    petalsEl.textContent = explore ? (freecam.fly ? "free roam · flying" : "free roam") : stream.count > 1 ? `${stream.count} petals` : "";
     cpuMs = cpuMs * 0.9 + (performance.now() - frameStart) * 0.1;
     fpsAccum += time.deltaTime;
     fpsFrames++;

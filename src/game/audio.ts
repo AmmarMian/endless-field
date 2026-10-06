@@ -56,6 +56,50 @@ export class Audio {
   }
 
   private music: Music | null = null;
+  private rainGain: GainNode | null = null;
+  private patterGain: GainNode | null = null;
+
+  /** Rain on the meadow: a soft hiss plus pattering drops (0 dry .. 1 downpour). */
+  setRain(amount: number): void {
+    if (!this.ctx) return;
+    if (!this.rainGain) {
+      const ctx = this.ctx;
+      const hiss = ctx.createBufferSource();
+      hiss.buffer = this.noiseBuffer(5);
+      hiss.loop = true;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 2400;
+      this.rainGain = ctx.createGain();
+      this.rainGain.gain.value = 0;
+      hiss.connect(lp).connect(this.rainGain).connect(this.master);
+      hiss.start();
+      // Patter: brighter noise, amplitude-modulated by a fast random flutter.
+      const patter = ctx.createBufferSource();
+      patter.buffer = this.noiseBuffer(3);
+      patter.loop = true;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "bandpass";
+      hp.frequency.value = 3800;
+      hp.Q.value = 0.9;
+      this.patterGain = ctx.createGain();
+      this.patterGain.gain.value = 0;
+      const flutter = ctx.createGain();
+      flutter.gain.value = 0.5;
+      const lfo = ctx.createOscillator();
+      lfo.type = "sawtooth";
+      lfo.frequency.value = 13;
+      const lfoAmt = ctx.createGain();
+      lfoAmt.gain.value = 0.5;
+      lfo.connect(lfoAmt).connect(flutter.gain);
+      lfo.start();
+      patter.connect(hp).connect(flutter).connect(this.patterGain).connect(this.master);
+      patter.start();
+    }
+    const t = this.ctx.currentTime;
+    this.rainGain.gain.setTargetAtTime(amount * 0.16, t, 1.0);
+    this.patterGain!.gain.setTargetAtTime(amount * 0.07, t, 1.0);
+  }
   private musicOn = true;
 
   /** Background score on / off. */

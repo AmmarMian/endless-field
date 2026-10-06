@@ -4,7 +4,7 @@ import { SNOW, seasonGrass, seasonWeights } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
 import { mountainCorridor, mountainHeight, riverInfo, riverInfoAt, riverValley, terrainBroad, terrainHeightR } from "./lib/terrain.wgsl";
 import { LifeCell, fieldColor, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl";
-import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFog, ambientSky, skyColor, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome, canopyLight } from "./lib/biome.wgsl";
 import { bedColor, bedMask } from "./lib/beds.wgsl";
@@ -236,7 +236,21 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let l = G.sunDir;
   let diff = wrapDiffuse(n, l, 0.4);
   let shade = canopyLight(xz.x, frag.misc.w);
+  // Rain: wet ground darkens (water fills the pores) and turns glossy; in the hollows of flat
+  // ground, puddles gather and mirror the sky. (Snow does not wet: winter keeps its cover.)
+  let wetness = G.wet * (1.0 - snowCover) * (1.0 - sw.z * 0.7);
+  albedo = albedo * mix(1.0, 0.62, wetness * (1.0 - shore * 0.5));
   var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.5, 1.0, shade) + G.sunColor * diff * mix(0.55, 1.0, farMix) * shade * shade);
+  if (wetness > 0.01) {
+    let vw = normalize(G.camPos - frag.world);
+    let hollow = smoothstep(0.62, 0.78, simplex2d(xz * 0.21 + vec2f(5.0, 3.0)) * 0.5 + 0.5 + pathAmt * 0.15) * smoothstep(0.96, 0.995, n.y);
+    let puddle = hollow * smoothstep(0.35, 0.9, wetness);
+    let ripple = select(vec2f(0.0), vec2f(simplex2d(xz * 9.0 + G.time * 2.0), simplex2d(xz * 9.0 - G.time * 1.7)) * 0.04 * G.rain, puddle > 0.0);
+    let pn = normalize(mix(n, vec3f(ripple.x, 1.0, ripple.y), puddle));
+    let fres = 0.03 + 0.97 * pow(1.0 - max(dot(pn, vw), 0.0), 5.0);
+    let refl = skyColor(normalize(reflect(-vw, pn) * vec3f(1.0, 1.0, 1.0) + vec3f(0.0, 0.02, 0.0)), s);
+    col = mix(col, refl, clamp(fres * (0.15 * wetness + 0.85 * puddle), 0.0, 0.9));
+  }
   // Grass canopy seen from afar (where blades thin out or stop): the ground carries the
   // field's look. Weighted off on beds, forest floor, shores and fields of other crops.
   let v = normalize(G.camPos - frag.world);

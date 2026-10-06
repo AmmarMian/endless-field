@@ -170,7 +170,10 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   // AO by absolute height above the ground, so short lawn blades are not all shadow.
   let ao = mix(0.25, 1.0, smoothstep(0.0, 0.55, frag.t * frag.bladeH));
 
-  var col = albedo * (ambientSky(n, s) * 0.55 * ao + G.sunColor * ndl * mix(0.6, 1.0, frag.t));
+  // Wet blades are darker and catch a soft sheen.
+  let wetB = G.wet * (1.0 - seasonWeights(G.season).z);
+  var col = albedo * (1.0 - 0.3 * wetB) * (ambientSky(n, s) * 0.55 * ao + G.sunColor * ndl * mix(0.6, 1.0, frag.t));
+  col = col + (G.horizonColor * 0.25 + G.zenithColor * 0.2) * wetB * pow(1.0 - abs(dot(n, normalize(G.camPos - frag.world))), 3.0) * 0.6;
   col = col + G.sunColor * (trans + vec3f(spec));
   col = col + frag.glow * pow(frag.t, 6.0);
   col = col + albedo * frag.lamp;

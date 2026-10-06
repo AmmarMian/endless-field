@@ -120,7 +120,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   height = height * P.heightScale * fade;
   // Winter snow presses the grass down; spring grass is young and shorter.
   let sw = seasonWeights(G.season);
-  height = height * (1.0 - 0.32 * sw.z - 0.15 * sw.w);
+  height = height * (1.0 - 0.32 * sw.z - 0.15 * sw.w) * (1.0 - 0.14 * G.wet);
   // The lantern path is bare; grass shortens toward its edge (trampled).
   let pd = pathDistance(xz);
   if (pd < PATH_WIDTH + 1.6) {
@@ -216,6 +216,8 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let gust = smoothstep(-0.6, 0.9, broad * 0.6 + ripple * 0.55);
   let flutter = simplex2d(xz * 0.5 + vec2f(t * 3.1, -t * 2.3));
   var bend = wdir * G.windStrength * (0.1 + 0.85 * gust) + vec2f(-wdir.y, wdir.x) * flutter * 0.16 * G.windStrength;
+  // Raindrops knock the blades about.
+  bend = bend + vec2f(simplex2d(xz * 3.1 + vec2f(t * 7.0, 0.0)), simplex2d(xz * 3.1 + vec2f(0.0, t * 6.3))) * 0.22 * G.rain;
 
   // The petal stream parts the grass as it passes.
   let toPlayer = distance(xz, G.playerPos.xz);

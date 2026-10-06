@@ -2,7 +2,7 @@ import { clock, frameLoop, init, timer, type Frame, type FrameLoopHandle } from 
 import { SettingsPanel, loadSettings, type Settings } from "./ui/settings";
 import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
-import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere, weatherAtmosphere } from "./engine/globals";
+import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";
 import { Renderer } from "./engine/renderer";
 import { loadTexture } from "./engine/textures";
 import { Audio } from "./game/audio";
@@ -26,6 +26,7 @@ import { Undergrowth } from "./world/undergrowth";
 import { SUNFLOWERS, Sunflowers, gradeSunflowerField } from "./world/sunflowers";
 import { Lanterns } from "./world/lanterns";
 import { Torii } from "./world/torii";
+import { Rain } from "./world/rain";
 import { PATH, pathZ } from "./world/lantern-path";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
@@ -115,6 +116,10 @@ async function main(): Promise<void> {
   let shownSeason = "";
   let seasonSave = 0;
   let rain = 0;
+  let wet = 0;
+  let raining = false;
+  let weatherTimer = 150 + Math.random() * 150;
+  const precipitation = new Rain(gpu, globals.uniforms);
   const seasonEl = document.createElement("div");
   seasonEl.id = "season";
   (document.getElementById("hud") ?? document.body).append(seasonEl);
@@ -122,7 +127,7 @@ async function main(): Promise<void> {
   stream.add(player.pos, PALETTES[0]);
 
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
   );
 
   let playing = false;
@@ -337,6 +342,25 @@ async function main(): Promise<void> {
     }
     if (Math.abs(season - atmSeason) > 0.004) atmosphereDirty = true;
 
+    // Weather: showers of a minute or two every few minutes (or held clear / raining). Rain
+    // fades in and out over ~10 s; the ground wets within ~25 s and dries over ~90 s.
+    if (input.wasPressed("r")) {
+      if (current.weather !== "auto") panel.set({ weather: "auto" });
+      raining = !raining;
+      weatherTimer = raining ? 90 : 240;
+    }
+    weatherTimer -= dt;
+    if (weatherTimer <= 0) {
+      raining = !raining;
+      weatherTimer = raining ? 60 + Math.random() * 90 : 150 + Math.random() * 240;
+    }
+    const rainTarget = current.weather === "rain" ? 1 : current.weather === "clear" ? 0 : raining ? 1 : 0;
+    const prevRain = rain;
+    rain += Math.sign(rainTarget - rain) * Math.min(Math.abs(rainTarget - rain), dt / 10);
+    wet += ((rain > 0.15 ? 1 : 0) - wet) * Math.min(1, dt / (rain > 0.15 ? 25 : 90));
+    if (Math.abs(rain - prevRain) > 1e-5) atmosphereDirty = true;
+    audio.setRain(rain * (1 - seasonWeightsTs(season)[2]));
+
     // Day/night eases over ~4 s; the atmosphere, bloom and sound follow.
     const nightTarget = current.night ? 1 : 0;
     if (night !== nightTarget || atmosphereDirty) {
@@ -448,6 +472,7 @@ async function main(): Promise<void> {
       canopy,
       season,
       rain,
+      wet,
       explore: explore ? 1 : 0,
       playerPos: explore ? freecam.pos : player.pos,
       playerSpeed: explore ? 0 : player.speed,
@@ -498,6 +523,8 @@ async function main(): Promise<void> {
       if (!debug.hide.terrain) terrain.encode(pass);
       flowers.encodeGlow(pass);
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
+      // Transparent, depth-tested but not depth-writing: after everything opaque.
+      precipitation.encode(pass, rain);
     }, spans);
 
     petalsEl.textContent = explore ? (freecam.fly ? "free roam · flying" : "free roam") : stream.count > 1 ? `${stream.count} petals` : "";

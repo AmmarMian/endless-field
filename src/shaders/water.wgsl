@@ -120,9 +120,27 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let hy = mix(waveHeight(uv + j1 + vec2f(0.0, e), d1, t, detail), waveHeight(uv + j0 + vec2f(0.0, e), d0, t, detail), w0) - h0;
   // Crossfading halves the contrast at mid-blend; compensate so ripples stay even.
   let blendGain = 1.0 / sqrt(w0 * w0 + (1.0 - w0) * (1.0 - w0));
-  let amp = 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0) * blendGain;
+  // Rain beats the wind ripples flat; its own rings take over.
+  let amp = 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0) * blendGain * (1.0 - 0.65 * G.rain);
   let gradLocal = vec2f(hx, hy) / e * amp;
-  let grad = flow * gradLocal.x + side * gradLocal.y;
+  var grad = flow * gradLocal.x + side * gradLocal.y;
+  // Rain on the river: each 0.6 m cell gets a drop at its own moment; the ring spreads and fades.
+  if (G.rain > 0.01 && camDist < 60.0) {
+    for (var oy = 0; oy < 2; oy = oy + 1) {
+      for (var ox = 0; ox < 2; ox = ox + 1) {
+        let cell = floor(p.xz / 0.6) + vec2f(f32(ox), f32(oy)) - 0.5;
+        let hc = fract(sin(dot(cell, vec2f(127.1, 311.7))) * 43758.5453);
+        let hc2 = fract(hc * 91.7);
+        let age = fract(t * (0.9 + hc2 * 0.6) + hc);
+        let center = (cell + 0.5 + (vec2f(hc, hc2) - 0.5) * 0.5) * 0.6;
+        let dv = p.xz - center;
+        let d = length(dv);
+        let radius = age * 0.35;
+        let ring = exp(-pow((d - radius) * 40.0, 2.0)) * (1.0 - age) * step(hc2, G.rain);
+        grad = grad + dv / max(d, 1e-3) * ring * 0.6 * (1.0 - smoothstep(20.0, 60.0, camDist));
+      }
+    }
+  }
   let n = normalize(vec3f(-grad.x, 1.0, -grad.y));
 
   let v = normalize(G.camPos - p);

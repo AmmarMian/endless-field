@@ -24,6 +24,8 @@ import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
 import { SUNFLOWERS, Sunflowers, gradeSunflowerField } from "./world/sunflowers";
+import { Lanterns } from "./world/lanterns";
+import { PATH, pathZ } from "./world/lantern-path";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const errorBox = document.getElementById("error")!;
@@ -83,21 +85,26 @@ async function main(): Promise<void> {
   const camera = new Camera();
   const input = new Input(canvas);
   const audio = new Audio();
-  const [trees, beds, water, undergrowth, sunflowers] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns] = await Promise.all([
     Trees.load(gpu, globals.uniforms),
     FlowerBeds.load(gpu, globals.uniforms, life.buffer),
     Water.load(gpu, globals.uniforms),
     Undergrowth.load(gpu, globals.uniforms, life.buffer),
     Sunflowers.load(gpu, globals.uniforms),
+    Lanterns.load(gpu, globals.uniforms),
   ]);
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
   let explore = false;
   let hintTimer = 0;
+  const chainEl = document.createElement("div");
+  chainEl.id = "chain";
+  (document.getElementById("hud") ?? document.body).append(chainEl);
+  let chainTimer = 0;
   stream.add(player.pos, PALETTES[0]);
 
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, stream.draw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, fireflies.draw, water.draw].map((d) => d.compile(renderer.scene)),
   );
 
   let playing = false;
@@ -142,6 +149,7 @@ async function main(): Promise<void> {
         at: [SUNFLOWERS.x, SUNFLOWERS.z],
       },
       { label: "river", x: 120, z: riverCenter(120) + 30, yaw: Math.PI, at: [300, riverCenter(300) - 30] },
+      { label: "lantern path", x: PATH.x0 - 4, z: pathZ(PATH.x0), yaw: Math.PI / 2, at: [200, pathZ(200) + 25] },
       { label: "forest edge", x: 520, z: 120, yaw: Math.PI / 2, at: [470, 260] },
       { label: "autumn forest", x: 900, z: 120, yaw: Math.PI / 2 },
       { label: "deep forest", x: 1650, z: 150, yaw: Math.PI / 2 },
@@ -398,6 +406,22 @@ async function main(): Promise<void> {
     beds.update(camera.position, camera.frustum, 140 * current.drawDistance);
     undergrowth.update(camera.position, camera.frustum, current.drawDistance);
     sunflowers.update(dt, camera.position, camera.frustum);
+    lanterns.update(camera.position);
+    const lanternEvent = lanterns.touch(explore ? freecam.pos : player.pos, t);
+    if (lanternEvent) {
+      audio.lantern(lanternEvent.chain);
+      if (lanternEvent.complete) audio.lanternsComplete();
+      const p = lanterns.progress;
+      chainEl.textContent = lanternEvent.complete
+        ? `every lantern, in one breath`
+        : lanternEvent.chain > 1
+          ? `${lanternEvent.chain} lanterns in a row · ${p.lit} / ${p.total}`
+          : `${p.lit} / ${p.total} lanterns`;
+      chainEl.classList.add("show");
+      clearTimeout(chainTimer);
+      chainTimer = window.setTimeout(() => chainEl.classList.remove("show"), lanternEvent.complete ? 6000 : 2500);
+    }
+    lanterns.animate(dt, globals.lamps, t);
     renderer.setPost({ time: t });
     audio.update(explore ? 0.15 : (player.speed - 7.5) / 13.5, explore ? 2 : player.altitude);
 
@@ -407,6 +431,7 @@ async function main(): Promise<void> {
       if (!debug.hide.trees) trees.encode(pass);
       if (!debug.hide.beds) beds.encode(pass);
       if (!debug.hide.sunflowers) sunflowers.encode(pass);
+      lanterns.encode(pass);
       undergrowth.encode(pass);
       flowers.encode(pass);
       if (!explore) stream.encode(pass);

@@ -17,6 +17,7 @@ import { riverInfo, terrainHeightM as terrainHeight } from "./height";
 import { ecology, treeDensity, treeSuitability, type Eco } from "./ecology";
 import { biome, canopyLight } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
+import { avenueTrees, pathDistance } from "./lantern-path";
 
 interface LodInfo {
   file: string;
@@ -69,6 +70,21 @@ export const SPECIES = [
 ];
 
 const CELL = 72;
+/**
+ * The avenue along the lantern path: pairs of broadleaves (autumn colors) facing each other
+ * across the path, with a jacaranda pair now and then for its violet bloom.
+ */
+let avenue: TreeInstance[] | null = null;
+// Built on first use: heights depend on the world seed, which is set at startup.
+const AVENUE_BUILD = (): TreeInstance[] => avenueTrees().map((a) => {
+  const h = Math.sin(a.k * 12.9898 + a.side * 78.233) * 43758.5453;
+  const r = h - Math.floor(h);
+  const species = a.k % 4 === 2 ? 0 : 1;
+  const scale = species === 0 ? 0.56 + r * 0.08 : 2.3 + r * 0.35;
+  const forest = biome(a.x, a.z)[2];
+  return { species, forest, shade: canopyLight(a.x, forest), x: a.x, y: terrainHeight(a.x, a.z) - 0.15, z: a.z, yaw: r * Math.PI * 2, scale, seed: r };
+});
+
 const VIEW = 900;
 /** Trees grow in over this band at the edge of the view, inside the fog. */
 const FADE = 150;
@@ -217,6 +233,13 @@ export class Trees {
    * and each tree's species is drawn by how well its niche fits the spot (see ecology.ts).
    */
   private makeCell(cx: number, cz: number): TreeInstance[] {
+    // Natural trees keep off the lantern path; the avenue lining it is planted.
+    const natural = this.naturalCell(cx, cz).filter((t) => pathDistance(t.x, t.z) > 7.5);
+    avenue ??= AVENUE_BUILD();
+    return natural.concat(avenue.filter((t) => Math.floor(t.x / CELL) === cx && Math.floor(t.z / CELL) === cz));
+  }
+
+  private naturalCell(cx: number, cz: number): TreeInstance[] {
     const rnd = cellRandom(cx, cz);
     const pick = (eco: Eco): number => {
       const suit = treeSuitability(eco);

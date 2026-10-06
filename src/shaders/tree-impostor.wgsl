@@ -2,7 +2,7 @@
 // The atlas holds `frames` orthographic views around the tree (albedo + tree-space normals).
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
-import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway } from "./lib/tree.wgsl";
+import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway, windGust } from "./lib/tree.wgsl";
 
 struct ImpostorParams {
   frames: f32,
@@ -61,7 +61,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   // Push the card toward the camera a little so it does not clip into hillsides.
   world = world + flat * size * 0.15;
   let heightN = clamp((world.y - root.y) / (imp.height * scale), 0.0, 1.2);
-  world = world + treeSway(heightN, heightN, G.windDir, G.windStrength, G.time, inst.rot.z) * scale;
+  let gust = windGust(root.xz, G.time, G.windDir);
+  world = world + treeSway(heightN, heightN, G.windDir, G.windStrength * (0.55 + 0.9 * gust), G.time, inst.rot.z) * scale;
 
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);

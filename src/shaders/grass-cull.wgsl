@@ -8,6 +8,7 @@ import { pcg2d, unitFloat } from "@vgpu/wgsl-std/hash";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome } from "./lib/biome.wgsl";
 import { sunflowerField } from "./lib/sunflowers.wgsl";
+import { PATH_WIDTH, pathDistance } from "./lib/path.wgsl";
 
 struct CullParams {
   // Integer cell of the grid center (camera snapped to the cell size).
@@ -116,6 +117,16 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   var height = mix(0.45, 1.15, patchN) * mix(0.7, 1.2, r1) * mix(0.85, 1.1, detail);
   height = height * mix(1.0, 1.75, kind.x) * mix(1.0, 0.4, kind.y) * mix(1.0, 0.7, bio.z);
   height = height * P.heightScale * fade;
+  // The lantern path is bare; grass shortens toward its edge (trampled).
+  let pd = pathDistance(xz);
+  if (pd < PATH_WIDTH + 1.6) {
+    let onPath = 1.0 - smoothstep(PATH_WIDTH - 0.2, PATH_WIDTH + 0.4, pd);
+    // Bare in the middle (at ~120 blades/m^2 even a few percent would show), thinning at the edges.
+    if (onPath > 0.98 || unitFloat(h.y ^ 0x2545F491u) < onPath) {
+      return;
+    }
+    height = height * mix(0.45, 1.0, smoothstep(PATH_WIDTH, PATH_WIDTH + 1.6, pd));
+  }
   // Inside the sunflower field only sparse, short weeds grow between the rows.
   let sf = sunflowerField(xz);
   if (sf > 0.01) {

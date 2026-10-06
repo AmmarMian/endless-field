@@ -51,7 +51,7 @@ fn fogDensity(p: vec3f, cap: f32, t: f32, boost: f32) -> f32 {
   // Fog banks tens of meters across, drifting downwind and slowly reshaping with height.
   let banks = simplex2d((p.xz - drift) * 0.016 + vec2f(p.y * 0.03, 0.0));
   let cover = smoothstep(-0.5, 0.6, banks);
-  return (0.012 + 0.02 * boost) * forest * layer * cover;
+  return (0.004 + 0.007 * boost) * forest * layer * cover;
 }
 
 // Morning fog along the view ray to `worldPos`: rgb = in-scattered light, a = transmittance.

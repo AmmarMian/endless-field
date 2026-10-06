@@ -13,6 +13,17 @@ export fn rotateYaw(v: vec3f, cs: vec2f) -> vec3f {
   return vec3f(cs.x * v.x + cs.y * v.z, v.y, -cs.y * v.x + cs.x * v.z);
 }
 
+// Gust strength [0, 1] at a point: the same travelling ripples and broad gusts that bend the
+// grass, so a gust visibly crosses the meadow and then moves through the trees.
+export fn windGust(xz: vec2f, t: f32, wdir: vec2f) -> f32 {
+  let along = dot(xz, wdir);
+  let across = dot(xz, vec2f(-wdir.y, wdir.x));
+  // Cheap smooth noise (trees only need the low frequencies).
+  let ripple = sin(along * 0.085 * 6.2831 / 1.6 - t * 0.68 * 6.2831 / 1.6 + sin(across * 0.03) * 2.0);
+  let broad = sin(dot(xz, vec2f(0.011, 0.007)) - t * 0.35) * sin(dot(xz, vec2f(-0.006, 0.013)) + t * 0.21);
+  return smoothstep(-0.6, 0.9, broad * 0.6 + ripple * 0.55);
+}
+
 // Whole-tree sway: grows with height (flex) and follows the wind with slow gusts.
 export fn treeSway(flex: f32, heightN: f32, windDir: vec2f, strength: f32, time: f32, seed: f32) -> vec3f {
   let slow = sin(time * 0.55 + seed * 13.0) * 0.6 + sin(time * 1.13 + seed * 5.0) * 0.4;

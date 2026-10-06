@@ -3,6 +3,7 @@ import flowerShader from "../shaders/flower.wgsl";
 import glowShader from "../shaders/flower-glow.wgsl";
 import { mountainHeight, terrainHeightM as terrainHeight } from "./height";
 import { sunflowerNear } from "./sunflower-field";
+import { pathNear } from "./lantern-path";
 import { biome } from "./biome";
 
 const CELL = 46;
@@ -132,7 +133,7 @@ export class Flowers {
     cluster.x = (cx + 0.15 + rnd() * 0.7) * CELL;
     cluster.z = (cz + 0.15 + rnd() * 0.7) * CELL;
     if (mountainHeight(cluster.x, cluster.z) > 150) return cluster;
-    if (sunflowerNear(cluster.x, cluster.z, 10)) return cluster;
+    if (sunflowerNear(cluster.x, cluster.z, 10) || pathNear(cluster.x, cluster.z, 6)) return cluster;
     const count = 5 + Math.floor(rnd() * 10);
     const color = PALETTES[Math.floor(rnd() * PALETTES.length)];
     const spread = 4 + rnd() * 6;

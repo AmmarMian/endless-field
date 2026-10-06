@@ -59,6 +59,9 @@ export class Globals {
   readonly trail = new Float32Array(24 * 4);
   sunDir: [number, number, number] = [0, 1, 0];
   private readonly trailViews = vec4Views(this.trail);
+  /** Lantern brightness by index (see Lanterns). */
+  readonly lamps = new Float32Array(12 * 4);
+  private readonly lampViews = vec4Views(this.lamps);
 
   constructor(gpu: Gpu, atmosphere: Atmosphere) {
     this.sunDir = atmosphere.sunDir;
@@ -84,11 +87,12 @@ export class Globals {
       mist: 0,
       mistBase: 0,
       canopy: 0,
-      pad0: 0,
-      pad1: 0,
-      pad2: 0,
+      rain: 0,
+      wet: 0,
+      season: 0,
       frustum: vec4Views(new Float32Array(24)),
       trail: this.trailViews,
+      lamps: this.lampViews,
     });
   }
 
@@ -113,6 +117,7 @@ export class Globals {
       time,
       viewport,
       trail: this.trailViews,
+      lamps: this.lampViews,
       ...extra,
     });
   }

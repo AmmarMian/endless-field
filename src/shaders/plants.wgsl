@@ -1,5 +1,6 @@
 // Wildflower bed plants (Poly Haven ground cover): alpha-to-coverage foliage with wind sway.
 import { Globals } from "./lib/globals.wgsl";
+import { lanternLight } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { LifeCell, lifeIndex, lifeKey } from "./lib/field.wgsl";
 
@@ -33,6 +34,8 @@ struct VOut {
   @location(0) world: vec3f,
   // Morning fog evaluated per vertex (see morningFog).
   @location(14) fog: vec4f,
+  // Warm light from the path lanterns at night (per vertex).
+  @location(13) lamp: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) ao: f32,
@@ -64,6 +67,7 @@ fn vs_main(
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.world = world;
+  out.lamp = lanternLight(out.world, G.night, G.time, G.lamps);
   out.fog = morningFog(out.world, G.camPos, SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor), vec4f(G.mist, G.mistBase, G.canopy, G.time));
   out.normal = rotY(n.xyz, inst.rot.xy);
   out.uv = t;
@@ -101,6 +105,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   var col = base * (ambientSky(n, s) * 0.6 * frag.ao * mix(0.5, 1.0, frag.shade) + G.sunColor * (wrapDiffuse(n, l, 0.4) + back) * 0.85 * frag.ao * frag.shade * frag.shade);
   let petal = 1.0 - leafness;
   col = col + texel.rgb * petal * G.night * 0.9 * P.nightGlow * (0.7 + 0.3 * sin(G.time * 1.1 + frag.world.x * 0.7 + frag.world.z));
+  col = col + base * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
 }

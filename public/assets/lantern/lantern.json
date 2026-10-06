@@ -1,0 +1,35 @@
+{
+  "vertexBytes": 653280,
+  "indexCount": 32664,
+  "variants": [
+    {
+      "height": 1.48,
+      "lightY": 0.995,
+      "lods": [
+        {
+          "firstIndex": 0,
+          "indexCount": 13158
+        },
+        {
+          "firstIndex": 13158,
+          "indexCount": 3174
+        }
+      ]
+    },
+    {
+      "height": 1.154,
+      "lightY": 0.776,
+      "lods": [
+        {
+          "firstIndex": 16332,
+          "indexCount": 13158
+        },
+        {
+          "firstIndex": 29490,
+          "indexCount": 3174
+        }
+      ]
+    }
+  ],
+  "credit": "Modeled in Blender (tools/blender/model_lantern.py)"
+}

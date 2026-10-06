@@ -1,7 +1,8 @@
 // Tree meshes (LOD0/LOD1). One vertex stage; `fs_bark` / `fs_leaves` are selected per draw.
 import { Globals } from "./lib/globals.wgsl";
+import { lanternLight } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
-import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway } from "./lib/tree.wgsl";
+import { TreeInstance, autumnLeaf, lodKeep, rotateYaw, treeSway, windGust } from "./lib/tree.wgsl";
 
 struct TreeParams {
   height: f32,
@@ -26,6 +27,8 @@ struct VOut {
   @location(0) world: vec3f,
   // Morning fog evaluated per vertex (see morningFog).
   @location(14) fog: vec4f,
+  // Warm light from the path lanterns at night (per vertex).
+  @location(13) lamp: vec3f,
   @location(1) normal: vec3f,
   @location(2) uv: vec2f,
   @location(3) extra: vec4f,
@@ -54,15 +57,32 @@ fn vs_main(
   var local = p.xyz;
   let heightN = clamp(local.y / tree.height, 0.0, 1.2);
   var world = inst.root.xyz + rotateYaw(local * scale, inst.rot.xy);
-  world = world + treeSway(e.x, heightN, G.windDir, G.windStrength, G.time, seed) * scale;
-  // Leaf flutter: small, fast, per-card phase.
+  // Wind in three layers: the whole tree leans with the passing gusts; branches sway
+  // independently across the crown (spatially coherent, growing toward the crown's edge);
+  // leaves flutter fast, each vertex on its own phase so cards twist rather than slide.
+  let gust = windGust(inst.root.xz, G.time, G.windDir);
+  let strength = G.windStrength * (0.55 + 0.9 * gust);
+  world = world + treeSway(e.x, heightN, G.windDir, strength, G.time, seed) * scale;
+  let radial = length(local.xz) / max(tree.height * 0.5, 0.1);
+  let reach = clamp(radial * 0.7 + heightN * 0.5, 0.0, 1.5);
+  let bp = local * 0.35 + vec3f(seed * 17.0);
+  let branch = vec3f(
+    sin(G.time * 1.3 + bp.x + bp.y * 0.7) + 0.5 * sin(G.time * 2.3 + bp.z * 1.3),
+    0.35 * sin(G.time * 1.7 + bp.y + bp.z),
+    sin(G.time * 1.1 + bp.z + bp.x * 0.6) + 0.5 * sin(G.time * 2.9 + bp.x * 1.1),
+  );
+  let windW = vec3f(G.windDir.x, 0.0, G.windDir.y);
+  world = world + (branch * 0.05 + windW * 0.06 * gust) * reach * strength * scale;
   if (e.w > 0.9) {
-    let ph = e.y * 6.2831 + G.time * (5.0 + e.y * 3.0);
-    world = world + rotateYaw(n.xyz, inst.rot.xy) * sin(ph) * 0.025 * scale * (0.4 + G.windStrength);
+    let ph = e.y * 6.2831 + dot(local, vec3f(3.1, 2.3, 2.7));
+    let flutter = sin(G.time * (7.0 + e.y * 5.0) + ph) * 0.7 + sin(G.time * 12.5 + ph * 1.7) * 0.3;
+    let wn = rotateYaw(n.xyz, inst.rot.xy);
+    world = world + wn * flutter * 0.045 * scale * (0.25 + strength * 1.1) * clamp(0.4 + reach, 0.0, 1.2);
   }
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.world = world;
+  out.lamp = lanternLight(out.world, G.night, G.time, G.lamps);
   out.fog = morningFog(out.world, G.camPos, SkyParams(G.sunDir, G.sunColor, G.horizonColor, G.zenithColor), vec4f(G.mist, G.mistBase, G.canopy, G.time));
   out.normal = rotateYaw(n.xyz, inst.rot.xy);
   out.uv = t;
@@ -110,6 +130,7 @@ fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   // Darken toward the ground where grass and roots crowd the trunk.
   let ao = mix(0.45, 1.0, smoothstep(0.0, 2.5, frag.localY));
   var col = albedo * (ambientSky(n, s) * 0.55 * ao * mix(0.5, 1.0, frag.shade) + G.sunColor * wrapDiffuse(n, l, 0.2) * 0.9 * frag.shade * frag.shade);
+  col = col + albedo * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, 1.0);
 }
@@ -143,6 +164,7 @@ fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec
   let diff = wrapDiffuse(n, l, 0.5);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 2.5) * 0.9;
   var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.55, 1.0, frag.shade) + G.sunColor * (diff * ao + back * (0.4 + 0.6 * ao)) * 0.85 * frag.shade);
+  col = col + albedo * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   return vec4f(col, a);
 }

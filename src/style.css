@@ -278,3 +278,22 @@ body {
 #map button:hover {
   background: rgba(90, 56, 30, 0.75);
 }
+
+#chain {
+  position: absolute;
+  left: 50%;
+  top: 18%;
+  transform: translateX(-50%);
+  font-style: italic;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  color: #fff3dc;
+  text-shadow: 0 0 18px rgba(255, 170, 80, 0.7);
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  pointer-events: none;
+}
+
+#chain.show {
+  opacity: 1;
+}

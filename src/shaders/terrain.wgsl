@@ -7,6 +7,7 @@ import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.w
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome, canopyLight } from "./lib/biome.wgsl";
 import { bedColor, bedMask } from "./lib/beds.wgsl";
+import { PATH_WIDTH, lanternLight, pathDistance } from "./lib/path.wgsl";
 import { SF_ROW, SF_ROW_PHASE, sunflowerField, sunflowerLocal } from "./lib/sunflowers.wgsl";
 
 struct GridParams {
@@ -148,6 +149,19 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     soil = mix(soil, under * 0.8, smoothstep(0.55, 0.9, simplex2d(xz * 0.6) * 0.5 + 0.5) * 0.45);
     albedo = mix(albedo, mix(soil, vec3f(0.17, 0.2, 0.05), farMix), sf);
   }
+  // Lantern path: packed gravel with flat stepping stones, its edge frayed into the grass.
+  let pd = pathDistance(xz);
+  var pathAmt = 0.0;
+  if (pd < PATH_WIDTH + 1.5) {
+    pathAmt = 1.0 - smoothstep(PATH_WIDTH - 0.35, PATH_WIDTH + 0.5 + simplex2d(xz * 1.7) * 0.35, pd);
+    let fine = simplex2d(xz * 9.0) * 0.5 + 0.5;
+    let coarse = simplex2d(xz * 2.6 + vec2f(-3.0, 5.0)) * 0.5 + 0.5;
+    let gravel = vec3f(0.29, 0.25, 0.19) * mix(0.7, 1.15, fine) * mix(0.85, 1.08, coarse);
+    let stoneN = simplex2d(xz * 1.4 + vec2f(4.0, -2.0));
+    let stone = vec3f(0.36, 0.34, 0.31) * mix(0.85, 1.1, simplex2d(xz * 3.3) * 0.5 + 0.5);
+    let pathCol = mix(gravel, stone, smoothstep(0.55, 0.6, stoneN) * (1.0 - smoothstep(0.6, 1.0, pd / PATH_WIDTH)));
+    albedo = mix(albedo, pathCol, pathAmt * (1.0 - farMix * 0.3));
+  }
   // Alpine zones on the mountains: short turf, then scree and rock on steep ground, and snow
   // on the high, flatter faces. Cliff rock is sampled triplanar-ish (xz for flats, side
   // projections for walls) so steep faces do not smear.
@@ -203,7 +217,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Grass canopy seen from afar (where blades thin out or stop): the ground carries the
   // field's look. Weighted off on beds, forest floor, shores and fields of other crops.
   let v = normalize(G.camPos - frag.world);
-  let grassy = farMix * (1.0 - smoothstep(0.15, 0.6, canopy)) * (1.0 - shore) * (1.0 - mud * 0.7) * (1.0 - sf);
+  let grassy = farMix * (1.0 - smoothstep(0.15, 0.6, canopy)) * (1.0 - shore) * (1.0 - mud * 0.7) * (1.0 - sf) * (1.0 - pathAmt);
   // Clumps at three scales, each fading out once it is smaller than a pixel.
   let fp = length(fwidth(xz));
   let c0 = simplex2d(xz * 1.6 + vec2f(3.0, 1.0)) * (1.0 - smoothstep(0.15, 0.6, fp));
@@ -227,6 +241,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Backlit sheen: blades glow when the sun is behind them, strongest at grazing angles.
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * mix(1.0, 0.5, ndv);
   col = col + G.sunColor * albedo * back * 0.9 * farMix * mix(1.0, wave, grassy);
+  col = col + albedo * lanternLight(frag.world, G.night, G.time, G.lamps);
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
 }

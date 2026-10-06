@@ -176,6 +176,32 @@ export class Audio {
     this.bell(this.scale[this.noteIndex], this.ctx.currentTime, 0.16);
   }
 
+  /**
+   * A lantern lit: chain step n climbs a major pentatonic from D, and grows richer (a fifth
+   * at 4, an octave shimmer at 8). A fresh chain starts with a soft low note.
+   */
+  lantern(chain: number): void {
+    if (!this.ctx) return;
+    const steps = [0, 2, 4, 7, 9];
+    const i = Math.min(chain - 1, 17);
+    const note = 62 + Math.floor(i / 5) * 12 + steps[i % 5];
+    const t = this.ctx.currentTime;
+    const level = 0.1 + Math.min(chain, 12) * 0.008;
+    this.bell(note, t, level);
+    if (chain >= 4) this.bell(note + 7, t + 0.06, level * 0.45);
+    if (chain >= 8) this.bell(note + 12, t + 0.12, level * 0.35);
+    if (chain >= 14) this.bell(note + 19, t + 0.18, level * 0.25);
+  }
+
+  /** Every lantern lit in one run: a long rising arpeggio over a warm chord. */
+  lanternsComplete(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.3;
+    const run = [62, 64, 66, 69, 71, 74, 76, 78, 81, 83, 86];
+    run.forEach((n, i) => this.bell(n, t + i * 0.13, 0.13));
+    [50, 57, 62, 66].forEach((n) => this.bell(n, t + run.length * 0.13, 0.12));
+  }
+
   /** Arpeggiated chord when an entire cluster has bloomed. */
   cluster(): void {
     if (!this.ctx) return;

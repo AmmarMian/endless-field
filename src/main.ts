@@ -1,5 +1,7 @@
 import { clock, frameLoop, init, timer, type Frame, type FrameLoopHandle } from "vgpu";
-import { SettingsPanel, loadSettings, type Settings } from "./ui/settings";
+import { FILTERS, SettingsPanel, loadSettings, type Filter, type Settings } from "./ui/settings";
+
+const FILTER_NAMES: Record<Filter, string> = { none: "natural", painterly: "painterly", watercolor: "watercolor", film: "film", miniature: "miniature", ink: "ink wash" };
 import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
 import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";
@@ -182,6 +184,7 @@ async function main(): Promise<void> {
     renderer.setBloom(s.bloom);
     grass.setQuality(s.grass);
     audio.setMusic(s.music);
+    renderer.setStyle(Math.max(0, FILTERS.indexOf(s.filter)));
   };
   const panel = new SettingsPanel(settings, applySettings);
   const worldMap = new WorldMap(
@@ -237,6 +240,7 @@ async function main(): Promise<void> {
     trees,
     camera,
     lanterns,
+    renderer,
     sunflowers,
     beds,
     height: terrainHeight,
@@ -344,6 +348,15 @@ async function main(): Promise<void> {
       controlsEl.classList.add("show");
       clearTimeout(hintTimer);
       hintTimer = window.setTimeout(() => controlsEl.classList.remove("show"), 7000);
+    }
+
+    if (input.wasPressed("v")) {
+      const next = FILTERS[(FILTERS.indexOf(current.filter) + 1) % FILTERS.length];
+      panel.set({ filter: next });
+      seasonEl.textContent = FILTER_NAMES[next];
+      seasonEl.classList.add("show");
+      clearTimeout(seasonTimer);
+      seasonTimer = window.setTimeout(() => seasonEl.classList.remove("show"), 2500);
     }
 
     // Seasons: the year turns in ~20 minutes, each bloom nudges it on; or one is held.

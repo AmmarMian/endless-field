@@ -2,6 +2,9 @@ import type { GrassQuality } from "../world/grass";
 
 export type Preset = "low" | "medium" | "high" | "ultra";
 
+export const FILTERS = ["none", "painterly", "watercolor", "film", "miniature", "ink"] as const;
+export type Filter = (typeof FILTERS)[number];
+
 export interface Settings {
   preset: Preset | "custom";
   renderScale: number;
@@ -19,11 +22,13 @@ export interface Settings {
   weather: "auto" | "clear" | "rain";
   /** Generative background score. */
   music: boolean;
+  /** Screen style: a painted or photographic look over the final image. */
+  filter: Filter;
   /** World seed: 0 is the original landscape; any other value generates a different one. */
   seed: number;
 }
 
-export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "night" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather">> = {
+export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "night" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter">> = {
   low: { renderScale: 0.6, grass: "low", drawDistance: 0.7, bloom: false },
   medium: { renderScale: 0.8, grass: "medium", drawDistance: 0.9, bloom: true },
   high: { renderScale: 1, grass: "high", drawDistance: 1, bloom: true },
@@ -36,7 +41,7 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "medium" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: true, weather: "auto" };
+  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: true, weather: "auto", filter: "none" };
 }
 
 export function loadSettings(): Settings {
@@ -96,9 +101,13 @@ export class SettingsPanel {
       <label>Weather <select data-k="weather">
         <option value="auto">Showers</option><option value="clear">Clear</option><option value="rain">Rain</option>
       </select></label>
+      <label>Look <select data-k="filter">
+        <option value="none">Natural</option><option value="painterly">Painterly</option><option value="watercolor">Watercolor</option>
+        <option value="film">Film</option><option value="miniature">Miniature</option><option value="ink">Ink wash</option>
+      </select></label>
       <label>World seed <input data-k="seed" type="number" min="0" max="999999" step="1"></label>
       <button type="button" class="new-world">New world</button>
-      <p class="keys">O settings · F frame counter · M free roam · N day / night · Y next season · R rain · K map</p>`;
+      <p class="keys">O settings · F frame counter · M free roam · N day / night · Y next season · R rain · V look · K map</p>`;
     document.getElementById("hud")!.append(gear, this.root);
     for (const el of this.root.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-k]")) {
       this.fields[el.dataset.k!] = el;
@@ -146,7 +155,7 @@ export class SettingsPanel {
             : el.value;
       next = { ...this.settings, [key]: value };
       if (key === "seed") next.seed = Math.max(0, Math.floor(Number(el.value) || 0));
-      if (!["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather"].includes(key)) next.preset = "custom";
+      if (!["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter"].includes(key)) next.preset = "custom";
     }
     this.settings = next;
     this.write();

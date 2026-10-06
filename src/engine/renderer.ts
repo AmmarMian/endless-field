@@ -103,7 +103,7 @@ export class Renderer {
         bloom: this.up[0],
         shafts: this.shafts,
         samp: linear,
-        params: { bloomStrength: 0.1, exposure: 0.8, vignette: 0.6, time: 0, grade: [1.0, 0.6, 0.35, 1.15] },
+        params: { bloomStrength: 0.1, exposure: 0.8, vignette: 0.6, time: 0, grade: [1.0, 0.6, 0.35, 1.15], style: 0, ...this.screenParams() },
       },
     });
 
@@ -133,7 +133,17 @@ export class Renderer {
       this.upFx[i].set({ coarse, fine: this.down[i], params: { texel: coarse.texelSize } });
     }
     this.shaftsFx.set({ bright: this.down[0] });
-    this.composite.set({ scene: this.scene, bloom: this.up[0], shafts: this.shafts });
+    this.composite.set({ scene: this.scene, bloom: this.up[0], shafts: this.shafts, params: this.screenParams() });
+  }
+
+  private screenParams(): { texel: [number, number]; aspect: number } {
+    const s = this.scene.size;
+    return { texel: [1 / s[0], 1 / s[1]], aspect: s[0] / s[1] };
+  }
+
+  /** Screen style: 0 none, 1 painterly, 2 watercolor, 3 film, 4 miniature, 5 ink. */
+  setStyle(style: number): void {
+    this.composite.set({ params: { style } });
   }
 
   get aspect(): number {

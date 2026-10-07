@@ -37,6 +37,8 @@ export struct Globals {
   playerGlow: f32,
   // A wingtip cutting the water (0..1): the river splits along the wind's trail.
   dip: f32,
+  // A rainbow after a shower (0..1).
+  rainbow: f32,
   frustum: array<vec4f, 6>,
   // xyz = trail sample position, w = push strength (fades with age).
   trail: array<vec4f, 24>,

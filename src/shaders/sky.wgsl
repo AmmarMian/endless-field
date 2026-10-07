@@ -80,5 +80,28 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     col = mix(col, deck, smoothstep(0.55, 1.0, G.rain));
   }
   col = col + disk * cloudTrans;
+  // Rainbow after a shower: around the antisolar point, the primary bow at ~42 degrees (red
+  // outside, violet inside) and a fainter reversed secondary at ~51; only above the horizon.
+  if (G.rainbow > 0.001) {
+    let theta = acos(clamp(dot(dir, -G.sunDir), -1.0, 1.0));
+    let deg = theta * 57.2958;
+    let spectrum = array<vec3f, 6>(vec3f(0.55, 0.25, 0.9), vec3f(0.25, 0.4, 1.0), vec3f(0.2, 0.85, 0.4), vec3f(1.0, 0.95, 0.25), vec3f(1.0, 0.55, 0.15), vec3f(1.0, 0.2, 0.15));
+    let u1 = (deg - 40.4) / 2.2;
+    let u2 = 1.0 - (deg - 50.2) / 3.4;
+    var bow = vec3f(0.0);
+    if (u1 > 0.0 && u1 < 1.0) {
+      let f = u1 * 5.0;
+      let k = u32(floor(f));
+      bow += mix(spectrum[min(k, 5u)], spectrum[min(k + 1u, 5u)], fract(f)) * sin(3.14159 * u1);
+    }
+    if (u2 > 0.0 && u2 < 1.0) {
+      let f = u2 * 5.0;
+      let k = u32(floor(f));
+      bow += mix(spectrum[min(k, 5u)], spectrum[min(k + 1u, 5u)], fract(f)) * sin(3.14159 * u2) * 0.35;
+    }
+    // Fainter toward its feet and its top, lit by the (low) sun.
+    let up = smoothstep(0.0, 0.08, dir.y);
+    col += bow * G.rainbow * up * 0.22 * (G.sunColor * 0.5 + vec3f(0.3));
+  }
   return vec4f(col, 1.0);
 }

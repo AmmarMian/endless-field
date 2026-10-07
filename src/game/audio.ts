@@ -70,6 +70,7 @@ export class Audio {
   }
   private rainGain: GainNode | null = null;
   private patterGain: GainNode | null = null;
+  private patterFilter: BiquadFilterNode | null = null;
 
   /** Rain on the meadow: a soft hiss plus pattering drops (0 dry .. 1 downpour). */
   setRain(amount: number): void {
@@ -91,6 +92,7 @@ export class Audio {
       patter.buffer = this.noiseBuffer(3);
       patter.loop = true;
       const hp = ctx.createBiquadFilter();
+      this.patterFilter = hp;
       hp.type = "bandpass";
       hp.frequency.value = 3800;
       hp.Q.value = 0.9;
@@ -687,6 +689,92 @@ export class Audio {
     for (const [n, dt, v] of phrase) this.bell(n, t + dt, v);
     [50, 57].forEach((n) => this.bell(n, t + 2.4, 0.06));
     this.glass(86, t + 2.5, 0.006, 3);
+  }
+
+  /** A rainbow appears: a soft, wide open chord with a glassy sparkle running up. */
+  rainbow(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.2;
+    [50, 57, 62, 66, 69, 74].forEach((n, i) => this.bell(n, t + i * 0.12, 0.06));
+    [86, 90, 93, 98].forEach((n, i) => this.glass(n, t + 0.8 + i * 0.18, 0.007, 2.5));
+  }
+
+  /** A frog by the river at night: a short, throaty double croak, placed in the stereo field. */
+  frog(pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const near = Math.max(0, Math.min(1, 14 / Math.max(distance, 1)));
+    if (near < 0.05) return;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.85;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "bandpass";
+    lp.frequency.value = 600 + Math.random() * 300;
+    lp.Q.value = 2.5;
+    p.connect(this.master);
+    p.connect(this.reverb);
+    lp.connect(p);
+    const f0 = 140 + Math.random() * 60;
+    const croaks = Math.random() < 0.5 ? 2 : 3;
+    for (let i = 0; i < croaks; i++) {
+      const t = ctx.currentTime + 0.05 + i * 0.16;
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.linearRampToValueAtTime(f0 * 0.85, t + 0.1);
+      // Rapid pulses within each croak (the "rrr").
+      const am = ctx.createGain();
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 38;
+      const amt = ctx.createGain();
+      amt.gain.value = 0.5;
+      lfo.connect(amt).connect(am.gain);
+      am.gain.value = 0.5;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.05 * near, t + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(am).connect(g).connect(lp);
+      o.start(t);
+      lfo.start(t);
+      o.stop(t + 0.13);
+      lfo.stop(t + 0.13);
+    }
+  }
+
+  /** Rain falling on water nearby: a little bright plink (call often while raining). */
+  plink(amount: number): void {
+    if (!this.ctx || amount < 0.05) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + Math.random() * 0.05;
+    const o = ctx.createOscillator();
+    const f = 1400 + Math.random() * 1800;
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(f * 1.6, t + 0.04);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.012 * amount, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.random() * 2 - 1;
+    o.connect(g).connect(p).connect(this.master);
+    o.start(t);
+    o.stop(t + 0.08);
+  }
+
+  /** Under trees the rain is a softer, duller patter (0 open .. 1 under a canopy). */
+  setRainShelter(leafy: number): void {
+    if (!this.ctx || !this.patterGain) return;
+    // The patter's filter: dull it under the leaves.
+    const f = this.patterFilter;
+    if (f) f.frequency.setTargetAtTime(3800 - leafy * 2600, this.ctx.currentTime, 0.5);
+  }
+
+  /** The swallow starts slicing the water: a little rising piano figure. */
+  skimMotif(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.05;
+    [74, 78, 81, 86].forEach((n, i) => this.bell(n, t + i * 0.16, 0.06 - i * 0.008));
   }
 
   /** Holds every sound (pause). */

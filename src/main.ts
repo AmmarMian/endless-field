@@ -180,6 +180,13 @@ async function main(): Promise<void> {
   let lastCatch = -10;
   let skimTimer = 0;
   let wasPerched = false;
+  // Weather moments and sound: a rainbow after a daytime shower, frogs at night, rain plinks.
+  let rainbowT = 0;
+  let rainPeak = 0;
+  let frogTimer = 2;
+  let plinkTimer = 0;
+  let lastDip = 0;
+  let skimMotifAt = -20;
   let restingHome = false;
   // Threading the needle: through a torii, or between two trunks under the canopy.
   let threadChain = 0;
@@ -532,6 +539,9 @@ async function main(): Promise<void> {
     lanterns,
     renderer,
     nest,
+    rainbowNow: () => {
+      rainbowT = 90;
+    },
     motes,
     birds,
     thermals,
@@ -774,6 +784,14 @@ async function main(): Promise<void> {
     wet += ((rain > 0.15 ? 1 : 0) - wet) * Math.min(1, dt / (rain > 0.15 ? 25 : 90));
     if (Math.abs(rain - prevRain) > 1e-5) atmosphereDirty = true;
     audio.setRain(rain * (1 - seasonWeightsTs(season)[2]));
+    // A shower that clears by day leaves a rainbow for a minute and a half.
+    rainPeak = Math.max(rainPeak * Math.exp(-dt / 120), rain);
+    if (rainPeak > 0.6 && rain < 0.12 && night < 0.3 && rainbowT <= 0) {
+      rainbowT = 90;
+      rainPeak = 0;
+      audio.rainbow();
+    }
+    rainbowT = Math.max(0, rainbowT - dt);
 
     // The day turns in ~10 minutes (or holds one time); a skip fast-forwards smoothly.
     {
@@ -895,6 +913,30 @@ async function main(): Promise<void> {
         player.landAt(perch);
       }
       if (player.perched && !wasPerched) audio.rest();
+      // Frogs along the river at night, from somewhere along its banks near you.
+      frogTimer -= dt;
+      if (frogTimer <= 0) {
+        frogTimer = 0.8 + Math.random() * 2.2;
+        const [fd] = riverInfo(player.pos[0], player.pos[2]);
+        if (night > 0.4 && fd < 80) {
+          const fx = player.pos[0] + (Math.random() - 0.5) * 60;
+          audio.frog(...heard([fx, 0, riverCenter(fx) + (Math.random() - 0.5) * 8]));
+        }
+      }
+      // Rain on the water plinks; under trees it patters duller.
+      plinkTimer -= dt;
+      if (rain > 0.1 && plinkTimer <= 0) {
+        plinkTimer = 0.04 + Math.random() * 0.12;
+        const [pd, , phw] = riverInfo(player.pos[0], player.pos[2]);
+        if (pd < phw + 15) audio.plink(rain);
+      }
+      audio.setRainShelter(Math.min(1, trees.near(player.pos[0], player.pos[2], 7).length / 3));
+      // Starting to slice the water: a little rising piano figure (not too often).
+      if (swallow.dip > 0.5 && lastDip <= 0.5 && t - skimMotifAt > 12) {
+        skimMotifAt = t;
+        audio.skimMotif();
+      }
+      lastDip = swallow.dip;
       nest.update(player.pos);
       // Resting in the nest at night: the night passes quickly (to dawn), then flows again.
       restingHome = player.perched && Math.hypot(player.pos[0] - nest.perch[0], player.pos[2] - nest.perch[2]) < 0.5 && (night > 0.05 || dayPhase > 0.5);
@@ -1034,6 +1076,7 @@ async function main(): Promise<void> {
     globals.updateFrame(camera, t, renderer.viewport, {
       underwater,
       waterY,
+      rainbow: Math.min(1, rainbowT / 10) * Math.min(1, (90 - rainbowT) / 6),
       playerGlow: swallow.glow,
       dip: swallow.visible ? swallow.dip : 0,
       night: night * night * (3 - 2 * night),

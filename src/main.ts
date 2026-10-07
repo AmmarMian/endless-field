@@ -1,7 +1,7 @@
 import { clock, frameLoop, init, timer, type Frame, type FrameLoopHandle } from "vgpu";
 import { FILTERS, SettingsPanel, TIMES, loadSettings, type Filter, type Settings } from "./ui/settings";
 
-const FILTER_NAMES: Record<Filter, string> = { none: "natural", painterly: "painterly", watercolor: "watercolor", film: "film", miniature: "miniature", ink: "ink wash" };
+const FILTER_NAMES: Record<Filter, string> = { none: "natural", painterly: "painterly", watercolor: "watercolor", film: "film", miniature: "miniature", ink: "ink wash", cozy: "cozy" };
 import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
 import { GOLDEN_HOUR, Globals, dayAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";

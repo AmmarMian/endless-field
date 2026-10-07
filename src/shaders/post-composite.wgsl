@@ -1,5 +1,6 @@
 // Final image: bloom, exposure, filmic tone map, grade, vignette, sRGB encode + dither, and an
-// optional screen style (0 none, 1 painterly, 2 watercolor, 3 film, 4 miniature, 5 ink).
+// optional screen style (0 none, 1 painterly, 2 watercolor, 3 film, 4 miniature, 5 ink,
+// 6 cozy).
 struct Params {
   bloomStrength: f32,
   exposure: f32,
@@ -221,6 +222,25 @@ fn fs_main(@location(0) uvIn: vec2f, @builtin(position) frag: vec4f) -> @locatio
     let l = luma(c);
     col = clamp(mix(vec3f(l), c, 1.3), vec3f(0.0), vec3f(1.0));
     col = col * col * (3.0 - 2.0 * col) * 0.35 + col * 0.65;
+  } else if (style == 6) {
+    // Cozy: vibrant but kind. Vibrance (dull colours gain more saturation than vivid ones),
+    // a warm golden grade, softly lifted warm shadows, a little extra glow, a warm vignette.
+    var c = hdrAt(uv) * params.exposure * 1.1 + glow * 1.35;
+    c = aces(c);
+    let lum = luma(c);
+    let mx = max(c.r, max(c.g, c.b));
+    let mn = min(c.r, min(c.g, c.b));
+    let sat = (mx - mn) / max(mx, 1e-4);
+    c = mix(vec3f(lum), c, 1.18 + 0.75 * (1.0 - sat));
+    c = max(c, vec3f(0.0));
+    // Warm: golden highlights, peach midtones, shadows lifted toward a warm umber.
+    c = c * vec3f(1.04, 1.0, 0.9);
+    c = c + vec3f(0.035, 0.022, 0.01) * (1.0 - smoothstep(0.0, 0.35, lum));
+    c = c + vec3f(0.03, 0.018, -0.01) * smoothstep(0.45, 0.95, lum);
+    // A soft S-curve for a little depth without crushing.
+    c = mix(c, c * c * (3.0 - 2.0 * c), 0.25);
+    let d = uv - 0.5;
+    col = c * (1.0 - params.vignette * 0.8 * dot(d, d) * 1.6) + vec3f(0.012, 0.006, 0.0) * dot(d, d) * 4.0;
   } else if (style == 5) {
     // Ink wash (sumi-e): tone in three soft washes of ink on warm paper, linework at edges, a
     // breath of the original colour kept.

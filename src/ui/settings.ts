@@ -5,7 +5,7 @@ export type Preset = "low" | "medium" | "high" | "ultra";
 export const TIMES = ["dawn", "day", "golden", "night"] as const;
 export type TimeMode = "cycle" | (typeof TIMES)[number];
 
-export const FILTERS = ["none", "painterly", "watercolor", "film", "miniature", "ink"] as const;
+export const FILTERS = ["none", "painterly", "watercolor", "film", "miniature", "ink", "cozy"] as const;
 export type Filter = (typeof FILTERS)[number];
 
 export interface Settings {
@@ -49,7 +49,7 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "low" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature", steering: "touch", avatar: "swallow", ...(mobile ? { fpsTarget: 30, showStats: false } : {}) };
+  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "cozy", steering: "touch", avatar: "swallow", ...(mobile ? { fpsTarget: 30, showStats: false } : {}) };
 }
 
 export function loadSettings(): Settings {
@@ -64,6 +64,8 @@ export function loadSettings(): Settings {
       }
       // v4: the swallow became the default protagonist.
       if ((saved.v ?? 1) < 4) saved.avatar = "swallow";
+      // v5: the cozy look replaced miniature as the default.
+      if ((saved.v ?? 1) < 5 && (saved.filter === "miniature" || saved.filter === undefined)) saved.filter = "cozy";
       // v3: phones start light (earlier saves on phones could hold desktop settings).
       if ((saved.v ?? 1) < 3 && matchMedia("(pointer: coarse)").matches) {
         Object.assign(saved, { preset: "low", ...PRESETS.low, fpsTarget: 30 });
@@ -78,7 +80,7 @@ export function loadSettings(): Settings {
 
 function saveSettings(s: Settings): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ ...s, v: 4 }));
+    localStorage.setItem(KEY, JSON.stringify({ ...s, v: 5 }));
   } catch {
     // Non-essential.
   }
@@ -105,7 +107,7 @@ const PAGES: Page[] = [
     label: "Look",
     icon: "◐",
     rows: [
-      { k: "filter", label: "Film simulation", type: "choice", options: [["none", "Natural"], ["painterly", "Painterly"], ["watercolor", "Watercolor"], ["film", "Film"], ["miniature", "Miniature"], ["ink", "Ink wash"]] },
+      { k: "filter", label: "Film simulation", type: "choice", options: [["cozy", "Cozy"], ["none", "Natural"], ["painterly", "Painterly"], ["watercolor", "Watercolor"], ["film", "Film"], ["miniature", "Miniature"], ["ink", "Ink wash"]] },
       { k: "bloom", label: "Bloom", type: "toggle" },
     ],
   },

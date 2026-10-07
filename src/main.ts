@@ -159,8 +159,9 @@ async function main(): Promise<void> {
   race.onComplete = () => {
     audio.lanternsComplete();
     audio.discovery();
-    // The banks along the course burst into flower.
+    // The banks along the course burst into flower and a lantern rises from every ring.
     for (const g of race.gates) life.bloom(g.base[0], g.base[2], 26, 6);
+    skyLanterns.release(race.gates.map((g) => [g.centre[0], g.centre[1] - 1.4, g.centre[2]] as Vec3));
   };
   // Startled birds lead the way to somewhere the wind has not found yet, preferring places
   // roughly in the direction they flee, not too far.
@@ -831,7 +832,12 @@ async function main(): Promise<void> {
     torii.setGlow(discoveries.has("chain") ? 1 : 0, dt);
     skyLanterns.update(dt, [Math.cos(windAngle), Math.sin(windAngle)]);
     // A faint glow over feeding flocks (by day), so they can be spotted and flown to.
-    secrets.setExtraGlints(night > 0.5 ? [] : birds.feedingSpots().map((h) => [h[0], h[1] + 1.4, h[2], 0.55] as [number, number, number, number]));
+    {
+      const glints: [number, number, number, number][] = night > 0.5 ? [] : birds.feedingSpots().map((h) => [h[0], h[1] + 1.4, h[2], 0.55]);
+      const kf = race.waitingAt;
+      if (kf) glints.push([kf[0], kf[1] + 0.6, kf[2], 1]);
+      secrets.setExtraGlints(glints);
+    }
     secrets.update(dt, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, camera.position);
     race.update(dt, explore ? freecam.pos : player.pos, explore ? 6 : player.speed);
     audio.setWhirr(whirr);

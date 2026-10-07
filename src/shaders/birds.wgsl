@@ -6,7 +6,7 @@ import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
 struct Bird {
   // xyz = position, w = heading (yaw)
   pos: vec4f,
-  // x = flap angle, y = wing spread, z = pitch, w = seed
+  // x = flap angle, y = wing spread, z = pitch, w = seed (in [0, 1); 1 + k: glowing with k)
   pose: vec4f,
 }
 
@@ -23,6 +23,7 @@ struct VOut {
   @location(2) albedo: vec3f,
   @location(3) ao: f32,
   @location(4) @interpolate(flat) part: u32,
+  @location(5) @interpolate(flat) glow: f32,
 }
 
 fn rotZ(v: vec2f, a: f32) -> vec2f {
@@ -67,6 +68,7 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
   out.albedo = pow(e.rgb, vec3f(2.2)) * vec3f(warm, 1.0, 2.0 - warm);
   out.ao = e.a;
   out.part = part;
+  out.glow = max(b.pose.w - 1.0, 0.0);
   return out;
 }
 
@@ -89,6 +91,46 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
     let h = normalize(l + v);
     col += G.sunColor * pow(max(dot(n, h), 0.0), 80.0) * 2.0;
   }
+  if (frag.glow > 0.0) {
+    // A spirit bird: lit from within, with a bright turquoise rim.
+    let rim = pow(1.0 - abs(dot(n, v)), 2.0);
+    col += frag.albedo * frag.glow * 1.6 + vec3f(0.45, 0.95, 1.0) * rim * frag.glow * 1.5;
+  }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
+}
+
+// ---- Halo: the light a glowing bird gives off (additive, around its body) ----
+
+struct HOut {
+  @builtin(position) pos: vec4f,
+  @location(0) uv: vec2f,
+  @location(1) k: f32,
+}
+
+@vertex
+fn vs_halo(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> HOut {
+  let b = birds[ii];
+  let corners = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
+  let c = corners[vi];
+  let toCam = G.camPos - b.pos.xyz;
+  let d = length(toCam);
+  let view = toCam / d;
+  let right = normalize(cross(vec3f(0.0, 1.0, 0.0), view));
+  let up = cross(view, right);
+  // Grows a little with distance, so the light still reads from far off.
+  let size = 1.2 + d * 0.016;
+  var out: HOut;
+  out.pos = G.viewProj * vec4f(b.pos.xyz + vec3f(0.0, 0.05, 0.0) + (right * c.x + up * c.y) * size, 1.0);
+  out.uv = c;
+  out.k = max(b.pose.w - 1.0, 0.0) * (0.85 + 0.15 * sin(G.time * 3.0));
+  return out;
+}
+
+@fragment
+fn fs_halo(frag: HOut) -> @location(0) vec4f {
+  let r2 = dot(frag.uv, frag.uv);
+  let light = exp(-r2 * 5.0) * 0.9 + exp(-r2 * 28.0) * 1.6;
+  let col = mix(vec3f(1.0, 0.75, 0.35), vec3f(0.45, 0.9, 1.0), exp(-r2 * 6.0));
+  return vec4f(col * light * frag.k * mix(2.2, 1.4, G.night), 0.0);
 }

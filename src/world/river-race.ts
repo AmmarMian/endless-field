@@ -29,7 +29,7 @@ interface Gate {
   flash: number;
 }
 
-type Phase = "waiting" | "racing" | "returning";
+type Phase = "waiting" | "racing" | "returning" | "companion";
 
 /**
  * The kingfisher's course: a kingfisher waits on the first gate's pole. When the wind comes
@@ -63,10 +63,14 @@ export class RiverRace {
   onFail: (() => void) | null = null;
   onComplete: (() => void) | null = null;
 
-  private constructor(gateDraw: Draw, birdDraws: Draw[], gateBuf: StorageBuffer, birdBuf: StorageBuffer, gates: Gate[], ringY: number, radius: number) {
+  private readonly haloDraw: Draw;
+
+  private constructor(gateDraw: Draw, haloDraw: Draw, birdDraws: Draw[], gateBuf: StorageBuffer, birdBuf: StorageBuffer, gates: Gate[], ringY: number, radius: number) {
     this.gateDraw = gateDraw;
     this.birdDraws = birdDraws;
     this.draws = [gateDraw, ...birdDraws];
+    this.haloDraw = haloDraw;
+    this.draws.push(haloDraw);
     this.gateBuf = gateBuf;
     this.birdBuf = birdBuf;
     this.gates = gates;
@@ -83,7 +87,10 @@ export class RiverRace {
     } catch {
       this.done = false;
     }
-    if (this.done) for (const g of gates) g.state = 2;
+    if (this.done) {
+      for (const g of gates) g.state = 2;
+      this.phase = "companion";
+    }
   }
 
   static async load(gpu: Gpu, globals: SharedUniforms): Promise<RiverRace> {
@@ -129,7 +136,17 @@ export class RiverRace {
         set: { G: globals, birds: birdBuf },
       }),
     );
-    return new RiverRace(gateDraw, birdDraws, gateBuf, birdBuf, gates, ringY, radius);
+    const haloDraw = draw(gpu, {
+      label: "kingfisher-light",
+      shader: birdShader,
+      entry: { vertex: "vs_halo", fragment: "fs_halo" },
+      vertices: 6,
+      blend: "additive",
+      depth: { compare: "greater", write: false },
+      constants: { SHOULDER: bm.shoulder ?? 0.022 },
+      set: { G: globals, birds: birdBuf },
+    });
+    return new RiverRace(gateDraw, haloDraw, birdDraws, gateBuf, birdBuf, gates, ringY, radius);
   }
 
   /** Where the race begins (for the birds to lead the wind to). */
@@ -218,7 +235,10 @@ export class RiverRace {
           this.onGate?.(this.next, this.gates.length);
           this.next++;
           if (this.next >= this.gates.length) {
-            this.phase = "returning";
+            // Won: a wave of light runs back through every ring, and the kingfisher stays
+            // with the wind from now on.
+            this.phase = "companion";
+            this.wave = 0;
             this.done = true;
             try {
               localStorage.setItem(KEY, "1");
@@ -239,17 +259,28 @@ export class RiverRace {
       // Lost the bird: it is two gates further on, or far away.
       if (this.phase === "racing" && (this.along > this.gateAlong(Math.min(this.next + 2, this.gates.length - 1)) + 4 || toBird > 70)) this.fail();
       if (this.phase === "racing" && this.along >= this.routeLength()) this.along = this.routeLength();
+    } else if (this.phase === "companion") {
+      // Flies beside the wind wherever it goes: a little to its right, a little above.
+      const mv: Vec3 = this.lastWind ? [wind[0] - this.lastWind[0], 0, wind[2] - this.lastWind[2]] : [0, 0, 1];
+      const ml = Math.hypot(mv[0], mv[2]);
+      if (ml > 1e-4) this.heading = [mv[0] / ml, mv[2] / ml];
+      const [fx, fz] = this.heading;
+      const sway = Math.sin(performance.now() / 900) * 0.4;
+      target = [wind[0] - fz * (1.9 + sway) - fx * 0.4, wind[1] + 0.7 + Math.sin(performance.now() / 650) * 0.25, wind[2] + fx * (1.9 + sway) - fz * 0.4];
+      speed = Math.max(windSpeed * 1.4, 3) + Math.hypot(target[0] - this.bird[0], target[2] - this.bird[2]) * 2;
     } else {
-      // Home to the perch (the start again, or the finishing pole after a win).
-      target = this.done && this.next >= this.gates.length ? this.perchEnd : this.perch;
-      if (Math.hypot(this.bird[0] - target[0], this.bird[1] - target[1], this.bird[2] - target[2]) < 0.3) {
-        this.phase = "waiting";
-        if (this.done && this.next >= this.gates.length) {
-          // Won: it waits at the start again after a rest, for another go.
-          this.bird = [...this.perch];
-          this.next = 0;
-        }
-      }
+      // Home to the perch to wait for another try.
+      target = this.perch;
+      if (Math.hypot(this.bird[0] - target[0], this.bird[1] - target[1], this.bird[2] - target[2]) < 0.3) this.phase = "waiting";
+    }
+    this.lastWind = [wind[0], wind[1], wind[2]];
+    // The wave of light after a win.
+    if (this.wave >= 0) {
+      this.wave += dt;
+      this.gates.forEach((g, i) => {
+        if (Math.abs(this.wave - i * 0.14) < dt) g.flash = 1;
+      });
+      if (this.wave > this.gates.length * 0.14 + 1) this.wave = -1;
     }
     // Fly toward the target: quick, straight darts low over the water.
     const dx = target[0] - this.bird[0];
@@ -259,6 +290,7 @@ export class RiverRace {
     const perched = this.phase === "waiting" && dist < 0.05;
     if (!perched) {
       const v = this.phase === "returning" ? 12 : Math.max(speed, 2);
+      if (dist > 120) this.bird = [...target];
       const k = Math.min(1, (v * dt) / Math.max(dist, 1e-4));
       this.birdVel = [(dx * k) / Math.max(dt, 1e-4), (dy * k) / Math.max(dt, 1e-4), (dz * k) / Math.max(dt, 1e-4)];
       this.bird = [this.bird[0] + dx * k, this.bird[1] + dy * k, this.bird[2] + dz * k];
@@ -267,7 +299,8 @@ export class RiverRace {
     this.flapPhase += dt * 32;
     const yaw = flying && Math.hypot(this.birdVel[0], this.birdVel[2]) > 0.1 ? Math.atan2(this.birdVel[0], this.birdVel[2]) : this.gates[0].yaw;
     const pitch = flying ? -Math.atan2(this.birdVel[1], Math.hypot(this.birdVel[0], this.birdVel[2]) + 1e-3) * 0.6 : Math.max(0, Math.sin(performance.now() / 700)) * 0.25;
-    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : 0), this.bird[2], yaw, flying ? Math.sin(this.flapPhase) * 0.9 + 0.1 : 0, flying ? 1 : 0, pitch, 0.3]);
+    // It glows (and casts its light) always: easy to spot waiting, racing or beside the wind.
+    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : 0), this.bird[2], yaw, flying ? Math.sin(this.flapPhase) * 0.9 + 0.1 : 0, flying ? 1 : 0, pitch, 1.9]);
     this.birdBuf.write(this.birdData);
     this.flying = flying;
     // Gates.
@@ -279,6 +312,15 @@ export class RiverRace {
   }
 
   private flying = false;
+  private lastWind: Vec3 | null = null;
+  private heading: [number, number] = [1, 0];
+  /** Seconds into the victory wave (-1 when none). */
+  private wave = -1;
+
+  /** Where the kingfisher waits (for a glint), or null once it has joined the wind. */
+  get waitingAt(): Vec3 | null {
+    return this.phase === "waiting" ? this.perch : null;
+  }
 
   get racing(): boolean {
     return this.phase === "racing";
@@ -288,5 +330,6 @@ export class RiverRace {
     pass.draw(this.gateDraw, { instances: this.gates.length });
     const d = this.birdDraws[this.flying ? 1 : 0];
     if (d) pass.draw(d);
+    pass.draw(this.haloDraw);
   }
 }

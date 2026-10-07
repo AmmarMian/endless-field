@@ -2,7 +2,7 @@
 // height field can level the ground under the field without a module cycle.
 
 /** Center, row direction, half extents (along, across the rows), drill-row spacing, ground level. */
-export const SUNFLOWERS = { x: -62, z: -400, dir: [0.3902, -0.9207] as const, rx: 80, rz: 50, row: 0.76, level: -22.1 };
+export const SUNFLOWERS = { x: -62, z: -400, dir: [0.3902, -0.9207] as [number, number], rx: 80, rz: 50, row: 0.76, level: -22.1 };
 
 export function sunflowerLocal(x: number, z: number): [number, number] {
   const dx = x - SUNFLOWERS.x;

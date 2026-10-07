@@ -13,7 +13,7 @@ import {
 import treeShader from "../shaders/tree.wgsl";
 import impostorShader from "../shaders/tree-impostor.wgsl";
 import { loadTexture } from "../engine/textures";
-import { riverInfo, terrainHeightM as terrainHeight } from "./height";
+import { riverInfo, terrainHeightM as terrainHeight, worldConstants } from "./height";
 import { ecology, treeDensity, treeSuitability, type Eco } from "./ecology";
 import { biome, canopyLight } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
@@ -177,6 +177,7 @@ export class Trees {
             bark: draw(gpu, {
               label: `${spec.name}-lod${li}-bark`,
               shader: treeShader,
+              constants: worldConstants(treeShader),
               geometry: geo.slice({ firstIndex: g.bark.firstIndex, indexCount: g.bark.indexCount }),
               entry: { fragment: "fs_bark" },
               depth: { compare: "greater" },
@@ -185,6 +186,7 @@ export class Trees {
             leaves: draw(gpu, {
               label: `${spec.name}-lod${li}-leaves`,
               shader: treeShader,
+              constants: worldConstants(treeShader),
               geometry: geo.slice({ firstIndex: g.leaves.firstIndex, indexCount: g.leaves.indexCount }),
               entry: { fragment: "fs_leaves" },
               depth: { compare: "greater" },
@@ -197,6 +199,7 @@ export class Trees {
         const impostor = draw(gpu, {
           label: `${spec.name}-impostor`,
           shader: impostorShader,
+          constants: worldConstants(impostorShader),
           vertices: 6,
           depth: { compare: "greater" },
           multisample: { alphaToCoverage: true },

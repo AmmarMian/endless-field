@@ -114,7 +114,7 @@ export class Grass {
       const verts = (2 * (config.segments - 1) + 1) * 3;
       const cull = compute(gpu, cullShader, {
         label: `${config.label}-cull`,
-        constants: worldConstants(),
+        constants: worldConstants(cullShader),
         set: {
           G: globals,
           P: {
@@ -144,7 +144,7 @@ export class Grass {
       const render = draw(gpu, {
         label: config.label,
         shader: grassShader,
-        constants: { NSEG: config.segments },
+        constants: { ...worldConstants(grassShader), NSEG: config.segments },
         depth: { compare: "greater" },
         set: { G: globals, blades },
       });

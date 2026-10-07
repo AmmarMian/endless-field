@@ -2,7 +2,7 @@ import { compute, draw, geometry, sampler, storage, type Compute, type Draw, typ
 import simShader from "../shaders/sunflower-sim.wgsl";
 import renderShader from "../shaders/sunflower.wgsl";
 import { loadTexture } from "../engine/textures";
-import { terrainBase, terrainHeightM as terrainHeight } from "./height";
+import { terrainBase, terrainHeightM as terrainHeight, worldConstants } from "./height";
 
 import { SUNFLOWERS, sunflowerField } from "./sunflower-field";
 
@@ -129,6 +129,7 @@ export class Sunflowers {
     const samp = sampler(gpu, { minFilter: "linear", magFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 4 });
 
     const sim = compute(gpu, simShader, {
+      constants: worldConstants(simShader),
       label: "sunflower-sim",
       set: { G: globals, plants: plantBuf, state: stateBuf, S: { count: plants.length, dt: 1 / 60, pad0: 0, pad1: 0 } },
     });
@@ -139,6 +140,7 @@ export class Sunflowers {
           draw(gpu, {
             label: "sunflower",
             shader: renderShader,
+            constants: worldConstants(renderShader),
             geometry: geo.slice({ firstIndex: l.firstIndex, indexCount: l.indexCount }),
             depth: { compare: "greater" },
             multisample: { alphaToCoverage: true },

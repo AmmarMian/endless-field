@@ -3,6 +3,7 @@ import gateShader from "../shaders/river-gate.wgsl";
 import birdShader from "../shaders/birds.wgsl";
 import type { Vec3 } from "../engine/camera";
 import { riverCenter, riverHalfWidth, riverWater } from "./height";
+import { RACE } from "./layout";
 
 interface Manifest {
   vertexBytes: number;
@@ -17,8 +18,6 @@ const GATES = 11;
 /** After a win, the kingfisher flies with the wind this long (s), then goes home. */
 const COMPANION_SECONDS = 180;
 const SPACING = 36;
-/** Where along the river (x) the course starts. */
-const START_X = 70;
 const KEY = "endless-field-river-race";
 
 interface Gate {
@@ -104,7 +103,7 @@ export class RiverRace {
     // Course: gates down the river, weaving a little across it, each turned along the flow.
     const gates: Gate[] = [];
     for (let i = 0; i < GATES; i++) {
-      const x = START_X + 20 + i * SPACING;
+      const x = RACE.startX + 20 + i * SPACING;
       const hw = riverHalfWidth(x);
       const z = riverCenter(x) + Math.sin(i * 1.4) * hw * 0.3;
       const dz = (riverCenter(x + 1) - riverCenter(x - 1)) / 2;

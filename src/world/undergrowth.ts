@@ -5,7 +5,7 @@ import { ecology } from "./ecology";
 import { biome, canopyLight } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
 import { pathNear } from "./lantern-path";
-import { riverBed, riverInfo, riverUpper, terrainHeightM } from "./height";
+import { riverBed, riverInfo, riverUpper, terrainHeightM, worldConstants } from "./height";
 
 /** Per-species shading: dry tint before restoration, and night glow of non-leaf texels. */
 interface SpeciesDef {
@@ -111,6 +111,7 @@ export class Undergrowth {
           draw(gpu, {
             label: `undergrowth-${def.name}-${i}`,
             shader: plantShader,
+            constants: worldConstants(plantShader),
             geometry: geo.slice({ firstIndex: v.firstIndex, indexCount: v.indexCount }),
             depth: { compare: "greater" },
             multisample: { alphaToCoverage: true },

@@ -38,7 +38,7 @@ export class Water {
       draw(gpu, {
         label: "water",
         shader: waterShader,
-        constants: worldConstants(),
+        constants: worldConstants(waterShader),
         geometry: geometry(gpu, { buffers: [{ data: verts, attributes: { g: "float32x2" } }], indices }),
         depth: { compare: "greater" },
         // Seen from below too (swimming).

@@ -1,8 +1,11 @@
 // The sunflower field beyond the river (mirrored in src/world/sunflower-field.ts): a large
 // planted field on graded farmland, rows running away from the river, with a ragged edge.
 
-const SF_CENTER = vec2f(-62.0, -400.0);
-const SF_DIR = vec2f(0.3902, -0.9207);
+// Placement comes from the world seed (set by the host; defaults are seed 0).
+override SF_CX: f32 = -62.0;
+override SF_CZ: f32 = -400.0;
+override SF_DX: f32 = 0.3902;
+override SF_DZ: f32 = -0.9207;
 const SF_HALF = vec2f(80.0, 50.0);
 // Ground level the field is graded to (depends on the world seed; set by the host).
 override SF_LEVEL: f32 = -22.1;
@@ -12,8 +15,9 @@ export const SF_ROW_PHASE = 55.0;
 
 // (along the rows, across the rows) in meters from the field center.
 export fn sunflowerLocal(xz: vec2f) -> vec2f {
-  let d = xz - SF_CENTER;
-  return vec2f(dot(d, SF_DIR), dot(d, vec2f(-SF_DIR.y, SF_DIR.x)));
+  let d = xz - vec2f(SF_CX, SF_CZ);
+  let dir = vec2f(SF_DX, SF_DZ);
+  return vec2f(dot(d, dir), dot(d, vec2f(-dir.y, dir.x)));
 }
 
 fn sfEdgeDistance(l: vec2f) -> f32 {

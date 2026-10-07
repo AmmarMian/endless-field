@@ -1,7 +1,7 @@
 import { draw, geometry, sampler, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import toriiShader from "../shaders/torii.wgsl";
 import { loadTexture } from "../engine/textures";
-import { terrainHeightM as terrainHeight } from "./height";
+import { terrainHeightM as terrainHeight, worldConstants } from "./height";
 import { PATH, pathNormal, pathZ } from "./lantern-path";
 
 interface Manifest {
@@ -51,6 +51,7 @@ export class Torii {
     const mesh = draw(gpu, {
       label: "torii",
       shader: toriiShader,
+      constants: worldConstants(toriiShader),
       geometry: geo,
       depth: { compare: "greater" },
       set: { G: globals, gates: buffer, samp, woodDiff, woodNor, rockDiff, rockNor },

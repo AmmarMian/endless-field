@@ -1,15 +1,19 @@
 // The lantern path (mirrored in src/world/lantern-path.ts): a gravel path from the spawn
 // meadow to the forest edge, lined with stone lanterns that light it warmly at night.
 
-const PATH_X0 = 30.0;
-const PATH_X1 = 470.0;
+// Placement comes from the world seed (set by the host; defaults are seed 0).
+override PATH_X0: f32 = 30.0;
+override PATH_X1: f32 = 470.0;
+override PATH_ZB: f32 = 70.0;
+override PATH_P1: f32 = 0.4;
+override PATH_P2: f32 = 1.7;
 export const PATH_WIDTH = 1.3;
 export fn pathZ(x: f32) -> f32 {
-  return 70.0 + 16.0 * sin(x / 68.0 + 0.4) + 7.0 * sin(x / 29.0 + 1.7);
+  return PATH_ZB + 16.0 * sin(x / 68.0 + PATH_P1) + 7.0 * sin(x / 29.0 + PATH_P2);
 }
 
 fn pathSlope(x: f32) -> f32 {
-  return (16.0 / 68.0) * cos(x / 68.0 + 0.4) + (7.0 / 29.0) * cos(x / 29.0 + 1.7);
+  return (16.0 / 68.0) * cos(x / 68.0 + PATH_P1) + (7.0 / 29.0) * cos(x / 29.0 + PATH_P2);
 }
 
 fn pathNormal(x: f32) -> vec2f {

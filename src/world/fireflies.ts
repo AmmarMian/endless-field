@@ -14,7 +14,7 @@ export class Fireflies {
     this.draw = draw(gpu, {
       label: "fireflies",
       shader: fireflyShader,
-      constants: worldConstants(),
+      constants: worldConstants(fireflyShader),
       vertices: 6,
       instances: GRID * GRID,
       blend: "additive",

@@ -12,6 +12,7 @@ import { Input } from "./game/input";
 import { Motes } from "./game/motes";
 import { Birds } from "./world/birds";
 import { Secrets } from "./world/secrets";
+import { placeLandmarks } from "./world/layout";
 import { RiverRace } from "./world/river-race";
 import { SkyLanterns } from "./world/sky-lanterns";
 import { RiverFish } from "./world/fish";
@@ -136,6 +137,8 @@ async function main(): Promise<void> {
   if (urlSeed !== null && Number.isFinite(Number(urlSeed))) settings.seed = Math.max(0, Math.floor(Number(urlSeed)));
   // The world seed must be in place before anything samples the landscape.
   setWorldSeed(settings.seed);
+  // Landmarks (sunflower field, lantern path, river race) placed for this world.
+  placeLandmarks(settings.seed);
   gradeSunflowerField();
   void gpu.device.gpu.lost.then((info) => {
     if (info.reason !== "destroyed") showError(`The GPU stopped (${info.message || info.reason}).\nThis device may not have enough graphics memory: try Menu → System → Quality → Low.`);

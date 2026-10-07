@@ -1,6 +1,6 @@
 import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import lanternShader from "../shaders/lantern.wgsl";
-import { terrainHeightM as terrainHeight } from "./height";
+import { terrainHeightM as terrainHeight, worldConstants } from "./height";
 import { lanternAt, lanternCount } from "./lantern-path";
 
 interface Manifest {
@@ -60,6 +60,7 @@ export class Lanterns {
           draw(gpu, {
             label: "lantern",
             shader: lanternShader,
+            constants: worldConstants(lanternShader),
             geometry: geo.slice({ firstIndex: lod.firstIndex, indexCount: lod.indexCount }),
             depth: { compare: "greater" },
             set: { G: globals, lanterns: buffer },

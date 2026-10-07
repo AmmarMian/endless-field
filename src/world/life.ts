@@ -1,3 +1,4 @@
+import { worldConstants } from "./height";
 import { compute, storage, type Compute, type Gpu, type StorageBuffer } from "vgpu";
 import paintShader from "../shaders/life-paint.wgsl";
 
@@ -24,6 +25,7 @@ export class LifeMap {
   constructor(gpu: Gpu) {
     this.buffer = storage(gpu, LIFE_SIZE * LIFE_SIZE * 8, "read-write");
     this.paint = compute(gpu, paintShader, {
+      constants: worldConstants(paintShader),
       label: "life-paint",
       set: { splat: { center: [0, 0], radius: 1, strength: 0 }, life: this.buffer },
     });

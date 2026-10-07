@@ -2,7 +2,8 @@
 // spawn meadow east to the forest edge, lined with an avenue of trees and stone lanterns.
 // No imports, so height / placement modules can use it freely.
 
-export const PATH = { x0: 30, x1: 470, width: 1.3, lanternX0: 40, lanternOffset: 1.6, treeOffset: 6.2, treeStep: 12 };
+/** Where the path runs (x0..x1, centerline base z and wave phases come from the world seed). */
+export const PATH = { x0: 30, x1: 470, width: 1.3, lanternX0: 40, lanternOffset: 1.6, treeOffset: 6.2, treeStep: 12, zBase: 70, p1: 0.4, p2: 1.7 };
 
 /**
  * Lanterns are spaced by beats: at cruise speed (7.5 m/s) one lantern every 0.8 s (75 bpm),
@@ -15,11 +16,11 @@ export const MAX_LANTERNS = 64;
 
 /** Path centerline z at x. */
 export function pathZ(x: number): number {
-  return 70 + 16 * Math.sin(x / 68 + 0.4) + 7 * Math.sin(x / 29 + 1.7);
+  return PATH.zBase + 16 * Math.sin(x / 68 + PATH.p1) + 7 * Math.sin(x / 29 + PATH.p2);
 }
 
 function pathSlope(x: number): number {
-  return (16 / 68) * Math.cos(x / 68 + 0.4) + (7 / 29) * Math.cos(x / 29 + 1.7);
+  return (16 / 68) * Math.cos(x / 68 + PATH.p1) + (7 / 29) * Math.cos(x / 29 + PATH.p2);
 }
 
 /** Unit normal of the centerline (pointing +z side) at x. */

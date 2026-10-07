@@ -1,7 +1,7 @@
 import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import flowerShader from "../shaders/flower.wgsl";
 import glowShader from "../shaders/flower-glow.wgsl";
-import { mountainHeight, terrainHeightM as terrainHeight } from "./height";
+import { mountainHeight, terrainHeightM as terrainHeight, worldConstants } from "./height";
 import { sunflowerNear } from "./sunflower-field";
 import { pathNear } from "./lantern-path";
 import { biome } from "./biome";
@@ -99,6 +99,7 @@ export class Flowers {
     this.drawCall = draw(gpu, {
       label: "flowers",
       shader: flowerShader,
+      constants: worldConstants(flowerShader),
       geometry: geometry(gpu, { buffers: [{ data: buildTemplate(), attributes: { a: "float32x4" } }] }),
       depth: { compare: "greater" },
       set: { G: globals, flowers: this.instances },
@@ -106,6 +107,7 @@ export class Flowers {
     this.glowCall = draw(gpu, {
       label: "flower-glow",
       shader: glowShader,
+      constants: worldConstants(glowShader),
       vertices: 6,
       blend: "additive",
       depth: { compare: "greater", write: false },

@@ -57,6 +57,8 @@ fn terrainBase(xz: vec2f) -> f32 {
 
 // ---- River: one endless meandering river running roughly along +x.
 export const RIVER_Z: f32 = -170.0;
+// The river valley's offset for this world (set by the host from the seed).
+override RIVER_DZ: f32 = 0.0;
 
 // The river springs from a mountain massif to the west and runs endlessly east.
 // Mountains (and the mountain source of the river) live on the mountains-dev branch; here the
@@ -72,7 +74,7 @@ export fn riverUpper(x: f32) -> f32 {
 
 // Valley wander + irregular, skewed meander loops (wavelength ~13x the channel width).
 export fn riverCenter(x: f32) -> f32 {
-  let valley = RIVER_Z + 110.0 * gnoise(vec2f(x / 700.0 + 3.1, 0.7));
+  let valley = RIVER_Z + RIVER_DZ + 110.0 * gnoise(vec2f(x / 700.0 + 3.1, 0.7));
   let phase = x * (6.2831853 / 230.0) + 1.9 * gnoise(vec2f(x / 420.0, 5.5));
   // Sinuosity follows slope: steep mountain reaches run nearly straight, big meanders form
   // only on the flat floodplain.

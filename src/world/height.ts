@@ -1,4 +1,5 @@
 import { SUNFLOWERS, sunflowerFlat } from "./sunflower-field";
+import { PATH } from "./lantern-path";
 // CPU mirror of src/shaders/lib/terrain.wgsl. Keep the two in sync.
 
 const TAU = Math.PI * 2;
@@ -38,8 +39,26 @@ export function setWorldSeed(seed: number): void {
 }
 
 /** Override constants for every pipeline that samples the landscape on the GPU. */
-export function worldConstants(): Record<string, number> {
-  return { SEED_X: seedX, SEED_Z: seedZ, SF_LEVEL: SUNFLOWERS.level };
+export function worldConstants(shader?: { wgsl: string } | string): Record<string, number> {
+  const all: Record<string, number> = {
+    SEED_X: seedX,
+    SEED_Z: seedZ,
+    RIVER_DZ: RIVER.dz,
+    SF_LEVEL: SUNFLOWERS.level,
+    SF_CX: SUNFLOWERS.x,
+    SF_CZ: SUNFLOWERS.z,
+    SF_DX: SUNFLOWERS.dir[0],
+    SF_DZ: SUNFLOWERS.dir[1],
+    PATH_X0: PATH.x0,
+    PATH_X1: PATH.x1,
+    PATH_ZB: PATH.zBase,
+    PATH_P1: PATH.p1,
+    PATH_P2: PATH.p2,
+  };
+  if (!shader) return all;
+  // Only the overrides this pipeline declares (WebGPU rejects unknown ones).
+  const text = typeof shader === "string" ? shader : shader.wgsl;
+  return Object.fromEntries(Object.entries(all).filter(([k]) => new RegExp(`override\\s+${k}\\b`).test(text)));
 }
 
 export function gnoise(xIn: number, yIn: number): number {
@@ -89,6 +108,8 @@ function smoothstep(a: number, b: number, x: number): number {
 
 // ---- River (mirror of the WGSL river functions).
 export const RIVER_Z = -170;
+/** The river valley's offset for this world (set from the seed; 0 for seed 0). */
+export const RIVER = { dz: 0 };
 
 // Mountains (and the mountain source of the river) live on the mountains-dev branch; here the
 // river is a lowland river along its whole course.
@@ -101,7 +122,7 @@ export function riverUpper(x: number): number {
 }
 
 export function riverCenter(x: number): number {
-  const valley = RIVER_Z + 110 * gnoise(x / 700 + 3.1, 0.7);
+  const valley = RIVER_Z + RIVER.dz + 110 * gnoise(x / 700 + 3.1, 0.7);
   const phase = x * ((Math.PI * 2) / 230) + 1.9 * gnoise(x / 420, 5.5);
   const amp = (46 + 18 * gnoise(x / 520, 2.2)) * (1 - 0.85 * riverUpper(x));
   return valley + amp * (Math.sin(phase) + 0.24 * Math.sin(2 * phase + 0.8));

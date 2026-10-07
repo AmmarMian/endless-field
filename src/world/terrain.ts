@@ -34,7 +34,7 @@ export class Terrain {
     this.drawCall = draw(gpu, {
       label: "terrain",
       shader: terrainShader,
-      constants: worldConstants(),
+      constants: worldConstants(terrainShader),
       geometry: geometry(gpu, { buffers: [{ data: verts, attributes: { g: "float32x2" } }], indices }),
       depth: { compare: "greater" },
       set: {

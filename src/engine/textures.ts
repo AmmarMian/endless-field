@@ -10,13 +10,27 @@ export interface TextureLoadOptions {
  * Loads an image into a mipmapped GPU texture. Mip levels are produced by the browser's
  * high-quality image resampler, so no extra GPU pass is needed.
  */
+let maxSize = 8192;
+
+/** Caps loaded textures (longest side, px): phones keep their graphics memory for the scene. */
+export function setTextureMaxSize(px: number): void {
+  maxSize = px;
+}
+
 export async function loadTexture(gpu: Gpu, url: string, opts: TextureLoadOptions): Promise<Texture> {
   const blob = await (await fetch(url)).blob();
   const bitmapOpts: ImageBitmapOptions = {
     colorSpaceConversion: "none",
     premultiplyAlpha: "none",
   };
-  const base = await createImageBitmap(blob, bitmapOpts);
+  let base = await createImageBitmap(blob, bitmapOpts);
+  const longest = Math.max(base.width, base.height);
+  if (longest > maxSize) {
+    const k = maxSize / longest;
+    const full = base;
+    base = await createImageBitmap(full, { ...bitmapOpts, resizeWidth: Math.round(full.width * k), resizeHeight: Math.round(full.height * k), resizeQuality: "high" });
+    full.close();
+  }
   const levels = Math.floor(Math.log2(Math.max(base.width, base.height))) + 1;
   const tex = texture(gpu, {
     kind: "2d",

@@ -60,6 +60,10 @@ export function loadSettings(): Settings {
         saved.music = false;
         saved.filter = "miniature";
       }
+      // v3: phones start light (earlier saves on phones could hold desktop settings).
+      if ((saved.v ?? 1) < 3 && matchMedia("(pointer: coarse)").matches) {
+        Object.assign(saved, { preset: "low", ...PRESETS.low, fpsTarget: 30 });
+      }
       return { ...defaults(), ...saved };
     }
   } catch {
@@ -70,7 +74,7 @@ export function loadSettings(): Settings {
 
 function saveSettings(s: Settings): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ ...s, v: 2 }));
+    localStorage.setItem(KEY, JSON.stringify({ ...s, v: 3 }));
   } catch {
     // Non-essential.
   }

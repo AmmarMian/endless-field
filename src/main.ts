@@ -6,7 +6,7 @@ import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
 import { GOLDEN_HOUR, Globals, dayAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";
 import { Renderer } from "./engine/renderer";
-import { loadTexture } from "./engine/textures";
+import { loadTexture, setTextureMaxSize } from "./engine/textures";
 import { Audio } from "./game/audio";
 import { Input } from "./game/input";
 import { Motes } from "./game/motes";
@@ -58,9 +58,14 @@ if (TOUCH) {
 const params = new URLSearchParams(location.search);
 
 function showError(message: string): void {
+  // Shown above everything, the loading screen included (a failure while loading must not
+  // look like loading forever).
+  if (errorBox.parentElement !== document.body) document.body.append(errorBox);
   errorBox.hidden = false;
   errorBox.textContent = message;
 }
+window.addEventListener("error", (e) => showError(`Error: ${e.message}`));
+window.addEventListener("unhandledrejection", (e) => showError(`Error: ${String((e.reason as Error)?.message ?? e.reason)}`));
 
 async function main(): Promise<void> {
   if (!navigator.gpu) {
@@ -77,24 +82,44 @@ async function main(): Promise<void> {
   const stage = (label: string) => {
     if (loadStage) loadStage.textContent = label;
   };
-  const track = <T,>(p: Promise<T>): Promise<T> => {
+  const pending = new Set<string>();
+  let loadSeq = 0;
+  const track = <T,>(p: Promise<T>, label = `item ${loadSeq + 1}`): Promise<T> => {
     loadTotal++;
+    const id = `${label}#${loadSeq++}`;
+    pending.add(id);
     return p.then((v) => {
+      pending.delete(id);
       loadDone++;
       if (loadBar) loadBar.style.width = `${Math.round((loadDone / Math.max(loadTotal, 1)) * 100)}%`;
       return v;
     });
   };
+  // If loading stalls, say what is still pending (on phones, a pipeline can take very long or
+  // never come back).
+  const watchdog = window.setTimeout(() => {
+    if (!loadStage || loadingEl?.classList.contains("done")) return;
+    const left = [...pending].map((p) => p.split("#")[0]);
+    loadStage.textContent = `still waiting on ${left.length} of ${loadTotal}: ${left.slice(0, 6).join(", ")}${left.length > 6 ? "…" : ""}`;
+  }, 30000);
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   const canTime = adapter?.features.has("timestamp-query") ?? false;
   const gpu = await init({ requiredFeatures: canTime ? ["timestamp-query"] : [] });
   const settings: Settings = loadSettings();
+  // Phones: smaller textures and a sparser sunflower field, to fit their graphics memory.
+  if (TOUCH) {
+    setTextureMaxSize(1024);
+    Sunflowers.thin = 2;
+  }
   // ?seed=N opens a specific world (shareable links).
   const urlSeed = new URLSearchParams(location.search).get("seed");
   if (urlSeed !== null && Number.isFinite(Number(urlSeed))) settings.seed = Math.max(0, Math.floor(Number(urlSeed)));
   // The world seed must be in place before anything samples the landscape.
   setWorldSeed(settings.seed);
   gradeSunflowerField();
+  void gpu.device.gpu.lost.then((info) => {
+    if (info.reason !== "destroyed") showError(`The GPU stopped (${info.message || info.reason}).\nThis device may not have enough graphics memory: try Menu → System → Quality → Low.`);
+  });
   gpu.onError((e) => {
     console.error(e);
     showError(String((e as Error).message ?? e));
@@ -109,11 +134,11 @@ async function main(): Promise<void> {
   const life = new LifeMap(gpu);
   stage("shaping the hills…");
   const [pebbles, rock, scree, forestFloor, mountains] = await Promise.all([
-    track(loadTexture(gpu, "assets/textures/pebbles.jpg", { srgb: true })),
-    track(loadTexture(gpu, "assets/textures/rock_diff.jpg", { srgb: true })),
-    track(loadTexture(gpu, "assets/textures/scree_diff.jpg", { srgb: true })),
-    track(loadTexture(gpu, "assets/textures/forest_floor.jpg", { srgb: true })),
-    track(loadMountains(gpu)),
+    track(loadTexture(gpu, "assets/textures/pebbles.jpg", { srgb: true }), "pebbles"),
+    track(loadTexture(gpu, "assets/textures/rock_diff.jpg", { srgb: true }), "rock_diff"),
+    track(loadTexture(gpu, "assets/textures/scree_diff.jpg", { srgb: true }), "scree_diff"),
+    track(loadTexture(gpu, "assets/textures/forest_floor.jpg", { srgb: true }), "forest_floor"),
+    track(loadMountains(gpu), "mountains"),
   ]);
   const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree, forestFloor);
   const grass = new Grass(gpu, globals.uniforms, life.buffer, mountains, settings.grass);
@@ -126,16 +151,16 @@ async function main(): Promise<void> {
   const audio = new Audio();
   stage("planting trees and flowers…");
   const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race] = await Promise.all([
-    track(Trees.load(gpu, globals.uniforms)),
-    track(FlowerBeds.load(gpu, globals.uniforms, life.buffer)),
-    track(Water.load(gpu, globals.uniforms)),
-    track(Undergrowth.load(gpu, globals.uniforms, life.buffer)),
-    track(Sunflowers.load(gpu, globals.uniforms)),
-    track(Lanterns.load(gpu, globals.uniforms)),
-    track(Torii.load(gpu, globals.uniforms)),
-    track(Birds.load(gpu, globals.uniforms)),
-    track(Secrets.load(gpu, globals.uniforms, settings.seed, [Math.cos(0.6), Math.sin(0.6)])),
-    track(RiverRace.load(gpu, globals.uniforms)),
+    track(Trees.load(gpu, globals.uniforms), "trees"),
+    track(FlowerBeds.load(gpu, globals.uniforms, life.buffer), "flowerbeds"),
+    track(Water.load(gpu, globals.uniforms), "water"),
+    track(Undergrowth.load(gpu, globals.uniforms, life.buffer), "undergrowth"),
+    track(Sunflowers.load(gpu, globals.uniforms), "sunflowers"),
+    track(Lanterns.load(gpu, globals.uniforms), "lanterns"),
+    track(Torii.load(gpu, globals.uniforms), "torii"),
+    track(Birds.load(gpu, globals.uniforms), "birds"),
+    track(Secrets.load(gpu, globals.uniforms, settings.seed, [Math.cos(0.6), Math.sin(0.6)]), "secrets"),
+    track(RiverRace.load(gpu, globals.uniforms), "riverrace"),
   ]);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
   const heard = (at: readonly number[]): [number, number] => {
@@ -255,7 +280,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene), `shader ${(d as { label?: string }).label ?? "?"}`)),
   );
 
 
@@ -529,6 +554,7 @@ async function main(): Promise<void> {
     if (++framesShown === 20) {
       stage("");
       loadingEl?.classList.add("done");
+      clearTimeout(watchdog);
     }
     if (input.wasPressed("p") && playing) setPaused(!paused);
     const rawDt = paused ? 0 : Math.min(time.deltaTime, 1 / 15);

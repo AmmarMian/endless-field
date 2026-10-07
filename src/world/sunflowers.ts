@@ -92,6 +92,9 @@ export class Sunflowers {
     this.chunks = [...byKey.values()];
   }
 
+  /** Keep one plant in `thin` (phones plant a sparser field). */
+  static thin = 1;
+
   static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/sunflower"): Promise<Sunflowers> {
     const [manifest, bin, albedoTex] = await Promise.all([
       fetch(`${base}/sunflower.json`).then((r) => r.json() as Promise<Manifest>),
@@ -104,7 +107,7 @@ export class Sunflowers {
       indices: new Uint32Array(bin, manifest.vertexBytes, manifest.indexCount),
     });
 
-    const plants = Sunflowers.plant();
+    const plants = Sunflowers.plant().filter((_, i) => i % Sunflowers.thin === 0);
     const plantData = new Float32Array(plants.length * PLANT_FLOATS);
     const r = rand(1234);
     plants.forEach((p, i) => {

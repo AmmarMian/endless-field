@@ -32,6 +32,7 @@ export class Thermals {
   private readonly buffer: StorageBuffer;
   private readonly data = new Float32Array(COUNT * SPECKS * 4);
   private count = 0;
+  private retryAt = 0;
 
   constructor(gpu: Gpu, globals: SharedUniforms) {
     this.buffer = storage(gpu, this.data.byteLength, "read");
@@ -87,16 +88,25 @@ export class Thermals {
   }
 
   update(t: number, near: Vec3, heading: number, day: number): void {
-    while (this.list.length < COUNT) {
-      const th = this.place(near, heading);
-      if (!th) break;
-      this.list.push(th);
+    // Searching for a sunny slope is costly; after a failed search wait a moment.
+    if (t >= this.retryAt) {
+      while (this.list.length < COUNT) {
+        const th = this.place(near, heading);
+        if (!th) {
+          this.retryAt = t + 1.5;
+          break;
+        }
+        this.list.push(th);
+      }
     }
     let o = 0;
     for (const [i, th] of this.list.entries()) {
       if (Math.hypot(th.x - near[0], th.z - near[2]) > 260) {
-        const n = this.place(near, heading);
-        if (n) this.list[i] = n;
+        if (t >= this.retryAt) {
+          const n = this.place(near, heading);
+          if (n) this.list[i] = n;
+          else this.retryAt = t + 1.5;
+        }
         continue;
       }
       if (day < 0.05) continue;

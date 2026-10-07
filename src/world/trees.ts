@@ -51,6 +51,9 @@ interface Species {
 }
 
 interface TreeInstance {
+  /** Cached heading cosine / sine (computed on first use). */
+  cosYaw?: number;
+  sinYaw?: number;
   /** Forest amount (autumn color) and light under the canopy, computed once. */
   forest: number;
   shade: number;
@@ -93,7 +96,7 @@ const CELLS_PER_FRAME = 6;
 const MAX_INSTANCES = 8192;
 const STRIDE = 12;
 /** Mesh triangles per frame before LOD distances start shrinking (dense broadleaf forest). */
-const TRI_BUDGET = 4_500_000;
+const TRI_BUDGET = 2_800_000;
 
 function cellRandom(cx: number, cz: number): () => number {
   let s = (Math.imul(cx, 0x27d4eb2d) ^ Math.imul(cz, 0x165667b1) ^ 0x2545f491) >>> 0;
@@ -335,7 +338,22 @@ export class Trees {
 
   /** Nearby trees (for gameplay collision / avoidance). */
   near(x: number, z: number, radius: number): TreeInstance[] {
-    return this.instances.filter((t) => (t.x - x) ** 2 + (t.z - z) ** 2 < radius * radius);
+    // Only the streamed cells the circle touches (scanning every tree cost milliseconds a
+    // frame in the forest, several times over).
+    const out: TreeInstance[] = [];
+    const r2 = radius * radius;
+    const c0x = Math.floor((x - radius) / CELL);
+    const c1x = Math.floor((x + radius) / CELL);
+    const c0z = Math.floor((z - radius) / CELL);
+    const c1z = Math.floor((z + radius) / CELL);
+    for (let cz = c0z; cz <= c1z; cz++) {
+      for (let cx = c0x; cx <= c1x; cx++) {
+        const cell = this.cells.get(`${cx},${cz}`);
+        if (!cell) continue;
+        for (const t of cell) if ((t.x - x) ** 2 + (t.z - z) ** 2 < r2) out.push(t);
+      }
+    }
+    return out;
   }
 
   trunkRadius(t: TreeInstance): number {
@@ -383,7 +401,21 @@ export class Trees {
         const n = s.counts[lod]++;
         if (n >= MAX_INSTANCES) return;
         if (lod < 2) tris += s.tris[lod];
-        s.data[lod].set([t.x, t.y, t.z, scale, Math.cos(t.yaw), Math.sin(t.yaw), t.seed, w, t.forest, t.shade, 0, 0], n * STRIDE);
+        // Written in place (no temporary array per tree per frame).
+        const d = s.data[lod];
+        const o = n * STRIDE;
+        d[o] = t.x;
+        d[o + 1] = t.y;
+        d[o + 2] = t.z;
+        d[o + 3] = scale;
+        d[o + 4] = t.cosYaw ?? (t.cosYaw = Math.cos(t.yaw));
+        d[o + 5] = t.sinYaw ?? (t.sinYaw = Math.sin(t.yaw));
+        d[o + 6] = t.seed;
+        d[o + 7] = w;
+        d[o + 8] = t.forest;
+        d[o + 9] = t.shade;
+        d[o + 10] = 0;
+        d[o + 11] = 0;
       };
       const [l0, l1] = m.lodDistances;
       const band = 0.18;

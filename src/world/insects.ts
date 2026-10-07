@@ -35,6 +35,7 @@ export class Insects {
   private readonly buffer: StorageBuffer;
   private readonly data = new Float32Array(MAX * 4);
   private count = 0;
+  private retryIn = 0;
   /** Caught one: where. */
   onCatch: ((at: Vec3) => void) | null = null;
 
@@ -75,9 +76,14 @@ export class Insects {
 
   /** `rain` 0..1: in the rain, insects keep low, just over the grass and the water. */
   update(dt: number, t: number, wind: Vec3, heading: number, catching: boolean, rain = 0): void {
-    while (this.swarms.length < SWARMS) {
+    // Searching for a place is costly; after a failed search wait a moment.
+    this.retryIn -= dt;
+    while (this.swarms.length < SWARMS && this.retryIn <= 0) {
       const s = this.place(wind, heading);
-      if (!s) break;
+      if (!s) {
+        this.retryIn = 1;
+        break;
+      }
       this.swarms.push(s);
     }
     let o = 0;
@@ -87,8 +93,11 @@ export class Insects {
       if (empty && s.regrow <= 0) s.regrow = rand(8, 18);
       if (s.regrow > 0) s.regrow -= dt;
       if (far || (empty && s.regrow <= 0)) {
-        const n = this.place(wind, heading);
-        if (n) this.swarms[si] = n;
+        if (this.retryIn <= 0) {
+          const n = this.place(wind, heading);
+          if (n) this.swarms[si] = n;
+          else this.retryIn = 1;
+        }
         continue;
       }
       // Rain brings them down (they shelter low); they rise again as it clears.

@@ -205,6 +205,7 @@ export class Birds {
   }
 
   private leaderPrev: Vec3 | null = null;
+  private retryIn = 0;
   private soar: { x: number; z: number; top: number; radius: number }[] = [];
 
   /** Thermals to circle in: a pair of large birds wheels near each one's top. */
@@ -221,16 +222,22 @@ export class Birds {
     const fz = lspeed > 0.1 ? lv[2] / lspeed : -Math.cos(heading);
     const tNow = performance.now() / 1000;
     // Keep a few flocks feeding around the wind; ones left far behind move on ahead.
-    while (this.flocks.length < FLOCKS) {
+    // Looking for open meadow is costly; after a failed search (in the forest, say) wait a bit.
+    this.retryIn -= dt;
+    while (this.flocks.length < FLOCKS && this.retryIn <= 0) {
       // The first flock lands close ahead, so it is met early; the rest further out.
       const spot = this.findSpot(wind[0], wind[2], this.flocks.length ? 35 : 25, this.flocks.length ? 140 : 55, undefined, heading);
-      if (!spot) break;
+      if (!spot) {
+        this.retryIn = 1.2;
+        break;
+      }
       this.flocks.push(this.spawnFlock(spot));
     }
     for (const f of this.flocks) {
-      if (!f.airborne && Math.hypot(f.home[0] - wind[0], f.home[2] - wind[2]) > 220) {
+      if (!f.airborne && this.retryIn <= 0 && Math.hypot(f.home[0] - wind[0], f.home[2] - wind[2]) > 220) {
         const spot = this.findSpot(wind[0], wind[2], 60, 150, undefined, heading);
         if (spot) this.settle(f, spot);
+        else this.retryIn = 1.2;
       }
     }
 

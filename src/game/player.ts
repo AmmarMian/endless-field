@@ -52,6 +52,16 @@ export class Player {
     this.rollT = 0;
     this.rollDir = dir;
   }
+  /** Perched (resting on a stem, a lantern, the nest), and where it is gliding down to. */
+  perched = false;
+  landing: Vec3 | null = null;
+  private orbit = 0;
+  /** Glide down and settle on `at` (a perch). */
+  landAt(at: Vec3): void {
+    if (this.perched || this.looping || this.riding) return;
+    this.landing = [at[0], at[1], at[2]];
+  }
+
   /** Riding a thermal: carried up in a spiral to its top. */
   riding: { x: number; z: number; top: number; radius: number; angle: number; dir: number } | null = null;
 
@@ -139,6 +149,48 @@ export class Player {
     const sy = dz(steerY);
 
     this.rideCooldown = Math.max(0, this.rideCooldown - dt);
+    // Resting: still, until anything is touched; then spring back up into the air.
+    if (this.perched) {
+      if (input.poked) {
+        this.perched = false;
+        this.pitch = 0.55;
+        this.speed = 6;
+      } else {
+        this.speed = 0;
+        this.gust = 0;
+        this.recordTrail();
+        return;
+      }
+    }
+    // Gliding in to a perch: aim for it, slow down, settle.
+    if (this.landing) {
+      if (input.poked) this.landing = null;
+      else {
+        const t = this.landing;
+        const dx = t[0] - this.pos[0];
+        const dy = t[1] - this.pos[1];
+        const dz = t[2] - this.pos[2];
+        const flat = Math.hypot(dx, dz);
+        const dist = Math.hypot(flat, dy);
+        let dyaw = Math.atan2(dx, -dz) - this.yaw;
+        dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
+        this.yaw += dyaw * Math.min(1, dt * 3);
+        this.pitch = damp(this.pitch, Math.atan2(dy, Math.max(flat, 0.5)), 3, dt);
+        this.speed = damp(this.speed, Math.min(7.5, 1.2 + dist * 0.9), 2, dt);
+        this.gust = damp(this.gust, 0, 3, dt);
+        const step = Math.min(dist, this.speed * dt);
+        if (dist > 1e-4) for (let j = 0; j < 3; j++) this.pos[j] += ([dx, dy, dz][j] / dist) * step;
+        if (dist < 0.08) {
+          this.pos.splice(0, 3, t[0], t[1], t[2]);
+          this.perched = true;
+          this.landing = null;
+          this.pitch = 0;
+          this.orbit = this.yaw + Math.PI * 0.6;
+        }
+        this.recordTrail();
+        return;
+      }
+    }
     if (this.riding) {
       // Carried up the thermal: a rising spiral around its core, wings still. Diving breaks
       // out early; at the top the wind glides out along the circle's tangent.
@@ -282,6 +334,18 @@ export class Player {
 
   /** Smooth third-person chase camera that stays above the grass. */
   updateCamera(camera: Camera, dt: number, streamLength = 0): void {
+    if (this.perched) {
+      // Resting: the camera drifts slowly round the bird, a little above it.
+      this.orbit += dt * 0.12;
+      const desired: Vec3 = [this.pos[0] + Math.sin(this.orbit) * 2.8, this.pos[1] + 0.7, this.pos[2] - Math.cos(this.orbit) * 2.8];
+      const g = smoothGround(desired[0], desired[2]) + 0.4;
+      desired[1] = Math.max(desired[1], g);
+      for (let i = 0; i < 3; i++) this.camPos[i] = damp(this.camPos[i], desired[i], 1.2, dt);
+      camera.position.splice(0, 3, ...this.camPos);
+      camera.target.splice(0, 3, this.pos[0], this.pos[1] + 0.12, this.pos[2]);
+      camera.fovY = (50 * Math.PI) / 180;
+      return;
+    }
     const f = this.forward;
     const back = (5.5 + streamLength * 0.75 + this.gust * 2.5) * this.followScale * (this.looping ? 1.6 : this.riding ? 1.5 : 1);
     // Behind along the heading (not the pitch: through a loop the pitch turns all the way

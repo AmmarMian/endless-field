@@ -178,6 +178,7 @@ async function main(): Promise<void> {
   let combo = 0;
   let lastCatch = -10;
   let skimTimer = 0;
+  let wasPerched = false;
   // Threading the needle: through a torii, or between two trunks under the canopy.
   let threadChain = 0;
   let lastThread = -10;
@@ -807,6 +808,7 @@ async function main(): Promise<void> {
       // Before the first click the wind wanders toward flowers on its own.
       const target = flowers.nearestClosed(player.pos[0], player.pos[2]);
       player.update(dt, input, playing ? null : { toward: target ? [target.x, target.z] : undefined });
+      input.poked = false;
 
       // Slide around trunks instead of passing through them.
       for (const tr of trees.near(player.pos[0], player.pos[2], 12)) {
@@ -860,6 +862,27 @@ async function main(): Promise<void> {
         }
       }
       const [wd, wy, whw] = riverInfo(player.pos[0], player.pos[2]);
+      // Pause and look: left alone for a while, the swallow finds a perch and settles there.
+      if (playing && current.avatar === "swallow" && input.idle > 6 && !player.perched && !player.landing && !player.looping && !player.riding) {
+        let perch: Vec3 | null = null;
+        let best = 35;
+        for (const lp of lanterns.positions) {
+          const d = Math.hypot(lp[0] - player.pos[0], lp[2] - player.pos[2]);
+          if (d < best) {
+            best = d;
+            perch = [lp[0], lp[1] + 1.52, lp[2]];
+          }
+        }
+        if (!perch) {
+          // A tall grass stem a little ahead.
+          const ax = player.pos[0] + Math.sin(player.yaw) * 9;
+          const az = player.pos[2] - Math.cos(player.yaw) * 9;
+          perch = [ax, terrainHeight(ax, az) + 0.95, az];
+        }
+        player.landAt(perch);
+      }
+      if (player.perched && !wasPerched) audio.rest();
+      wasPerched = player.perched;
       swallow.update(dt, player, current.avatar === "swallow" && wd < whw * 0.9 ? wy : null);
       if (playing) {
         const a = prevWind;

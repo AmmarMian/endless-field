@@ -62,14 +62,26 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
     let armW = select(smoothstep(0.0, 0.012, d), smoothstep(0.0, 0.03, d), b.extra.z > 0.0);
     let a = (b.pose.x * armW + hand * smoothstep(elbow, elbow * 2.1, d)) * side;
     // On the upstroke the hand sweeps back (the wing half folds), about the elbow.
-    let sweep = b.extra.w * smoothstep(elbow * 0.6, elbow * 1.4, d) * 0.9;
+    let sweep = min(b.extra.w, 1.0) * smoothstep(elbow * 0.6, elbow * 1.4, d) * 0.9;
     if (sweep > 0.0) {
       let ex = side * (SHOULDER + elbow);
       let rel = vec2f(lp.x - ex, lp.z);
-      let cs = cos(sweep * side);
-      let sn = sin(sweep * side);
+      // Back (toward -z) on either side.
+      let cs = cos(-sweep * side);
+      let sn = sin(-sweep * side);
       let r2 = vec2f(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs);
       lp = vec3f(r2.x + ex, lp.y, r2.y);
+    }
+    // Perched (extra.w above 1): the whole wing folds back about the shoulder to lie along
+    // the body, slightly raised over the back.
+    let foldAll = clamp(b.extra.w - 1.0, 0.0, 1.0);
+    if (foldAll > 0.0) {
+      let fa = foldAll * 1.45;
+      let rel = vec2f(lp.x - side * SHOULDER, lp.z);
+      let c = cos(fa);
+      let sn = sin(fa);
+      let r = vec2f(rel.x * c + side * rel.y * sn, -side * rel.x * sn + rel.y * c);
+      lp = vec3f(r.x * 0.7 + side * SHOULDER, lp.y + 0.005 * foldAll, r.y);
     }
     let pivot = vec2f(side * SHOULDER, 0.008);
     let r = rotZ(lp.xy - pivot, a) + pivot;

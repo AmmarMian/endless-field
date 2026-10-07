@@ -19,6 +19,14 @@ export class Input {
   /** Presses latched on keydown so a quick tap between two frames is never lost. */
   private pressed = new Set<string>();
   private readonly listeners: (() => void)[] = [];
+  /** Seconds since the player last did anything (keys, pointer, touch). */
+  idle = 0;
+  /** Set by any input; read and cleared by the game (wakes a perched bird). */
+  poked = false;
+  private touchActivity(): void {
+    this.idle = 0;
+    this.poked = true;
+  }
   /** Last press time of each steering side, for double-taps (barrel rolls). */
   private lastTap: Record<string, number> = {};
   /** Touch: a finger dragged from where it landed steers like a joystick. */
@@ -38,6 +46,7 @@ export class Input {
     on(document.documentElement, "pointerleave", () => (this.outside = true));
     on(document.documentElement, "pointerenter", () => (this.outside = false));
     on(window, "pointermove", (e) => {
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) this.touchActivity();
       if (e.pointerType === "touch") {
         if (this.touch && e.pointerId === this.touch.id && !this.suspended) {
           // About 7% of the screen's short side for full lock.
@@ -58,6 +67,7 @@ export class Input {
       this.aim(e.clientX, e.clientY);
     });
     on(el, "pointerdown", (e) => {
+      this.touchActivity();
       this.active = true;
       if (e.pointerType === "touch") {
         this.touchMode = true;
@@ -84,6 +94,7 @@ export class Input {
     });
     on(window, "keydown", (e) => {
       this.keys.add(e.code);
+      this.touchActivity();
       // Commands follow the typed letter (layout-independent: AZERTY's M is not KeyM);
       // movement keeps physical positions (WASD on QWERTY = ZQSD on AZERTY).
       if (!e.repeat && e.key.length === 1) this.pressed.add(e.key.toLowerCase());
@@ -109,6 +120,8 @@ export class Input {
   }
 
   update(dt = 1 / 60): void {
+    this.idle += dt;
+    if (this.keys.size > 0) this.idle = 0;
     const k = this.keys;
     if (this.suspended || (this.outside && !this.keyboardMode)) {
       this.steerX *= 0.85;

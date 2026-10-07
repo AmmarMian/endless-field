@@ -37,6 +37,7 @@ export class PlayerBird {
   private yawRate = 0;
   private cycle = 0;
   private freq = 2.8;
+  private fold = 0;
   visible = false;
 
   private constructor(d: Draw, halo: Draw, buffer: StorageBuffer, private readonly elbow: number) {
@@ -146,6 +147,11 @@ export class PlayerBird {
     handA = handA + (-0.15 - handA) * st;
     sweep = sweep + (1.0 - sweep) * st;
     this.sweep += (sweep - this.sweep) * Math.min(1, dt * 12);
+    // Perched (or settling): wings folded along the body, the arm still.
+    const resting = player.perched || (player.landing !== null && Math.hypot(player.landing[0] - player.pos[0], player.landing[2] - player.pos[2]) < 1.2);
+    this.fold += ((resting ? 1 : 0) - this.fold) * Math.min(1, dt * (resting ? 5 : 8));
+    armA *= 1 - this.fold;
+    handA *= 1 - this.fold;
 
     const p = player.pos;
     // Dipping: hold the body just high enough that the lowered tip cuts the surface.
@@ -160,7 +166,7 @@ export class PlayerBird {
     const bob = -Math.sin(ph) * 0.012 * SIZE * k * (1 - this.dip);
     const pitch = looping ? -player.pitch : -player.pitch * 0.85;
     // The shader's heading maps +Z to (sin, cos); the player's forward is (sin yaw, -cos yaw).
-    this.data.set([p[0], bodyY + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 1 + this.glow * 0.6, this.roll + player.rollAngle, SIZE, this.elbow, this.sweep]);
+    this.data.set([p[0], bodyY + bob, p[2], Math.PI - player.yaw, armA, handA, pitch * (1 - this.fold) - 0.12 * this.fold, 1 + this.glow * 0.6, (this.roll + player.rollAngle) * (1 - this.fold), SIZE, this.elbow, this.sweep * (1 - this.fold) + this.fold * 2]);
     this.buffer.write(this.data);
   }
 

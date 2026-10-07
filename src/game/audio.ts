@@ -679,6 +679,16 @@ export class Audio {
     });
   }
 
+  /** Settling on a perch to rest: a slow, gentle phrase that lands softly. */
+  rest(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.3;
+    const phrase: [number, number, number][] = [[74, 0, 0.09], [69, 0.55, 0.07], [71, 1.0, 0.07], [66, 1.6, 0.08], [62, 2.4, 0.09]];
+    for (const [n, dt, v] of phrase) this.bell(n, t + dt, v);
+    [50, 57].forEach((n) => this.bell(n, t + 2.4, 0.06));
+    this.glass(86, t + 2.5, 0.006, 3);
+  }
+
   /** Holds every sound (pause). */
   setPaused(on: boolean): void {
     if (!this.ctx) return;

@@ -7,6 +7,8 @@ const MAX = 384;
 const STRIDE = 12;
 /** Most things the wind holds at once. */
 const MAX_CARRIED = 70;
+/** Seconds the wind keeps what it carries (about), before it fades away in the wake. */
+const HOLD = 45;
 const PATH_STEP = 0.12;
 const PATH_LEN = 600;
 
@@ -228,7 +230,7 @@ export class Motes {
       const [kind, color] = this.offer(env);
       const ground = terrainHeight(leader[0], leader[2]);
       const pos: Vec3 = [leader[0] + (Math.random() - 0.5) * 1.5, ground + 0.1 + Math.random() * 0.4, leader[2] + (Math.random() - 0.5) * 1.5];
-      this.spawn(kind, pos, color, kind === Kind.Spray ? 0.6 + Math.random() : 4 + Math.random() * 8);
+      this.spawn(kind, pos, color, kind === Kind.Spray ? 0.6 + Math.random() : HOLD - 5 + Math.random() * 10);
       this.onPickup?.(kind);
     }
 
@@ -239,7 +241,12 @@ export class Motes {
     for (let i = this.motes.length - 1; i >= 0; i--) {
       const m = this.motes[i];
       m.age += dt;
-      if (m.carried && (m.age > m.hold || env.altitude > 7)) m.carried = false;
+      if (m.carried && env.altitude > 7) m.carried = false;
+      // Held long enough: it thins away in the wake (spray simply falls).
+      if (m.carried && m.age > m.hold) {
+        if (m.kind === Kind.Spray) m.carried = false;
+        else m.life = Math.min(m.life, 1.2) - dt;
+      }
       if (m.carried) {
         // Held in the wake: an orbit around a slot on the wind's path.
         const s = 0.5 + m.slot * length;

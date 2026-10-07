@@ -150,31 +150,9 @@ async function main(): Promise<void> {
   const chainEl = document.createElement("div");
   chainEl.id = "chain";
   (document.getElementById("hud") ?? document.body).append(chainEl);
-  // Discoveries: a toast with a little jingle the first time each living thing is found.
-  const discoverEl = document.createElement("div");
-  discoverEl.id = "discover";
-  const regionEl = document.createElement("div");
-  regionEl.id = "region";
-  (document.getElementById("hud") ?? document.body).append(discoverEl, regionEl);
-  let discoverTimer = 0;
-  const toast = (tag: string, name: string, text: string, seconds: number) => {
-    discoverEl.innerHTML = "";
-    for (const [cls, value] of [["tag", tag], ["name", name], ["text", text]]) {
-      if (!value) continue;
-      const el = document.createElement("div");
-      el.className = cls;
-      el.textContent = value;
-      discoverEl.append(el);
-    }
-    discoverEl.classList.add("show");
-    clearTimeout(discoverTimer);
-    discoverTimer = window.setTimeout(() => discoverEl.classList.remove("show"), seconds * 1000);
-  };
+  // Discoveries: a little jingle the first time each living thing is found.
   const discoveries = new Discoveries();
-  discoveries.onFind = (n) => {
-    audio.discovery();
-    toast("Discovered", n.name, n.text, 5);
-  };
+  discoveries.onFind = () => audio.discovery();
   motes.onPickup = (kind) => {
     const id = { [Kind.Leaf]: "leaves", [Kind.Pollen]: "pollen", [Kind.Spray]: "spray", [Kind.Firefly]: "fireflies", [Kind.Snow]: "snow" }[kind as number];
     if (id) discoveries.find(id);
@@ -189,16 +167,8 @@ async function main(): Promise<void> {
   ];
   const regionsSeen = new Set<string>();
   let regionCheck = 0;
-  let regionTimer = 0;
-  const showRegion = (name: string) => {
-    regionEl.innerHTML = `<span class="rule"></span><span class="name"></span><span class="rule"></span>`;
-    regionEl.querySelector(".name")!.textContent = name;
-    regionEl.classList.add("show");
-    audio.region();
-    clearTimeout(regionTimer);
-    regionTimer = window.setTimeout(() => regionEl.classList.remove("show"), 4500);
-  };
-  discoveries.onHint = (n) => toast("A whisper on the wind", "", n.hint, 7);
+  /** Entering a place for the first time: a soft chord, no text. */
+  const showRegion = () => audio.region();
   let chainTimer = 0;
   const SEASONS = ["summer", "autumn", "winter", "spring"] as const;
   let season = 0;
@@ -594,16 +564,12 @@ async function main(): Promise<void> {
           for (const r of REGIONS) {
             if (!regionsSeen.has(r.name) && r.inside(px, pz)) {
               regionsSeen.add(r.name);
-              showRegion(r.name);
+              showRegion();
               break;
             }
           }
           if (gates.some((g) => Math.hypot(g.x - px, g.z - pz) < 4)) discoveries.find("torii");
         }
-        const w = seasonWeightsTs(season);
-        discoveries.update(dt, (id) =>
-          id === "snow" ? w[2] > 0.5 : id === "fireflies" ? night > 0.5 : id === "chain" ? discoveries.has("lantern") : id === "leaves" ? true : true,
-        );
       }
       {
         const low = 1 - Math.min(1, Math.max(0, (player.altitude - 1.5) / 4));

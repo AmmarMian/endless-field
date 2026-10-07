@@ -96,7 +96,7 @@ const CELLS_PER_FRAME = 6;
 const MAX_INSTANCES = 8192;
 const STRIDE = 12;
 /** Mesh triangles per frame before LOD distances start shrinking (dense broadleaf forest). */
-const TRI_BUDGET = 2_800_000;
+const TRI_BUDGET = 2_200_000;
 
 function cellRandom(cx: number, cz: number): () => number {
   let s = (Math.imul(cx, 0x27d4eb2d) ^ Math.imul(cz, 0x165667b1) ^ 0x2545f491) >>> 0;

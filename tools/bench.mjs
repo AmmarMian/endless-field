@@ -1,3 +1,4 @@
+// Frame-time benchmark across scenes (dev server on :5173): node tools/bench.mjs
 import { chromium } from "playwright";
 const b = await chromium.launch({ args: ["--enable-unsafe-webgpu", "--enable-features=WebGPU", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });

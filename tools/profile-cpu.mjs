@@ -1,3 +1,4 @@
+// CPU profile in the forest, with height-function time attributed to callers: node tools/profile-cpu.mjs
 import { chromium } from "playwright";
 const b = await chromium.launch({ args: ["--enable-unsafe-webgpu", "--enable-features=WebGPU", "--use-angle=metal", "--ignore-gpu-blocklist"] });
 const p = await b.newPage({ viewport: { width: 1280, height: 720 } });

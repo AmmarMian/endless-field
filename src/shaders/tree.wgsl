@@ -172,9 +172,9 @@ fn fs_bark(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
 
 @fragment
 fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
-  if (!lodKeep(frag.lodFade, frag.pos.xy)) {
-    discard;
-  }
+  // No discards: with alpha to coverage an alpha of 0 already writes nothing, and a discard
+  // costs tile-based GPUs their hidden-surface removal on this, the heaviest overdraw.
+  let keep = select(0.0, 1.0, lodKeep(frag.lodFade, frag.pos.xy));
   let s = sky();
   let texel = textureSample(leaves, samp, frag.uv);
   // Crisp alpha-to-coverage: sharpen alpha to a ~1px ramp, and boost it in smaller mips so
@@ -183,10 +183,7 @@ fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec
   let duv = max(length(dpdx(frag.uv * dims)), length(dpdy(frag.uv * dims)));
   let mip = max(log2(duv), 0.0);
   var a = texel.a * (1.0 + mip * 0.3);
-  a = clamp((a - 0.5) / max(fwidth(a), 1e-4) + 0.5, 0.0, 1.0);
-  if (a < 0.01) {
-    discard;
-  }
+  a = clamp((a - 0.5) / max(fwidth(a), 1e-4) + 0.5, 0.0, 1.0) * keep;
   var n = normalize(frag.normal);
   let v = normalize(G.camPos - frag.world);
   if (dot(n, v) < 0.0 && !front) {
@@ -199,9 +196,7 @@ fn fs_leaves(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec
   // winter and flush light green in spring; evergreens carry snow on their upper needles.
   let sw = seasonWeights(G.season);
   let fall = (sw.y * 0.25 + sw.z * 0.93) * tree.deciduous;
-  if (seasonHash(frag.extra.y * 97.0 + frag.seed * 13.0) < fall) {
-    discard;
-  }
+  a *= select(1.0, 0.0, seasonHash(frag.extra.y * 97.0 + frag.seed * 13.0) < fall);
   let autumnAmt = max(frag.autumn, (sw.y + sw.z * 0.6) * tree.deciduous);
   var albedo = autumnLeaf(texel.rgb * hue * tree.leafTint, frag.seed, autumnAmt);
   albedo = mix(albedo, springLeaf(albedo), sw.w * 0.75 * tree.deciduous);

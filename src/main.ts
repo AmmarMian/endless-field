@@ -474,6 +474,8 @@ async function main(): Promise<void> {
         at: [SUNFLOWERS.x, SUNFLOWERS.z],
       },
       { label: "river", x: 120, z: riverCenter(120) + 30, yaw: Math.PI, at: [300, riverCenter(300) - 30] },
+      // The kingfisher's course: its first ring (start just upstream of it, facing along).
+      { label: "river rings", x: race.gates[0].centre[0] - 14, z: race.gates[0].centre[2], yaw: Math.PI / 2, at: [race.gates[0].centre[0], race.gates[0].centre[2]] },
       { label: "lantern path", x: PATH.x0 - 4, z: pathZ(PATH.x0), yaw: Math.PI / 2, at: [200, pathZ(200) + 25] },
       { label: "forest edge", x: 520, z: 120, yaw: Math.PI / 2, at: [470, 260] },
       { label: "autumn forest", x: 900, z: 120, yaw: Math.PI / 2 },

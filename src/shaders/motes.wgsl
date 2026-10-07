@@ -51,10 +51,10 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   var world: vec3f;
   var n: vec3f;
   let view = normalize(G.camPos - m.pos.xyz);
-  if (kind == LEAF || kind == CHAFF || kind == 7u) {
+  if (kind == LEAF || kind == CHAFF || kind == 7u || kind == 8u) {
     // Tumbling cards: leaves cupped, chaff a thin sliver.
     var stretch = select(vec2f(0.5, 1.0), vec2f(0.12, 1.0), kind == CHAFF);
-    if (kind == 7u) {
+    if (kind == 7u || kind == 8u) {
       stretch = vec2f(0.62, 0.85);
     }
     var local = vec3f(uv.x * stretch.x, uv.y * stretch.y, uv.x * uv.x * 0.15 * stretch.x) * size;
@@ -129,13 +129,15 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
       lit = 0.4;
       emit = 0.5;
     }
-    case 7u: {
+    case 7u, 8u: {
       // Petal: a soft rounded teardrop, paler at its base, lit through when backlit.
       let y = uv.y * 0.5 + 0.5;
       let w = pow(sin(3.14159 * pow(y, 0.75)), 0.7) * 0.95;
       alpha = 1.0 - smoothstep(w - 0.1, w, abs(uv.x));
       base = mix(mix(base, vec3f(1.0, 0.97, 0.92), 0.45), base, smoothstep(0.0, 0.6, y));
-      emit = 0.08;
+      // Petals from a whole bed glow from within (a soft luminous bloom), pulsing gently.
+      emit = select(0.08, 1.5 + 0.4 * sin(G.time * 2.0 + frag.world.x * 3.0), frag.kind == 8u);
+      lit = select(1.0, 0.7, frag.kind == 8u);
     }
     case 5u, 6u: {
       // Glowing grains: pollen in the light, fireflies at night.
@@ -154,7 +156,7 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let l = G.sunDir;
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0);
   var col = base * lit * (ambientSky(n, s) * 0.7 + G.sunColor * (max(dot(n, l), 0.0) * 0.6 + back * 0.8 + 0.08));
-  col = col + base * emit * mix(0.4, 1.0, G.night);
+  col = col + base * emit * select(mix(0.4, 1.0, G.night), mix(1.1, 1.3, G.night), frag.kind == 8u);
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, alpha);
 }

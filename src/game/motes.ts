@@ -21,6 +21,8 @@ export const enum Kind {
   Pollen = 5,
   Firefly = 6,
   Petal = 7,
+  /** Petals from a whole bed: luminous. */
+  GlowPetal = 8,
 }
 
 /** What the land under the wind is like, sampled each frame. */
@@ -64,6 +66,7 @@ const SIZES: Record<Kind, [number, number]> = {
   [Kind.Pollen]: [0.022, 0.01],
   [Kind.Firefly]: [0.045, 0.015],
   [Kind.Petal]: [0.075, 0.03],
+  [Kind.GlowPetal]: [0.08, 0.03],
 };
 
 function pick<T>(items: [T, number][]): T {
@@ -162,7 +165,7 @@ export class Motes {
     for (let i = 0; i < n; i++) {
       const c = colors[i % colors.length];
       const a = (i / n) * Math.PI * 2;
-      this.spawn(Kind.Petal, [at[0] + Math.cos(a) * 1.6, at[1] - 0.6 + (i / n) * 0.4, at[2] + Math.sin(a) * 1.6], c, 18 + Math.random() * 12);
+      this.spawn(Kind.GlowPetal, [at[0] + Math.cos(a) * 1.6, at[1] - 0.6 + (i / n) * 0.4, at[2] + Math.sin(a) * 1.6], c, 18 + Math.random() * 12);
       const m = this.motes[this.motes.length - 1];
       // Thrown up and around: a rising whirl before they fall into line.
       m.vel = [carry[0] - Math.sin(a) * 3 + Math.cos(a) * 0.5, 1.0 + (i / n) * 1.4, carry[2] + Math.cos(a) * 3 + Math.sin(a) * 0.5];
@@ -284,7 +287,7 @@ export class Motes {
       // Held long enough: it thins away in the wake (spray simply falls).
       if (m.carried && m.age > m.hold) {
         // Spray falls, petals let go and flutter down; the rest thins away.
-        if (m.kind === Kind.Spray || m.kind === Kind.Petal) m.carried = false;
+        if (m.kind === Kind.Spray || m.kind === Kind.Petal || m.kind === Kind.GlowPetal) m.carried = false;
         else m.life = Math.min(m.life, 1.2) - dt;
       }
       if (m.carried && m.age < 0) {

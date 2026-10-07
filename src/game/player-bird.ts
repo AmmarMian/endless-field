@@ -19,6 +19,9 @@ const SIZE = 2.8;
  */
 export class PlayerBird {
   readonly draw: Draw;
+  readonly haloDraw: Draw;
+  /** Its own soft light (0 none .. 1 full), brighter as it gets dark. */
+  glow = 0;
   private readonly buffer: StorageBuffer;
   private readonly data = new Float32Array(12);
   private phase = 0;
@@ -31,8 +34,9 @@ export class PlayerBird {
   private freq = 2.8;
   visible = false;
 
-  private constructor(d: Draw, buffer: StorageBuffer, private readonly elbow: number) {
+  private constructor(d: Draw, halo: Draw, buffer: StorageBuffer, private readonly elbow: number) {
     this.draw = d;
+    this.haloDraw = halo;
     this.buffer = buffer;
   }
 
@@ -56,7 +60,17 @@ export class PlayerBird {
       constants: { SHOULDER: manifest.shoulder },
       set: { G: globals, birds: buffer },
     });
-    return new PlayerBird(d, buffer, manifest.elbow);
+    const halo = draw(gpu, {
+      label: "swallow-light",
+      shader: birdShader,
+      entry: { vertex: "vs_halo", fragment: "fs_halo" },
+      vertices: 6,
+      blend: "additive",
+      depth: { compare: "greater", write: false },
+      constants: { SHOULDER: manifest.shoulder },
+      set: { G: globals, birds: buffer },
+    });
+    return new PlayerBird(d, halo, buffer, manifest.elbow);
   }
 
   /**
@@ -126,11 +140,14 @@ export class PlayerBird {
     const bob = -Math.sin(ph) * 0.012 * SIZE * k;
     const pitch = looping ? -player.pitch : -player.pitch * 0.85;
     // The shader's heading maps +Z to (sin, cos); the player's forward is (sin yaw, -cos yaw).
-    this.data.set([p[0], p[1] + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 0.5, this.roll + player.rollAngle, SIZE, this.elbow, this.sweep]);
+    this.data.set([p[0], p[1] + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 1 + this.glow * 0.6, this.roll + player.rollAngle, SIZE, this.elbow, this.sweep]);
     this.buffer.write(this.data);
   }
 
   encode(pass: FramePass): void {
-    if (this.visible) pass.draw(this.draw);
+    if (this.visible) {
+      pass.draw(this.draw);
+      if (this.glow > 0.02) pass.draw(this.haloDraw);
+    }
   }
 }

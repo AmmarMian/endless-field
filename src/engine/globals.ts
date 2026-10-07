@@ -38,15 +38,15 @@ export function weatherAtmosphere(a: Atmosphere, season: number, rain: number, n
   };
   const mixT = (day: number[], dark: number[]) => day.map((v, i) => v + (dark[i] - v) * night);
   sunColor = toward(sunColor, mixT([0.95, 1.0, 1.08], [0.7, 0.85, 1.3])).map((v) => v * (1 - 0.7 * rain)) as [number, number, number];
-  horizonColor = toward(horizonColor, mixT([0.97, 1.0, 1.04], [0.55, 0.7, 1.45]), 1 - 0.35 * night);
-  zenithColor = toward(zenithColor, mixT([0.9, 0.98, 1.12], [0.45, 0.6, 1.6]), 1 - 0.3 * night);
+  horizonColor = toward(horizonColor, mixT([0.97, 1.0, 1.04], [0.6, 0.75, 1.45]), 1 - 0.12 * night);
+  zenithColor = toward(zenithColor, mixT([0.9, 0.98, 1.12], [0.5, 0.65, 1.6]), 1 - 0.1 * night);
   return {
     ...a,
     sunColor,
     horizonColor,
     zenithColor,
     fogDensity: a.fogDensity * (1 + (1.6 - 0.9 * night) * rain + 0.3 * wi),
-    exposure: a.exposure * (1 + 0.25 * rain * (1 - night)),
+    exposure: a.exposure * (1 + 0.25 * rain * (1 - night) + 0.18 * rain * night),
   };
 }
 
@@ -232,6 +232,7 @@ export class Globals {
       season: 0,
       underwater: 0,
       waterY: -1000,
+      playerGlow: 0,
       frustum: vec4Views(new Float32Array(24)),
       trail: this.trailViews,
       lamps: this.lampViews,

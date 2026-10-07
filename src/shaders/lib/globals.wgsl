@@ -33,6 +33,8 @@ export struct Globals {
   // Camera below the water's surface (0..1, eased) and the surface height above it.
   underwater: f32,
   waterY: f32,
+  // The swallow's own soft light (0 by day .. ~1 at night), lighting the grass around it.
+  playerGlow: f32,
   frustum: array<vec4f, 6>,
   // xyz = trail sample position, w = push strength (fades with age).
   trail: array<vec4f, 24>,

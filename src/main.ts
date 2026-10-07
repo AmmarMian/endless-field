@@ -347,7 +347,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -982,6 +982,7 @@ async function main(): Promise<void> {
     globals.updateFrame(camera, t, renderer.viewport, {
       underwater,
       waterY,
+      playerGlow: swallow.glow,
       night: night * night * (3 - 2 * night),
       mist,
       mistBase,
@@ -1057,6 +1058,7 @@ async function main(): Promise<void> {
       motes.encode(pass);
       if (!explore) windTrail.encode(pass);
       swallow.visible = current.avatar === "swallow" && !explore;
+      swallow.glow = swallow.visible ? Math.min(1, 0.06 + night * 0.75 + rain * 0.2 + canopy * 0.3) : 0;
       swallow.encode(pass);
       birds.encode(pass);
       secrets.encode(pass);

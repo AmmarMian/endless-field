@@ -177,6 +177,11 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   col = col + G.sunColor * (trans + vec3f(spec));
   col = col + frag.glow * pow(frag.t, 6.0);
   col = col + albedo * frag.lamp;
+  // The swallow's light on the grass around it (a small warm pool that moves with it).
+  if (G.playerGlow > 0.0) {
+    let dp = frag.world - G.playerPos;
+    col += albedo * vec3f(1.0, 0.82, 0.55) * G.playerGlow * 1.6 / (1.0 + dot(dp, dp) * 0.45);
+  }
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   col = underwaterFog(col, frag.world, G.camPos, G.underwater, G.sunColor, G.zenithColor);
   return vec4f(col, 1.0);

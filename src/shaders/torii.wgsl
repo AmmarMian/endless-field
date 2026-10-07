@@ -8,7 +8,7 @@ import { SNOW, seasonWeights } from "./lib/season.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
 struct Gate {
-  // xyz = base, w = unused
+  // xyz = base, w = glow (the lantern path completed)
   origin: vec4f,
   // xy = (cos, sin) rotation
   rot: vec4f,
@@ -58,6 +58,7 @@ struct VOut {
   @location(2) @interpolate(flat) part: u32,
   @location(3) e: vec4f,
   @location(4) local: vec3f,
+  @location(5) @interpolate(flat) glow: f32,
 }
 
 @vertex
@@ -71,6 +72,7 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
   out.part = u32(round(p.w));
   out.e = e;
   out.local = p.xyz;
+  out.glow = gate.origin.w;
   return out;
 }
 
@@ -124,6 +126,11 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let h = normalize(v + l);
   col = col + G.sunColor * spec * pow(max(dot(n, h), 0.0), 60.0) * 0.6;
   col = col + albedo * lampLight(wp);
+  // The lantern path completed: the vermilion gates glow from within, breathing slowly.
+  if (frag.part == 0u && frag.glow > 0.0) {
+    let breathe = 0.75 + 0.25 * sin(G.time * 1.3 + wp.x * 0.05);
+    col += vec3f(1.0, 0.36, 0.12) * frag.glow * breathe * mix(0.35, 1.2, G.night);
+  }
   col = applyFog(col, wp, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
 }

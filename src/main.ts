@@ -12,6 +12,7 @@ import { Input } from "./game/input";
 import { Motes } from "./game/motes";
 import { Birds } from "./world/birds";
 import { Secrets } from "./world/secrets";
+import { SkyLanterns } from "./world/sky-lanterns";
 import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
 import { FreeCam } from "./game/freecam";
@@ -112,6 +113,7 @@ async function main(): Promise<void> {
   const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
   const motes = new Motes(gpu, globals.uniforms);
   const windTrail = new WindTrail(gpu, globals.uniforms);
+  const skyLanterns = new SkyLanterns(gpu, globals.uniforms);
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
@@ -232,7 +234,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, ...birds.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
   );
 
 
@@ -331,6 +333,8 @@ async function main(): Promise<void> {
     renderer,
     birds,
     secrets,
+    skyLanterns,
+    torii,
     setDay: (p: number) => {
       dayPhase = p;
       dayTarget = null;
@@ -727,7 +731,11 @@ async function main(): Promise<void> {
     const lanternEvent = lanterns.touch(explore ? freecam.pos : player.pos, t);
     if (lanternEvent) {
       discoveries.find("lantern");
-      if (lanternEvent.complete) discoveries.find("chain");
+      if (lanternEvent.complete) {
+        discoveries.find("chain");
+        // The reward: a paper lantern rises from every stone lantern, and the gates light up.
+        skyLanterns.release(lanterns.positions.map((p) => [p[0], p[1], p[2]] as Vec3));
+      }
       audio.lantern(lanternEvent.chain);
       if (lanternEvent.complete) audio.lanternsComplete();
       const p = lanterns.progress;
@@ -741,6 +749,8 @@ async function main(): Promise<void> {
       chainTimer = window.setTimeout(() => chainEl.classList.remove("show"), lanternEvent.complete ? 6000 : 2500);
     }
     lanterns.animate(dt, globals.lamps, t);
+    torii.setGlow(discoveries.has("chain") ? 1 : 0, dt);
+    skyLanterns.update(dt, [Math.cos(windAngle), Math.sin(windAngle)]);
     // A faint glow over feeding flocks (by day), so they can be spotted and flown to.
     secrets.setExtraGlints(night > 0.5 ? [] : birds.feedingSpots().map((h) => [h[0], h[1] + 1.4, h[2], 0.55] as [number, number, number, number]));
     secrets.update(dt, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, camera.position);
@@ -771,6 +781,7 @@ async function main(): Promise<void> {
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
       // Transparent, depth-tested but not depth-writing: after everything opaque.
       secrets.encodeGlints(pass);
+      skyLanterns.encode(pass);
       precipitation.encode(pass, rain);
     }, spans);
 

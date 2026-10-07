@@ -1,4 +1,4 @@
-import { draw, geometry, sampler, storage, type Draw, type FramePass, type Gpu, type SharedUniforms } from "vgpu";
+import { draw, geometry, sampler, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import toriiShader from "../shaders/torii.wgsl";
 import { loadTexture } from "../engine/textures";
 import { terrainHeightM as terrainHeight } from "./height";
@@ -24,7 +24,7 @@ export function toriiGates(): { x: number; z: number; cos: number; sin: number }
 export class Torii {
   readonly draws: Draw[];
 
-  private constructor(private readonly mesh: Draw) {
+  private constructor(private readonly mesh: Draw, private readonly buffer: StorageBuffer, private readonly data: Float32Array<ArrayBuffer>) {
     this.draws = [mesh];
   }
 
@@ -55,7 +55,18 @@ export class Torii {
       depth: { compare: "greater" },
       set: { G: globals, gates: buffer, samp, woodDiff, woodNor, rockDiff, rockNor },
     });
-    return new Torii(mesh);
+    return new Torii(mesh, buffer, data);
+  }
+
+  private glow = 0;
+
+  /** Eases the gates' inner glow toward `target` (0..1). */
+  setGlow(target: number, dt: number): void {
+    const next = this.glow + (target - this.glow) * Math.min(1, dt * 0.5);
+    if (Math.abs(next - this.glow) < 1e-5) return;
+    this.glow = next;
+    this.data[3] = this.data[11] = next;
+    this.buffer.write(this.data);
   }
 
   encode(pass: FramePass): void {

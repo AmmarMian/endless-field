@@ -67,11 +67,12 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   }
   if (frag.part == 1u || frag.part == 2u) {
     // Lit rope: gold pulse on the next gate, a steady warm glow once flown through.
-    let next = select(0.0, 0.55 + 0.45 * sin(G.time * 4.0), frag.state.x > 0.5 && frag.state.x < 1.5);
-    let passed = select(0.0, 0.5, frag.state.x > 1.5);
-    // Every ring glows a little on its own (it floats by some magic of the wind).
-    let glow = 0.22 + next * 1.4 + passed + frag.state.y * 3.0;
-    col += vec3f(1.0, 0.7, 0.25) * glow * mix(0.6, 1.2, G.night);
+    let next = select(0.0, 0.6 + 0.4 * sin(G.time * 4.0), frag.state.x > 0.5 && frag.state.x < 1.5);
+    let passed = select(0.0, 1.2, frag.state.x > 1.5);
+    // Every ring glows on its own (it floats by some magic of the wind); bright enough to
+    // bloom, so it reads from far down the river.
+    let glow = 0.9 + next * 3.0 + passed + frag.state.y * 5.0;
+    col += vec3f(1.0, 0.72, 0.3) * glow * mix(0.8, 1.4, G.night);
   }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);

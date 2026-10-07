@@ -22,8 +22,8 @@ OUT = argv[0]
 PREVIEW = argv[argv.index("--preview") + 1] if "--preview" in argv else None
 os.makedirs(OUT, exist_ok=True)
 
-RING_Y = 2.3
-RADIUS = 1.5
+RING_Y = 2.7
+RADIUS = 2.3
 POLE_X = RADIUS + 0.12
 
 

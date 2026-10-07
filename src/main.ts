@@ -521,6 +521,7 @@ async function main(): Promise<void> {
     camera,
     lanterns,
     renderer,
+    motes,
     birds,
     thermals,
     insects,
@@ -820,13 +821,16 @@ async function main(): Promise<void> {
       if (touched.length) discoveries.find("flowers");
       for (const f of touched) {
         motes.puff([f.x, f.y + f.height, f.z], f.color);
+        motes.petals([f.x, f.y + f.height, f.z], f.color, 3);
         life.bloom(f.x, f.z, 9 + Math.random() * 4);
         audio.bloom();
         if (current.seasonMode === "cycle") season = (season + 0.02) % 4;
       }
       for (const c of flowers.completedClusters(touched)) {
         life.bloom(c.x, c.z, 34, 7);
-        audio.cluster();
+        // A whole bed opened: its petals swirl up around the wind with a rising chime.
+        motes.swirl(player.pos, touched.length ? touched.map((f) => f.color) : [[1, 0.7, 0.8]], 40, player.forward.map((v) => v * player.speed) as Vec3);
+        audio.petalBank();
       }
       const eco = ecology(player.pos[0], player.pos[2]);
       const [riverDist, , riverHw] = riverInfo(player.pos[0], player.pos[2]);

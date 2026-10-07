@@ -267,6 +267,39 @@ export class Audio {
     [50, 57, 62, 66].forEach((n) => this.bell(n, t + run.length * 0.13, 0.12));
   }
 
+  /**
+   * A whole bed of flowers opened and its petals swirl up: a rising sweep of soft piano over a
+   * warm chord, with a glassy shimmer that blooms on top and a breath of air.
+   */
+  petalBank(): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + 0.05;
+    const run = [62, 66, 69, 74, 78, 81, 86, 90];
+    run.forEach((n, i) => {
+      this.bell(n, t + i * 0.07, 0.08 + i * 0.006);
+      this.glass(n + 12, t + i * 0.07 + 0.02, 0.008, 1.4);
+    });
+    [50, 57, 62, 66, 69].forEach((n) => this.bell(n, t + 0.05, 0.07));
+    this.glass(93, t + run.length * 0.07, 0.016, 3);
+    // The whoosh of petals lifting.
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer(2);
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.frequency.setValueAtTime(500, t);
+    f.frequency.exponentialRampToValueAtTime(3200, t + 0.9);
+    f.Q.value = 0.7;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.06, t + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+    src.connect(f).connect(g).connect(this.master);
+    g.connect(this.reverb);
+    src.start(t);
+    src.stop(t + 1.5);
+  }
+
   /** Arpeggiated chord when an entire cluster has bloomed. */
   cluster(): void {
     if (!this.ctx) return;

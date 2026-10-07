@@ -20,6 +20,7 @@ export const enum Kind {
   Spray = 4,
   Pollen = 5,
   Firefly = 6,
+  Petal = 7,
 }
 
 /** What the land under the wind is like, sampled each frame. */
@@ -62,6 +63,7 @@ const SIZES: Record<Kind, [number, number]> = {
   [Kind.Spray]: [0.03, 0.015],
   [Kind.Pollen]: [0.022, 0.01],
   [Kind.Firefly]: [0.045, 0.015],
+  [Kind.Petal]: [0.075, 0.03],
 };
 
 function pick<T>(items: [T, number][]): T {
@@ -141,6 +143,30 @@ export class Motes {
       const m = this.motes[this.motes.length - 1];
       m.vel = [Math.cos(a) * r, 1.8 + Math.random() * 2.2 * (0.6 + size), Math.sin(a) * r];
       m.life = 1.2;
+    }
+  }
+
+  /** Petals lifted from a flower the wind brushed: carried a while, then they flutter down. */
+  petals(at: Vec3, color: [number, number, number], n = 3): void {
+    for (let i = 0; i < n; i++) {
+      const tint: [number, number, number] = [color[0] * (0.9 + Math.random() * 0.2), color[1] * (0.9 + Math.random() * 0.2), color[2] * (0.9 + Math.random() * 0.2)];
+      this.spawn(Kind.Petal, [at[0] + (Math.random() - 0.5) * 0.3, at[1], at[2] + (Math.random() - 0.5) * 0.3], tint, 20 + Math.random() * 10);
+    }
+  }
+
+  /**
+   * A whole bed of flowers opened: its petals rise around the wind in a spiral, then join
+   * the stream (the ones it carries).
+   */
+  swirl(at: Vec3, colors: [number, number, number][], n = 36, carry: Vec3 = [0, 0, 0]): void {
+    for (let i = 0; i < n; i++) {
+      const c = colors[i % colors.length];
+      const a = (i / n) * Math.PI * 2;
+      this.spawn(Kind.Petal, [at[0] + Math.cos(a) * 1.6, at[1] - 0.6 + (i / n) * 0.4, at[2] + Math.sin(a) * 1.6], c, 18 + Math.random() * 12);
+      const m = this.motes[this.motes.length - 1];
+      // Thrown up and around: a rising whirl before they fall into line.
+      m.vel = [carry[0] - Math.sin(a) * 3 + Math.cos(a) * 0.5, 1.0 + (i / n) * 1.4, carry[2] + Math.cos(a) * 3 + Math.sin(a) * 0.5];
+      m.age = -0.6 - (i / n) * 0.5;
     }
   }
 
@@ -257,10 +283,15 @@ export class Motes {
       if (m.carried && env.altitude > 7) m.carried = false;
       // Held long enough: it thins away in the wake (spray simply falls).
       if (m.carried && m.age > m.hold) {
-        if (m.kind === Kind.Spray) m.carried = false;
+        // Spray falls, petals let go and flutter down; the rest thins away.
+        if (m.kind === Kind.Spray || m.kind === Kind.Petal) m.carried = false;
         else m.life = Math.min(m.life, 1.2) - dt;
       }
-      if (m.carried) {
+      if (m.carried && m.age < 0) {
+        // Swirling up out of a bed: free flight on their own momentum, curling round.
+        m.vel[1] -= 0.9 * dt;
+        for (let j = 0; j < 3; j++) m.pos[j] += m.vel[j] * dt;
+      } else if (m.carried) {
         // Held in the wake: an orbit around a slot on the wind's path.
         const s = 0.5 + m.slot * length;
         const base = this.path[Math.min(this.path.length - 1, Math.floor(s / PATH_STEP))] ?? leader;
@@ -305,7 +336,7 @@ export class Motes {
         this.motes.splice(i, 1);
         continue;
       }
-      const fade = Math.min(0.999, m.life / 1.2, m.age * 3);
+      const fade = Math.min(0.999, m.life / 1.2, m.age < 0 ? 1 : m.age * 3);
       d[o++] = m.pos[0]; d[o++] = m.pos[1]; d[o++] = m.pos[2]; d[o++] = m.size;
       d[o++] = m.color[0]; d[o++] = m.color[1]; d[o++] = m.color[2]; d[o++] = m.seed;
       d[o++] = m.vel[0]; d[o++] = m.vel[1]; d[o++] = m.vel[2]; d[o++] = m.kind + Math.max(0, fade);

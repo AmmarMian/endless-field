@@ -51,9 +51,12 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   var world: vec3f;
   var n: vec3f;
   let view = normalize(G.camPos - m.pos.xyz);
-  if (kind == LEAF || kind == CHAFF) {
+  if (kind == LEAF || kind == CHAFF || kind == 7u) {
     // Tumbling cards: leaves cupped, chaff a thin sliver.
-    let stretch = select(vec2f(0.5, 1.0), vec2f(0.12, 1.0), kind == CHAFF);
+    var stretch = select(vec2f(0.5, 1.0), vec2f(0.12, 1.0), kind == CHAFF);
+    if (kind == 7u) {
+      stretch = vec2f(0.62, 0.85);
+    }
     var local = vec3f(uv.x * stretch.x, uv.y * stretch.y, uv.x * uv.x * 0.15 * stretch.x) * size;
     let axis = normalize(vec3f(sin(seed * 12.9), cos(seed * 78.2), sin(seed * 37.7 + 1.0)));
     let spin = G.time * (1.5 + fract(seed * 9.1) * 3.0) + seed * 40.0;
@@ -125,6 +128,14 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
       alpha = smoothstep(1.0, 0.3, r) * 0.7;
       lit = 0.4;
       emit = 0.5;
+    }
+    case 7u: {
+      // Petal: a soft rounded teardrop, paler at its base, lit through when backlit.
+      let y = uv.y * 0.5 + 0.5;
+      let w = pow(sin(3.14159 * pow(y, 0.75)), 0.7) * 0.95;
+      alpha = 1.0 - smoothstep(w - 0.1, w, abs(uv.x));
+      base = mix(mix(base, vec3f(1.0, 0.97, 0.92), 0.45), base, smoothstep(0.0, 0.6, y));
+      emit = 0.08;
     }
     case 5u, 6u: {
       // Glowing grains: pollen in the light, fireflies at night.

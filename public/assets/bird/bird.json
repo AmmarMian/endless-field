@@ -1,15 +1,25 @@
 {
-  "vertexBytes": 75280,
-  "indexCount": 21792,
+  "vertexBytes": 150560,
+  "indexCount": 43584,
   "variants": [
     {
-      "name": "perched",
+      "name": "sparrow-perched",
       "firstIndex": 0,
       "indexCount": 7932
     },
     {
-      "name": "flying",
+      "name": "sparrow-flying",
       "firstIndex": 7932,
+      "indexCount": 13860
+    },
+    {
+      "name": "kingfisher-perched",
+      "firstIndex": 21792,
+      "indexCount": 7932
+    },
+    {
+      "name": "kingfisher-flying",
+      "firstIndex": 29724,
       "indexCount": 13860
     }
   ],

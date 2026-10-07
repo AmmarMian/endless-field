@@ -512,6 +512,38 @@ export class Audio {
     this.whirr.filter.frequency.setTargetAtTime(1200 + level * 1600, t, 0.3);
   }
 
+  /** The kingfisher's call: a high, piercing double whistle. */
+  kingfisher(pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const near = Math.max(0.1, Math.min(1, 12 / Math.max(distance, 1)));
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.8;
+    p.connect(this.master);
+    p.connect(this.reverb);
+    for (let i = 0; i < 2; i++) {
+      const t = ctx.currentTime + i * 0.16;
+      const o = ctx.createOscillator();
+      o.frequency.setValueAtTime(6200, t);
+      o.frequency.linearRampToValueAtTime(7000, t + 0.04);
+      o.frequency.linearRampToValueAtTime(5600, t + 0.11);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.05 * near, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(g).connect(p);
+      o.start(t);
+      o.stop(t + 0.13);
+    }
+  }
+
+  /** The kingfisher lost: three soft falling notes. */
+  raceLost(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.05;
+    [69, 66, 62].forEach((n, i) => this.bell(n, t + i * 0.22, 0.07));
+  }
+
   /** Holds every sound (pause). */
   setPaused(on: boolean): void {
     if (!this.ctx) return;

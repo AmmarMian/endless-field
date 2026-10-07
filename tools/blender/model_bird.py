@@ -28,6 +28,8 @@ os.makedirs(OUT, exist_ok=True)
 # Shoulder joint (x from the body's midline), and where the hand starts along the wing.
 SHOULDER = 0.022
 BODY_Z = 0.042  # body centre height above the feet when perched
+# "sparrow" or "kingfisher" (set per build in main).
+SPECIES = "sparrow"
 
 
 def reset():
@@ -88,11 +90,14 @@ def body(z0):
 
 def beak(z0, skin):
     bm = bmesh.new()
-    bmesh.ops.create_cone(bm, cap_ends=True, segments=10, radius1=0.0072, radius2=0.0004, depth=0.016)
+    kf = SPECIES == "kingfisher"
+    # A sparrow's short seed-cracker; a kingfisher's long dagger.
+    depth = 0.042 if kf else 0.016
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=10, radius1=0.0085 if kf else 0.0072, radius2=0.0004, depth=depth)
     for v in bm.verts:
         # Cone along +Z -> point it forward (+Y), slightly down; a little flattened.
         x, y, z = v.co
-        v.co = Vector((x, z + 0.008, y * 0.8))
+        v.co = Vector((x, z + depth / 2, y * 0.8))
     bmesh.ops.rotate(bm, verts=bm.verts, cent=(0, 0, 0), matrix=__import__("mathutils").Matrix.Rotation(-0.25, 3, "X"))
     co, n = surface(skin, (0, 0.09, z0 + 0.022))
     bmesh.ops.translate(bm, verts=bm.verts, vec=co + Vector((0, -0.002, 0)))
@@ -142,9 +147,10 @@ def feather(bm, length, width, root, yaw, pitch, cup=0.0, roll=0.0):
 def tail(z0, perched):
     bm = bmesh.new()
     lift = 0.35 if perched else 0.05
+    short = 0.6 if SPECIES == "kingfisher" else 1.0
     for i in range(7):
         k = (i - 3) / 3
-        feather(bm, 0.058 - abs(k) * 0.006, 0.013, (k * 0.004, -0.05, z0 + 0.004 + abs(k) * 0.001),
+        feather(bm, (0.058 - abs(k) * 0.006) * short, 0.013, (k * 0.004, -0.05, z0 + 0.004 + abs(k) * 0.001),
                 math.pi + k * 0.22, lift + abs(k) * 0.03, cup=0.5)
     ob = obj_from_bm(bm, "tail", 4)
     sol = ob.modifiers.new("sol", "SOLIDIFY")
@@ -275,6 +281,27 @@ def paint(pos, nrm, part, z0):
     c = np.where(cheek[:, None], np.array([0.86, 0.84, 0.8]), c)
     c = np.where(spot[:, None], np.array([0.06, 0.05, 0.05]), c)
     c = np.where(bib[:, None], np.array([0.07, 0.06, 0.06]), c)
+    if SPECIES == "kingfisher":
+        # Brilliant blue-turquoise above (a paler stripe down the back), warm orange below,
+        # an orange cheek and a white throat and neck patch.
+        blue = np.array([0.02, 0.36, 0.62]) * (0.85 + 0.3 * streak[:, None])
+        blue = np.where(((np.abs(x) < 0.006) & (y < 0.03))[:, None], np.array([0.2, 0.75, 0.85]), blue)
+        orange = np.array([0.9, 0.42, 0.1])
+        c = orange * (1 - up) + blue * up
+        cheek = head & (np.abs(x) > 0.014) & (z > 0.014) & (z < 0.03)
+        throat = head & (np.abs(x) < 0.014) & (z < 0.016) & (y > 0.05)
+        c = np.where(cheek[:, None], np.array([0.92, 0.45, 0.12]), c)
+        c = np.where(throat[:, None], np.array([0.92, 0.9, 0.85]), c)
+        col[part == 0] = c[part == 0]
+        col[part == 1] = (0.05, 0.04, 0.04)
+        col[part == 2] = (0.02, 0.02, 0.025)
+        col[part == 5] = (0.85, 0.3, 0.15)
+        col[part == 4] = blue[part == 4] * 0.85
+        wing = np.array([0.03, 0.3, 0.5]) * (0.85 + 0.3 * streak[:, None])
+        coverts = (z > 0.0101) & (y > -0.004)
+        wing = np.where(coverts[:, None], np.array([0.06, 0.5, 0.7]), wing)
+        col[part == 3] = wing[part == 3]
+        return np.clip(col, 0, 1)
     col[part == 0] = c[part == 0]
     col[part == 1] = (0.16, 0.14, 0.13)
     col[part == 2] = (0.02, 0.02, 0.025)
@@ -339,15 +366,16 @@ def export(obs, z0, perched):
 def main():
     vbytes, ibytes, variants = [], [], []
     vbase = ioff = 0
-    for perched in (True, False):
+    global SPECIES
+    for SPECIES, perched in (("sparrow", True), ("sparrow", False), ("kingfisher", True), ("kingfisher", False)):
         reset()
         obs, z0 = build(perched)
-        if PREVIEW:
+        if PREVIEW and SPECIES == "kingfisher":
             render_preview(obs, perched)
         v, idx = export(obs, z0, perched)
         vbytes.append(v.tobytes())
         ibytes.append((idx + vbase).astype("<u4").tobytes())
-        variants.append({"name": "perched" if perched else "flying", "firstIndex": ioff, "indexCount": int(idx.size)})
+        variants.append({"name": f"{SPECIES}-{'perched' if perched else 'flying'}", "firstIndex": ioff, "indexCount": int(idx.size)})
         vbase += len(v)
         ioff += idx.size
     with open(os.path.join(OUT, "bird.bin"), "wb") as f:

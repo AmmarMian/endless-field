@@ -268,3 +268,10 @@ export function terrainHeightM(x: number, z: number): number {
   const corridor = smoothstep(hw * 4, hw * 14, d) + (1 - smoothstep(hw * 4, hw * 14, d)) * smoothstep(0, 0.1, riverUpper(px));
   return riverValley(terrainHeight(x, z) + mountainHeight(x, z) * corridor, d, water, hw, px, x, z);
 }
+
+/** What the wind skims: the ground, or the water's surface over the river. */
+export function surfaceHeight(x: number, z: number): number {
+  const h = terrainHeightM(x, z);
+  const [d, water, hw] = riverInfo(x, z);
+  return d < hw * 1.6 && h < water ? water : h;
+}

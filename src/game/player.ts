@@ -1,5 +1,5 @@
 import type { Camera, Vec3 } from "../engine/camera";
-import { terrainHeightM as terrainHeight } from "../world/height";
+import { surfaceHeight as terrainHeight } from "../world/height";
 import type { Input } from "./input";
 
 const CRUISE = 7.5;

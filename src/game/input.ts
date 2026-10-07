@@ -19,6 +19,14 @@ export class Input {
   /** Presses latched on keydown so a quick tap between two frames is never lost. */
   private pressed = new Set<string>();
   private readonly listeners: (() => void)[] = [];
+  /** Touch: a finger dragged from where it landed steers like a joystick. */
+  touchMode = false;
+  private touch: { id: number; x: number; y: number } | null = null;
+  /** Held by the on-screen gust button (or a second finger). */
+  touchGust = false;
+  private fingers = 0;
+  /** Tilt steering (phone orientation), in [-1, 1]; null when not in use. */
+  tilt: [number, number] | null = null;
 
   constructor(private readonly el: HTMLElement) {
     const on = <K extends keyof WindowEventMap>(target: Window | HTMLElement, type: K, fn: (e: WindowEventMap[K]) => void, opts?: AddEventListenerOptions) => {
@@ -28,6 +36,15 @@ export class Input {
     on(document.documentElement, "pointerleave", () => (this.outside = true));
     on(document.documentElement, "pointerenter", () => (this.outside = false));
     on(window, "pointermove", (e) => {
+      if (e.pointerType === "touch") {
+        if (this.touch && e.pointerId === this.touch.id && !this.suspended) {
+          // About 7% of the screen's short side for full lock.
+          const reach = Math.min(innerWidth, innerHeight) * 0.07;
+          this.steerX = Math.max(-1, Math.min(1, (e.clientX - this.touch.x) / reach));
+          this.steerY = Math.max(-1, Math.min(1, (e.clientY - this.touch.y) / reach));
+        }
+        return;
+      }
       this.outside = false;
       // Moving toward the HUD (settings gear, panel) must not steer the wind.
       const overUi = (e.target as HTMLElement | null)?.closest?.("#gear, #settings") != null;
@@ -39,12 +56,26 @@ export class Input {
       this.aim(e.clientX, e.clientY);
     });
     on(el, "pointerdown", (e) => {
-      this.pointerDown = true;
       this.active = true;
+      if (e.pointerType === "touch") {
+        this.touchMode = true;
+        this.fingers++;
+        if (!this.touch) this.touch = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        return;
+      }
+      this.pointerDown = true;
       this.aim(e.clientX, e.clientY);
     });
-    on(window, "pointerup", () => (this.pointerDown = false));
-    on(window, "pointercancel", () => (this.pointerDown = false));
+    const release = (e: PointerEvent) => {
+      if (e.pointerType === "touch") {
+        this.fingers = Math.max(0, this.fingers - 1);
+        if (this.touch && e.pointerId === this.touch.id) this.touch = null;
+        return;
+      }
+      this.pointerDown = false;
+    };
+    on(window, "pointerup", release);
+    on(window, "pointercancel", release);
     on(window, "blur", () => {
       this.pointerDown = false;
       this.keys.clear();
@@ -72,7 +103,17 @@ export class Input {
       this.steerX *= 0.85;
       this.steerY *= 0.85;
     }
-    this.gust = this.pointerDown || k.has("Space");
+    if (this.touchMode && !this.touch) {
+      // No finger on the glass: tilt steers, or the wind straightens out.
+      if (this.tilt) {
+        this.steerX += (this.tilt[0] - this.steerX) * Math.min(1, dt * 8);
+        this.steerY += (this.tilt[1] - this.steerY) * Math.min(1, dt * 8);
+      } else {
+        this.steerX *= Math.exp(-dt * 6);
+        this.steerY *= Math.exp(-dt * 6);
+      }
+    }
+    this.gust = this.pointerDown || k.has("Space") || this.touchGust || this.fingers >= 2;
     this.rise = k.has("ShiftLeft") || k.has("ShiftRight") || k.has("KeyW") || k.has("ArrowUp");
     this.dive = k.has("ControlLeft") || k.has("ControlRight") || k.has("KeyS") || k.has("ArrowDown");
     // Keyboard steering (WASD on QWERTY = ZQSD on AZERTY, or arrows): eases in while held and

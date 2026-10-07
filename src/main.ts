@@ -12,6 +12,7 @@ import { Input } from "./game/input";
 import { Motes } from "./game/motes";
 import { Birds } from "./world/birds";
 import { Secrets } from "./world/secrets";
+import { RiverRace } from "./world/river-race";
 import { SkyLanterns } from "./world/sky-lanterns";
 import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
@@ -117,7 +118,7 @@ async function main(): Promise<void> {
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
-  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race] = await Promise.all([
     track(Trees.load(gpu, globals.uniforms)),
     track(FlowerBeds.load(gpu, globals.uniforms, life.buffer)),
     track(Water.load(gpu, globals.uniforms)),
@@ -127,6 +128,7 @@ async function main(): Promise<void> {
     track(Torii.load(gpu, globals.uniforms)),
     track(Birds.load(gpu, globals.uniforms)),
     track(Secrets.load(gpu, globals.uniforms, settings.seed, [Math.cos(0.6), Math.sin(0.6)])),
+    track(RiverRace.load(gpu, globals.uniforms)),
   ]);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
   const heard = (at: readonly number[]): [number, number] => {
@@ -143,10 +145,21 @@ async function main(): Promise<void> {
     if (d < 25) discoveries.find("sparrows");
   };
   birds.onChirp = (at) => audio.chirp(...heard(at));
+  // The kingfisher's course on the river: follow it through every gate.
+  race.onStart = () => audio.kingfisher(...heard([race.start[0], 0, race.start[1]]));
+  race.onGate = (i) => audio.lantern(i + 1);
+  race.onFail = () => audio.raceLost();
+  race.onComplete = () => {
+    audio.lanternsComplete();
+    audio.discovery();
+    // The banks along the course burst into flower.
+    for (const g of race.gates) life.bloom(g.base[0], g.base[2], 26, 6);
+  };
   // Startled birds lead the way to somewhere the wind has not found yet, preferring places
   // roughly in the direction they flee, not too far.
   birds.guide = (from, away) => {
     const places: [number, number][] = secrets.hidden.map((s) => [s.x, s.z] as [number, number]);
+    if (!race.done) places.push(race.start);
     if (!discoveries.has("lantern")) places.push([PATH.x0 + 6, pathZ(PATH.x0 + 6)]);
     if (!discoveries.has("pollen")) places.push([SUNFLOWERS.x - SUNFLOWERS.dir[0] * SUNFLOWERS.rx, SUNFLOWERS.z - SUNFLOWERS.dir[1] * SUNFLOWERS.rx]);
     if (!discoveries.has("spray")) places.push([from[0], riverCenter(from[0])]);
@@ -234,7 +247,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
   );
 
 
@@ -333,6 +346,7 @@ async function main(): Promise<void> {
     renderer,
     birds,
     secrets,
+    race,
     skyLanterns,
     torii,
     setDay: (p: number) => {
@@ -460,6 +474,7 @@ async function main(): Promise<void> {
     input.suspended = panel.open || worldMap.open || paused;
     input.update(rawDt);
     if (input.wasPressed("k")) worldMap.toggle();
+    if (worldMap.open) worldMap.setFlocks(birds.feedingSpots().map((h) => [h[0], h[2]] as [number, number]));
     worldMap.update(explore ? freecam.pos[0] : player.pos[0], explore ? freecam.pos[2] : player.pos[2], explore ? freecam.yaw : player.yaw);
     const frameStart = performance.now();
     if (input.wasPressed("f")) panel.set({ showStats: !current.showStats });
@@ -754,6 +769,7 @@ async function main(): Promise<void> {
     // A faint glow over feeding flocks (by day), so they can be spotted and flown to.
     secrets.setExtraGlints(night > 0.5 ? [] : birds.feedingSpots().map((h) => [h[0], h[1] + 1.4, h[2], 0.55] as [number, number, number, number]));
     secrets.update(dt, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, camera.position);
+    race.update(dt, explore ? freecam.pos : player.pos);
     audio.setWhirr(whirr);
     whirr = 0;
     renderer.setPost({ time: t, exposure: atmExposure * (1 - canopy * 0.45) });
@@ -775,6 +791,7 @@ async function main(): Promise<void> {
       }
       birds.encode(pass);
       secrets.encode(pass);
+      race.encode(pass);
       if (!debug.hide.water) water.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);
       flowers.encodeGlow(pass);

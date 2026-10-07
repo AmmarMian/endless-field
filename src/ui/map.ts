@@ -98,6 +98,13 @@ export class WorldMap {
     this.toggle();
   }
 
+  private flocks: [number, number][] = [];
+
+  /** Where the bird flocks are feeding (drawn as little birds). */
+  setFlocks(spots: [number, number][]): void {
+    this.flocks = spots;
+  }
+
   /** Shades a few rows of relief per call, then draws the player marker. */
   update(px: number, pz: number, yaw: number): void {
     this.lastYaw = yaw;
@@ -180,6 +187,23 @@ export class WorldMap {
       ctx.fillText(p.label, lx, ly - 9);
     }
     ctx.textAlign = "start";
+    // Flocks: a small "birds in flight" glyph (two shallow Vs) over each feeding spot.
+    ctx.lineCap = "round";
+    for (const [fx, fz] of this.flocks) {
+      const [bx, by] = toMap(fx, fz);
+      for (const [ox, oy, k] of [[-5, 0, 1], [6, -6, 0.75]] as const) {
+        ctx.beginPath();
+        ctx.moveTo(bx + ox - 7 * k, by + oy - 3 * k);
+        ctx.quadraticCurveTo(bx + ox - 3 * k, by + oy - 5 * k, bx + ox, by + oy + 1 * k);
+        ctx.quadraticCurveTo(bx + ox + 3 * k, by + oy - 5 * k, bx + ox + 7 * k, by + oy - 3 * k);
+        ctx.strokeStyle = "rgba(255,255,255,0.9)";
+        ctx.lineWidth = 5;
+        ctx.stroke();
+        ctx.strokeStyle = "#2a2018";
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+      }
+    }
     const x = ((px - X0) / (X1 - X0)) * w;
     const y = ((pz - Z0) / (Z1 - Z0)) * h;
     ctx.save();

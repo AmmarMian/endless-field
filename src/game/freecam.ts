@@ -39,8 +39,17 @@ export class FreeCam {
       this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - e.movementY * 0.0022));
     });
     canvas.addEventListener("click", () => {
-      if (this.active && document.pointerLockElement !== canvas) void canvas.requestPointerLock();
+      if (this.active && document.pointerLockElement !== canvas) this.lockPointer();
     });
+  }
+
+  private lockPointer(): void {
+    try {
+      const p = this.canvas.requestPointerLock?.() as unknown as Promise<void> | undefined;
+      p?.catch?.(() => {});
+    } catch {
+      // Not allowed right now.
+    }
   }
 
   /** Starts exploring from the given camera pose. */
@@ -54,7 +63,9 @@ export class FreeCam {
     this.fly = above > 4;
     if (above > MAX_FLY) this.pos[1] -= above - MAX_FLY;
     this.ceilingGround = terrainHeight(this.pos[0], this.pos[2]);
-    void this.canvas.requestPointerLock?.();
+    // Only works from a click; from a key press it is refused (the lock then comes on the next
+    // click), so the refusal is expected and ignored.
+    this.lockPointer();
   }
 
   exit(): void {

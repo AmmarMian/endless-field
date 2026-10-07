@@ -177,10 +177,24 @@ export class Renderer {
     this.composite.set({ params: { bloomStrength: on ? this.bloomStrength : 0 } });
   }
 
+  /** Draws whose pipeline failed to compile on this device: skipped instead of failing. */
+  readonly broken = new Set<Draw>();
+
   render(frame: Frame, encodeScene: (pass: FramePass) => void, spans?: { scene: TimerSpan; post: TimerSpan }): void {
     frame.pass({ target: this.scene, clear: [0, 0, 0, 1], clearDepth: 0, timer: spans?.scene }, (pass) => {
-      encodeScene(pass);
-      pass.draw(this.sky);
+      // A pipeline this GPU could not build (some phones reject a shader) is left out, so
+      // the rest of the world still renders.
+      const safe = this.broken.size
+        ? (new Proxy(pass, {
+            get: (target, key) => {
+              if (key === "draw") return (d: Draw, opts?: unknown) => (this.broken.has(d) ? undefined : (target.draw as (d: Draw, o?: unknown) => void)(d, opts));
+              const v = Reflect.get(target, key);
+              return typeof v === "function" ? v.bind(target) : v;
+            },
+          }) as FramePass)
+        : pass;
+      encodeScene(safe);
+      if (!this.broken.has(this.sky)) pass.draw(this.sky);
     });
     if (this.bloomOn) {
       for (let i = 0; i < BLOOM_LEVELS; i++) frame.pass(this.down[i], this.downFx[i]);

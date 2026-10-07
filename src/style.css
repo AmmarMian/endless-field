@@ -800,3 +800,21 @@ body.touch .osd-foot {
     letter-spacing: 0.08em;
   }
 }
+
+#notice {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom));
+  z-index: 40;
+  padding: 8px 10px;
+  border-left: 3px solid var(--osd-accent);
+  border-radius: 3px;
+  background: var(--osd-bg);
+  color: var(--osd-fg);
+  font: 11px/1.4 var(--osd-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 40vh;
+  overflow: auto;
+}

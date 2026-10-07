@@ -58,6 +58,21 @@ if (TOUCH) {
 
 const params = new URLSearchParams(location.search);
 
+/** A small, non-blocking problem report (pipelines this device could not build, etc.). */
+const notices: string[] = [];
+function notice(message: string): void {
+  if (notices.includes(message) || notices.length > 6) return;
+  notices.push(message);
+  let el = document.getElementById("notice");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "notice";
+    el.addEventListener("click", () => el?.remove());
+    document.body.append(el);
+  }
+  el.textContent = `Some effects are off on this device (tap to hide):\n${notices.join("\n")}`;
+}
+
 function showError(message: string): void {
   // Shown above everything, the loading screen included (a failure while loading must not
   // look like loading forever).
@@ -65,8 +80,9 @@ function showError(message: string): void {
   errorBox.hidden = false;
   errorBox.textContent = message;
 }
-window.addEventListener("error", (e) => showError(`Error: ${e.message}`));
-window.addEventListener("unhandledrejection", (e) => showError(`Error: ${String((e.reason as Error)?.message ?? e.reason)}`));
+// Stray errors are reported, not fatal (loading failures are caught where they happen).
+window.addEventListener("error", (e) => notice(`Error: ${e.message}`));
+window.addEventListener("unhandledrejection", (e) => notice(`Error: ${String((e.reason as Error)?.message ?? e.reason)}`));
 
 async function main(): Promise<void> {
   if (!navigator.gpu) {
@@ -123,7 +139,8 @@ async function main(): Promise<void> {
   });
   gpu.onError((e) => {
     console.error(e);
-    showError(String((e as Error).message ?? e));
+    // Not fatal by itself: report it in a small banner and keep the world running.
+    notice(String((e as Error).message ?? e).slice(0, 220));
   });
 
   const globals = new Globals(gpu, GOLDEN_HOUR);
@@ -287,7 +304,16 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene), `shader ${(d as { label?: string }).label ?? "?"}`)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+      track(
+        d.compile(renderer.scene).catch((e: unknown) => {
+          // Keep going without it; say which one (so it can be fixed for this device).
+          renderer.broken.add(d);
+          notice(`couldn't build ${(d as { label?: string }).label ?? "a shader"}: ${String((e as Error)?.message ?? e).slice(0, 160)}`);
+        }),
+        `shader ${(d as { label?: string }).label ?? "?"}`,
+      ),
+    ),
   );
 
 

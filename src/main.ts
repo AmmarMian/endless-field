@@ -173,7 +173,7 @@ async function main(): Promise<void> {
   const discoveries = new Discoveries();
   discoveries.onFind = (n) => {
     audio.discovery();
-    toast(`Field note · ${discoveries.count}`, n.name, n.text, 6);
+    toast("Discovered", n.name, n.text, 5);
   };
   motes.onPickup = (kind) => {
     const id = { [Kind.Leaf]: "leaves", [Kind.Pollen]: "pollen", [Kind.Spray]: "spray", [Kind.Firefly]: "fireflies", [Kind.Snow]: "snow" }[kind as number];
@@ -392,7 +392,7 @@ async function main(): Promise<void> {
   pauseEl.id = "pause";
   pauseEl.hidden = true;
   pauseEl.innerHTML = `<div class="pz-box"><div class="pz-tag">Paused</div>
-    <button data-a="resume">Resume</button><button data-a="notes">Field notes</button><button data-a="menu">Settings</button>
+    <button data-a="resume">Resume</button><button data-a="menu">Settings</button>
     <div class="pz-hint"><kbd>P</kbd> resume</div></div>`;
   (document.getElementById("hud") ?? document.body).append(pauseEl);
   const setPaused = (on: boolean) => {
@@ -406,7 +406,6 @@ async function main(): Promise<void> {
   pauseEl.addEventListener("click", (e) => {
     const a = (e.target as HTMLElement).dataset.a;
     if (a === "resume") setPaused(false);
-    if (a === "notes") panel.showNotes();
     if (a === "menu") panel.toggle(true);
   });
   document.addEventListener("visibilitychange", () => {

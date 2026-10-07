@@ -1,7 +1,6 @@
 /**
- * Field notes: the living things of the world, found by playing. Each is noted once (kept in
- * local storage); an undiscovered one is shown as a riddle, and after a while without a new
- * find the next riddle is offered as a gentle hint.
+ * The living things of the world, found by playing. Each is celebrated once (remembered in
+ * local storage); after a while without a new find, a riddle toward the next is whispered.
  */
 export interface Note {
   id: string;
@@ -80,10 +79,5 @@ export class Discoveries {
       this.hinted.add(next.id);
       this.onHint?.(next);
     }
-  }
-
-  /** Rows for the field notes page. */
-  list(): { name: string; text: string; found: boolean }[] {
-    return NOTES.map((n) => (this.found.has(n.id) ? { name: n.name, text: n.text, found: true } : { name: "?", text: n.hint, found: false }));
   }
 }

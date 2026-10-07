@@ -452,6 +452,66 @@ export class Audio {
     this.glass(88, t + 1.1, 0.006, 3.5);
   }
 
+  /** A glass wind bell (furin): a bright, slightly inharmonic ring, panned and distanced. */
+  windBell(bell: number, strength: number, pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const near = Math.max(0, Math.min(1, 10 / Math.max(distance, 1)));
+    if (near < 0.04) return;
+    const t = ctx.currentTime + Math.random() * 0.03;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.8;
+    p.connect(this.master);
+    p.connect(this.reverb);
+    const f0 = 440 * Math.pow(2, ([86, 90, 93][bell % 3] - 69) / 12);
+    const level = 0.05 * near * (0.4 + 0.6 * strength);
+    for (const [ratio, amp, decay] of [[1, 1, 2.2], [2.32, 0.5, 1.2], [4.25, 0.25, 0.6], [6.63, 0.12, 0.35]] as const) {
+      const o = ctx.createOscillator();
+      o.frequency.value = f0 * ratio * (1 + (Math.random() - 0.5) * 0.004);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(level * amp, t + 0.003);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+      o.connect(g).connect(p);
+      o.start(t);
+      o.stop(t + decay + 0.05);
+    }
+  }
+
+  private whirr: { gain: GainNode; filter: BiquadFilterNode } | null = null;
+
+  /** Paper pinwheels spinning nearby: a soft fluttering whirr (0 silent .. 1 spinning hard). */
+  setWhirr(level: number): void {
+    if (!this.ctx) return;
+    if (!this.whirr) {
+      const ctx = this.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer(2);
+      src.loop = true;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "bandpass";
+      filter.frequency.value = 1800;
+      filter.Q.value = 1.2;
+      const flutter = ctx.createGain();
+      flutter.gain.value = 0.5;
+      const lfo = ctx.createOscillator();
+      lfo.type = "triangle";
+      lfo.frequency.value = 24;
+      const amt = ctx.createGain();
+      amt.gain.value = 0.5;
+      lfo.connect(amt).connect(flutter.gain);
+      lfo.start();
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(filter).connect(flutter).connect(gain).connect(this.master);
+      src.start();
+      this.whirr = { gain, filter };
+    }
+    const t = this.ctx.currentTime;
+    this.whirr.gain.gain.setTargetAtTime(level * 0.06, t, 0.3);
+    this.whirr.filter.frequency.setTargetAtTime(1200 + level * 1600, t, 0.3);
+  }
+
   /** Holds every sound (pause). */
   setPaused(on: boolean): void {
     if (!this.ctx) return;

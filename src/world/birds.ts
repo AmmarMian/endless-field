@@ -167,6 +167,11 @@ export class Birds {
     return flock;
   }
 
+  /** Where flocks are feeding (for a far-off glow that draws the wind to them). */
+  feedingSpots(): Vec3[] {
+    return this.flocks.filter((f) => !f.airborne).map((f) => f.home);
+  }
+
   update(dt: number, wind: Vec3, windAlt: number, night: number, heading = 0): void {
     // Keep a few flocks feeding around the wind; ones left far behind move on ahead.
     while (this.flocks.length < FLOCKS) {

@@ -11,6 +11,7 @@ import { Audio } from "./game/audio";
 import { Input } from "./game/input";
 import { Motes } from "./game/motes";
 import { Birds } from "./world/birds";
+import { Secrets } from "./world/secrets";
 import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
 import { FreeCam } from "./game/freecam";
@@ -114,7 +115,7 @@ async function main(): Promise<void> {
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
-  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets] = await Promise.all([
     track(Trees.load(gpu, globals.uniforms)),
     track(FlowerBeds.load(gpu, globals.uniforms, life.buffer)),
     track(Water.load(gpu, globals.uniforms)),
@@ -123,24 +124,37 @@ async function main(): Promise<void> {
     track(Lanterns.load(gpu, globals.uniforms)),
     track(Torii.load(gpu, globals.uniforms)),
     track(Birds.load(gpu, globals.uniforms)),
+    track(Secrets.load(gpu, globals.uniforms, settings.seed, [Math.cos(0.6), Math.sin(0.6)])),
   ]);
-  birds.onTakeoff = (at, n) => {
+  /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
+  const heard = (at: readonly number[]): [number, number] => {
     const fx = camera.target[0] - camera.position[0];
     const fz = camera.target[2] - camera.position[2];
     const dx = at[0] - camera.position[0];
     const dz = at[2] - camera.position[2];
     const d = Math.hypot(dx, dz) || 1;
-    const pan = (dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1));
+    return [(dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1)), d];
+  };
+  birds.onTakeoff = (at, n) => {
+    const [pan, d] = heard(at);
     audio.birds(n, pan, d);
     if (d < 25) discoveries.find("sparrows");
   };
-  birds.onChirp = (at) => {
-    const fx = camera.target[0] - camera.position[0];
-    const fz = camera.target[2] - camera.position[2];
-    const dx = at[0] - camera.position[0];
-    const dz = at[2] - camera.position[2];
-    const d = Math.hypot(dx, dz) || 1;
-    audio.chirp((dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1)), d);
+  birds.onChirp = (at) => audio.chirp(...heard(at));
+  // Secrets: woken by the wind, each answers with a jingle and the meadow around it bursts
+  // into flower; bells ring and pinwheels whirr where they are.
+  secrets.onWake = (s) => {
+    audio.discovery();
+    life.bloom(s.x, s.z, s.kind === "pinwheels" ? 32 : 24, 6);
+  };
+  secrets.onBell = (at, strength, bell) => {
+    const [pan, d] = heard(at);
+    audio.windBell(bell, strength, pan, d);
+  };
+  let whirr = 0;
+  secrets.onWhirr = (at, level) => {
+    const [, d] = heard(at);
+    whirr = Math.max(whirr, level * Math.min(1, 8 / d));
   };
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
@@ -194,7 +208,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, ...birds.draws, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, ...birds.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene))),
   );
 
 
@@ -292,6 +306,7 @@ async function main(): Promise<void> {
     lanterns,
     renderer,
     birds,
+    secrets,
     setDay: (p: number) => {
       dayPhase = p;
       dayTarget = null;
@@ -702,6 +717,11 @@ async function main(): Promise<void> {
       chainTimer = window.setTimeout(() => chainEl.classList.remove("show"), lanternEvent.complete ? 6000 : 2500);
     }
     lanterns.animate(dt, globals.lamps, t);
+    // A faint glow over feeding flocks (by day), so they can be spotted and flown to.
+    secrets.setExtraGlints(night > 0.5 ? [] : birds.feedingSpots().map((h) => [h[0], h[1] + 1.4, h[2], 0.55] as [number, number, number, number]));
+    secrets.update(dt, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, camera.position);
+    audio.setWhirr(whirr);
+    whirr = 0;
     renderer.setPost({ time: t, exposure: atmExposure * (1 - canopy * 0.45) });
     audio.update(explore ? 0.15 : (player.speed - 7.5) / 13.5, explore ? 2 : player.altitude);
 
@@ -720,11 +740,13 @@ async function main(): Promise<void> {
         windTrail.encode(pass);
       }
       birds.encode(pass);
+      secrets.encode(pass);
       if (!debug.hide.water) water.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);
       flowers.encodeGlow(pass);
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
       // Transparent, depth-tested but not depth-writing: after everything opaque.
+      secrets.encodeGlints(pass);
       precipitation.encode(pass, rain);
     }, spans);
 

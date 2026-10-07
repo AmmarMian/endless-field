@@ -2,6 +2,9 @@ import type { GrassQuality } from "../world/grass";
 
 export type Preset = "low" | "medium" | "high" | "ultra";
 
+export const TIMES = ["dawn", "day", "golden", "night"] as const;
+export type TimeMode = "cycle" | (typeof TIMES)[number];
+
 export const FILTERS = ["none", "painterly", "watercolor", "film", "miniature", "ink"] as const;
 export type Filter = (typeof FILTERS)[number];
 
@@ -12,7 +15,8 @@ export interface Settings {
   drawDistance: number;
   bloom: boolean;
   showStats: boolean;
-  night: boolean;
+  /** Time of day: the day turns (about 10 minutes), or one time is held. */
+  time: TimeMode;
   /** 0 = follow the display refresh rate. */
   fpsTarget: number;
   autoResolution: boolean;
@@ -28,7 +32,7 @@ export interface Settings {
   seed: number;
 }
 
-export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "night" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter">> = {
+export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "time" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter">> = {
   low: { renderScale: 0.6, grass: "low", drawDistance: 0.7, bloom: false },
   medium: { renderScale: 0.8, grass: "medium", drawDistance: 0.9, bloom: true },
   high: { renderScale: 1, grass: "high", drawDistance: 1, bloom: true },
@@ -41,7 +45,7 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "medium" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature" };
+  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature" };
 }
 
 export function loadSettings(): Settings {
@@ -102,7 +106,7 @@ const PAGES: Page[] = [
     rows: [
       { k: "seasonMode", label: "Season", type: "choice", options: [["summer", "Summer"], ["autumn", "Autumn"], ["winter", "Winter"], ["spring", "Spring"], ["cycle", "Turning"]] },
       { k: "weather", label: "Weather", type: "choice", options: [["auto", "Showers"], ["clear", "Clear"], ["rain", "Rain"]] },
-      { k: "night", label: "Time", type: "toggle", on: "Night", off: "Day" },
+      { k: "time", label: "Time of day", type: "choice", options: [["cycle", "Turning"], ["dawn", "Dawn"], ["day", "Day"], ["golden", "Golden hour"], ["night", "Night"]] },
       { k: "seed", label: "World seed", type: "number" },
       { label: "New world", type: "action", run: (p) => p.set({ seed: 1 + Math.floor(Math.random() * 999998) }) },
     ],
@@ -140,7 +144,7 @@ const PAGES: Page[] = [
       { label: "Free roam", type: "keys", keys: "M" },
       { label: "Map", type: "keys", keys: "K" },
       { label: "Film simulation", type: "keys", keys: "L" },
-      { label: "Day / night", type: "keys", keys: "N" },
+      { label: "Next time of day", type: "keys", keys: "N" },
       { label: "Next season", type: "keys", keys: "Y" },
       { label: "Rain", type: "keys", keys: "R" },
       { label: "Frame counter", type: "keys", keys: "F" },
@@ -150,7 +154,7 @@ const PAGES: Page[] = [
 ];
 
 /** Keys whose change does not turn the quality preset into "custom". */
-const FREE_KEYS = ["showStats", "night", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter"];
+const FREE_KEYS = ["showStats", "time", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter"];
 
 /**
  * Settings, styled as a camera menu: tabbed pages of rows, each value stepped with ‹ ›.

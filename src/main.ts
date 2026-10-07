@@ -1,10 +1,10 @@
 import { clock, frameLoop, init, timer, type Frame, type FrameLoopHandle } from "vgpu";
-import { FILTERS, SettingsPanel, loadSettings, type Filter, type Settings } from "./ui/settings";
+import { FILTERS, SettingsPanel, TIMES, loadSettings, type Filter, type Settings } from "./ui/settings";
 
 const FILTER_NAMES: Record<Filter, string> = { none: "natural", painterly: "painterly", watercolor: "watercolor", film: "film", miniature: "miniature", ink: "ink wash" };
 import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
-import { GOLDEN_HOUR, Globals, NIGHT, mixAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";
+import { GOLDEN_HOUR, Globals, dayAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";
 import { Renderer } from "./engine/renderer";
 import { loadTexture } from "./engine/textures";
 import { Audio } from "./game/audio";
@@ -269,7 +269,13 @@ async function main(): Promise<void> {
     gpuMs = gpuMs * 0.85 + ((r.scene ?? 0) + (r.post ?? 0)) * 0.15;
   });
   let cpuMs = 0;
-  let night = settings.night ? 1 : 0;
+  let night = 0;
+  /** Time of day in [0, 1): 0 dawn, ~0.2 midday, ~0.5 golden hour, ~0.62 dusk, ~0.8 night. */
+  let dayPhase = 0.46;
+  /** A requested jump ahead (N): the day fast-forwards to this phase. */
+  let dayTarget: number | null = null;
+  const DAY_LENGTH = 600;
+  const TIME_PHASE: Record<string, number> = { dawn: 0.02, day: 0.2, golden: 0.48, night: 0.8 };
   let mist = 0;
   let canopy = 0;
   let mistBase = 0;
@@ -286,6 +292,10 @@ async function main(): Promise<void> {
     lanterns,
     renderer,
     birds,
+    setDay: (p: number) => {
+      dayPhase = p;
+      dayTarget = null;
+    },
     sunflowers,
     beds,
     height: terrainHeight,
@@ -411,7 +421,13 @@ async function main(): Promise<void> {
     const frameStart = performance.now();
     if (input.wasPressed("f")) panel.set({ showStats: !current.showStats });
     if (input.wasPressed("o")) panel.toggle();
-    if (input.wasPressed("n")) panel.set({ night: !current.night });
+    if (input.wasPressed("n")) {
+      if (current.time === "cycle") {
+        // Skip ahead to the next part of the day.
+        const next = [0.02, 0.2, 0.48, 0.8].find((p) => p > dayPhase + 0.01) ?? 1.02;
+        dayTarget = next;
+      } else panel.set({ time: TIMES[(TIMES.indexOf(current.time) + 1) % TIMES.length] });
+    }
     if (input.wasPressed("m")) {
       explore = !explore;
       if (explore) {
@@ -494,18 +510,32 @@ async function main(): Promise<void> {
     if (Math.abs(rain - prevRain) > 1e-5) atmosphereDirty = true;
     audio.setRain(rain * (1 - seasonWeightsTs(season)[2]));
 
-    // Day/night eases over ~4 s; the atmosphere, bloom and sound follow.
-    const nightTarget = current.night ? 1 : 0;
-    if (night !== nightTarget || atmosphereDirty) {
-      atmosphereDirty = false;
-      night = nightTarget > night ? Math.min(1, night + dt / 4) : Math.max(0, night - dt / 4);
-      const k = night * night * (3 - 2 * night);
+    // The day turns in ~10 minutes (or holds one time); a skip fast-forwards smoothly.
+    {
+      const held = current.time === "cycle" ? null : TIME_PHASE[current.time];
+      if (held !== null && held !== undefined) {
+        let d = held - dayPhase;
+        d -= Math.floor(d);
+        dayTarget = d < 1e-4 ? null : dayPhase + d;
+      }
+      if (dayTarget !== null) {
+        const step = Math.min(dayTarget - dayPhase, dt * 0.06);
+        dayPhase += step;
+        if (dayTarget - dayPhase < 1e-4) dayTarget = null;
+      } else if (current.time === "cycle") dayPhase += dt / DAY_LENGTH;
+      if (dayPhase >= 1) {
+        dayPhase -= 1;
+        if (dayTarget !== null) dayTarget -= 1;
+      }
+      const day = dayAtmosphere(dayPhase);
+      night = day.night;
       atmSeason = season;
-      const atm = weatherAtmosphere(mixAtmosphere(GOLDEN_HOUR, NIGHT, k), season, rain);
+      atmosphereDirty = false;
+      const atm = weatherAtmosphere(day.atm, season, rain);
       globals.setAtmosphere(atm);
       atmExposure = atm.exposure * 0.8;
-      renderer.setPost({ bloomStrength: 0.1 + 0.12 * k });
-      audio.setNight(k);
+      renderer.setPost({ bloomStrength: 0.1 + 0.12 * night });
+      audio.setNight(night);
     }
 
     const obstacles = trees

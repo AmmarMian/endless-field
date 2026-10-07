@@ -51,6 +51,103 @@ export const NIGHT: Atmosphere = {
   exposure: 1.6,
 };
 
+/** First light: low sun in the east, rose horizon, a cool sky still waking. */
+export const DAWN: Atmosphere = {
+  sunDir: normalize([-0.35, 0.12, 0.9]),
+  sunColor: [2.1, 1.35, 1.05],
+  horizonColor: [0.92, 0.6, 0.58],
+  zenithColor: [0.2, 0.28, 0.58],
+  fogDensity: 0.0024,
+  exposure: 1.05,
+};
+
+/** Midday: high warm-white sun, clear blue sky. */
+export const DAY: Atmosphere = {
+  sunDir: normalize([0.2, 0.85, -0.3]),
+  sunColor: [2.5, 2.25, 1.95],
+  horizonColor: [0.78, 0.82, 0.9],
+  zenithColor: [0.17, 0.38, 0.84],
+  fogDensity: 0.0014,
+  exposure: 0.82,
+};
+
+/** After sunset: the light gone violet, the first stars. */
+export const DUSK: Atmosphere = {
+  sunDir: normalize([0.36, 0.02, -0.93]),
+  sunColor: [1.1, 0.5, 0.42],
+  horizonColor: [0.58, 0.3, 0.36],
+  zenithColor: [0.07, 0.1, 0.3],
+  fogDensity: 0.0025,
+  exposure: 1.3,
+};
+
+/**
+ * The day as keyframes over its phase in [0, 1): dawn, a long morning into day, a long golden
+ * hour (the field's best light), dusk, then night until the next dawn.
+ */
+function dayKeys(): [number, Atmosphere][] {
+  return [
+    [0.0, DAWN],
+    [0.1, DAY],
+    [0.32, DAY],
+    [0.44, GOLDEN_HOUR],
+    [0.56, GOLDEN_HOUR],
+    [0.62, DUSK],
+    [0.68, NIGHT],
+    [0.94, NIGHT],
+    [1.0, DAWN],
+  ];
+}
+
+/** Sun's progress along its arc (0 rising .. pi setting) by phase: a long, low golden hour. */
+const SUN_ARC: [number, number][] = [
+  [-0.03, 0],
+  [0.2, 0.5],
+  [0.44, 0.86],
+  [0.56, 0.94],
+  [0.63, 1.02],
+];
+
+function sunTheta(p: number): number {
+  const q = p > 0.95 ? p - 1 : p;
+  for (let i = 0; i < SUN_ARC.length - 1; i++) {
+    const [a, ta] = SUN_ARC[i];
+    const [b, tb] = SUN_ARC[i + 1];
+    if (q >= a && q <= b) return Math.PI * (ta + ((tb - ta) * (q - a)) / (b - a));
+  }
+  return q < SUN_ARC[0][0] ? -0.1 : Math.PI * 1.02;
+}
+
+/**
+ * The atmosphere at a time of day (`phase` in [0, 1)), plus how much it is night (0..1). By
+ * day the sun follows an arc from its rising point to its setting point (the golden-hour sun);
+ * at night the moon takes its place.
+ */
+export function dayAtmosphere(phase: number): { atm: Atmosphere; night: number } {
+  const p = ((phase % 1) + 1) % 1;
+  let i = 0;
+  const keys = dayKeys();
+  while (i < keys.length - 2 && p >= keys[i + 1][0]) i++;
+  const [p0, a0] = keys[i];
+  const [p1, a1] = keys[i + 1];
+  const k = p1 > p0 ? (p - p0) / (p1 - p0) : 0;
+  const atm = mixAtmosphere(a0, a1, k * k * (3 - 2 * k));
+  // Night weight: dusk -> night, night -> dawn.
+  const ramp = (a: number, b: number) => Math.min(1, Math.max(0, (p - a) / (b - a)));
+  let night = ramp(0.6, 0.68) * (1 - ramp(0.94, 1.0));
+  night = night * night * (3 - 2 * night);
+  // Sun arc: rising opposite its setting point, peaking high toward the south, setting where
+  // the golden-hour sun sits.
+  const set = GOLDEN_HOUR.sunDir;
+  const sh = normalize([set[0], 0, set[2]]);
+  const side = normalize([-sh[2], 0, sh[0]]);
+  const up = normalize([side[0] * 0.55, 0.85, side[2] * 0.55]);
+  const theta = sunTheta(p);
+  const sun = normalize([-sh[0] * Math.cos(theta) + up[0] * Math.sin(theta), up[1] * Math.sin(theta) + 0.03, -sh[2] * Math.cos(theta) + up[2] * Math.sin(theta)]);
+  const dir = mixAtmosphere({ ...atm, sunDir: sun }, { ...atm, sunDir: NIGHT.sunDir }, night).sunDir;
+  return { atm: { ...atm, sunDir: dir }, night };
+}
+
 export function mixAtmosphere(a: Atmosphere, b: Atmosphere, t: number): Atmosphere {
   const m = (x: number, y: number) => x + (y - x) * t;
   const v = (x: number[], y: number[]) => x.map((xi, i) => m(xi, y[i])) as [number, number, number];

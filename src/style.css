@@ -613,3 +613,88 @@ kbd {
   max-height: min(64vh, 520px);
   overflow-y: auto;
 }
+
+/* ---- Pause ---- */
+
+#pause {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 12, 0.35);
+  pointer-events: auto;
+}
+
+#pause[hidden] {
+  display: none;
+}
+
+#pause .pz-box {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 220px;
+  padding: 14px;
+  border: 1px solid var(--osd-line);
+  border-top: 2px solid var(--osd-accent);
+  border-radius: 4px;
+  background: var(--osd-bg);
+  backdrop-filter: blur(10px);
+}
+
+#pause .pz-tag {
+  margin-bottom: 6px;
+  text-align: center;
+  font: 700 12px var(--osd-font);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--osd-accent);
+}
+
+#pause button {
+  padding: 9px 12px;
+  border: 1px solid var(--osd-line);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--osd-fg);
+  font: 600 12px var(--osd-font);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+#pause button:hover {
+  border-color: var(--osd-accent);
+  color: var(--osd-accent);
+}
+
+#pause .pz-hint {
+  margin-top: 4px;
+  text-align: center;
+  font: 500 10px var(--osd-font);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--osd-dim);
+}
+
+#pause-btn {
+  position: absolute;
+  top: 12px;
+  right: 96px;
+  pointer-events: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--osd-line);
+  border-radius: 4px;
+  background: var(--osd-bg-soft);
+  backdrop-filter: blur(8px);
+  color: var(--osd-fg);
+  font: 700 10px var(--osd-font);
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+#pause-btn:hover {
+  border-color: var(--osd-accent);
+}

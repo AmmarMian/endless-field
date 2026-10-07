@@ -19,6 +19,8 @@ export class Input {
   /** Presses latched on keydown so a quick tap between two frames is never lost. */
   private pressed = new Set<string>();
   private readonly listeners: (() => void)[] = [];
+  /** Last press time of each steering side, for double-taps (barrel rolls). */
+  private lastTap: Record<string, number> = {};
   /** Touch: a finger dragged from where it landed steers like a joystick. */
   touchMode = false;
   private touch: { id: number; x: number; y: number } | null = null;
@@ -85,6 +87,15 @@ export class Input {
       // Commands follow the typed letter (layout-independent: AZERTY's M is not KeyM);
       // movement keeps physical positions (WASD on QWERTY = ZQSD on AZERTY).
       if (!e.repeat && e.key.length === 1) this.pressed.add(e.key.toLowerCase());
+      // Double-tap left or right: a barrel roll that way.
+      const side = e.code === "KeyA" || e.code === "ArrowLeft" ? "left" : e.code === "KeyD" || e.code === "ArrowRight" ? "right" : null;
+      if (side && !e.repeat) {
+        const now = performance.now();
+        if (now - (this.lastTap[side] ?? -1e9) < 280) {
+          this.pressed.add(`roll-${side}`);
+          this.lastTap[side] = -1e9;
+        } else this.lastTap[side] = now;
+      }
       if (e.code === "Space") e.preventDefault();
     });
     on(window, "keyup", (e) => this.keys.delete(e.code));

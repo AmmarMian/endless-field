@@ -40,6 +40,24 @@ export class Player {
     this.pitch = Math.max(0, this.pitch);
   }
   private loopYaw = 0;
+  /** Barrel roll: the extra roll angle right now (0 when not rolling), and its progress. */
+  rollAngle = 0;
+  private rollT = -1;
+  private rollDir = 0;
+  /** Starts a barrel roll to the left (-1) or right (+1). */
+  startRoll(dir: number): void {
+    if (this.rollT >= 0 || this.looping) return;
+    this.rollT = 0;
+    this.rollDir = dir;
+  }
+  /** Stooping: diving steeply with the wings tucked (0..1), building speed. */
+  stoop = 0;
+  /** Speed banked from a dive, spent slowly after pulling out. */
+  private momentum = 0;
+  /** A little burst of speed (a caught insect). */
+  boost(amount: number): void {
+    this.momentum = Math.min(12, this.momentum + amount);
+  }
   /** Chase distance scale (closer when you fly as a bird, so it fills the view). */
   followScale = 1;
   gust = 0;
@@ -118,7 +136,25 @@ export class Player {
       return;
     }
     this.gust = damp(this.gust, gusting ? 1 : 0, gusting ? 3 : 1.6, dt);
-    this.speed = damp(this.speed, CRUISE + (GUST - CRUISE) * this.gust, 1.8, dt);
+    // Diving trades height for speed (a stoop): the steeper the dive, the more it builds; it
+    // carries on after the pull-out and fades over a few seconds.
+    this.stoop = damp(this.stoop, input.dive && this.pitch < -0.2 ? 1 : 0, 4, dt);
+    this.momentum = Math.max(0, this.momentum + (Math.max(0, -Math.sin(this.pitch)) * 16 * this.stoop - this.momentum * 0.35) * dt);
+    this.speed = damp(this.speed, CRUISE + (GUST - CRUISE) * this.gust + Math.min(12, this.momentum), 1.8, dt);
+    // Barrel roll: a full turn about the long axis in 0.8 s, sidestepping a little that way.
+    if (this.rollT >= 0) {
+      this.rollT += dt / 0.8;
+      const k = Math.min(1, this.rollT);
+      const ease = k * k * (3 - 2 * k);
+      this.rollAngle = this.rollDir * ease * Math.PI * 2;
+      const side = Math.sin(Math.PI * k) * 3.2 * this.rollDir * dt;
+      this.pos[0] += Math.cos(this.yaw) * side;
+      this.pos[2] += Math.sin(this.yaw) * side;
+      if (this.rollT >= 1) {
+        this.rollT = -1;
+        this.rollAngle = 0;
+      }
+    }
     this.yaw += sx * Math.abs(sx) * 1.9 * dt;
 
     // Pitch: pointer height plus rise/dive; otherwise glide back to skimming altitude.

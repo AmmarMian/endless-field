@@ -49,7 +49,7 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "low" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature", steering: "touch", avatar: "wind", ...(mobile ? { fpsTarget: 30, showStats: false } : {}) };
+  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature", steering: "touch", avatar: "swallow", ...(mobile ? { fpsTarget: 30, showStats: false } : {}) };
 }
 
 export function loadSettings(): Settings {
@@ -62,6 +62,8 @@ export function loadSettings(): Settings {
         saved.music = false;
         saved.filter = "miniature";
       }
+      // v4: the swallow became the default protagonist.
+      if ((saved.v ?? 1) < 4) saved.avatar = "swallow";
       // v3: phones start light (earlier saves on phones could hold desktop settings).
       if ((saved.v ?? 1) < 3 && matchMedia("(pointer: coarse)").matches) {
         Object.assign(saved, { preset: "low", ...PRESETS.low, fpsTarget: 30 });
@@ -76,7 +78,7 @@ export function loadSettings(): Settings {
 
 function saveSettings(s: Settings): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ ...s, v: 3 }));
+    localStorage.setItem(KEY, JSON.stringify({ ...s, v: 4 }));
   } catch {
     // Non-essential.
   }
@@ -150,6 +152,8 @@ const PAGES: Page[] = [
       { label: "Gust", type: "keys", keys: "Space · hold click" },
       { label: "Rise / dive", type: "keys", keys: "↑ ↓" },
       { label: "Vertical loop", type: "keys", keys: "E" },
+      { label: "Barrel roll", type: "keys", keys: "double-tap ← / →" },
+      { label: "Stoop (fast dive)", type: "keys", keys: "hold ↓ from height" },
       { label: "Let go", type: "keys", keys: "X" },
       { label: "Pause", type: "keys", keys: "P" },
       { label: "Free roam", type: "keys", keys: "M" },

@@ -593,6 +593,26 @@ export class Audio {
     o.stop(t + 0.16);
   }
 
+  /**
+   * An insect caught: a tiny click and a bright note. Catches in quick succession climb the
+   * pentatonic scale (`combo` 1, 2, 3...), so a good run through a swarm plays a phrase.
+   */
+  catchInsect(combo: number): void {
+    if (!this.ctx) return;
+    const steps = [0, 2, 4, 7, 9];
+    const i = Math.min(combo - 1, 14);
+    const note = 74 + Math.floor(i / 5) * 12 + steps[i % 5];
+    const t = this.ctx.currentTime;
+    this.glass(note, t, 0.03 + Math.min(combo, 10) * 0.002, 0.7);
+    this.bell(note, t, 0.06);
+  }
+
+  /** Skimming the river (a soft swish and patter). */
+  skim(): void {
+    if (!this.ctx) return;
+    this.splash(0.1, 0, 3);
+  }
+
   /** Holds every sound (pause). */
   setPaused(on: boolean): void {
     if (!this.ctx) return;

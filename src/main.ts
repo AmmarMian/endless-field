@@ -16,6 +16,7 @@ import { RiverRace } from "./world/river-race";
 import { SkyLanterns } from "./world/sky-lanterns";
 import { RiverFish } from "./world/fish";
 import { PlayerBird } from "./game/player-bird";
+import { Insects } from "./world/insects";
 import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
 import { FreeCam } from "./game/freecam";
@@ -46,7 +47,7 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
-const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>E</kbd> loop · <kbd>X</kbd> let go · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
+const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>E</kbd> loop · <kbd>A</kbd><kbd>A</kbd> roll · <kbd>X</kbd> let go · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
 const EXPLORE_HINT = "<kbd>WASD</kbd> move · <kbd>←</kbd><kbd>→</kbd> look · <kbd>Shift</kbd> sprint · <kbd>V</kbd> fly · <kbd>Space</kbd><kbd>C</kbd> up / down · <kbd>M</kbd> wind";
 const TOUCH = matchMedia("(pointer: coarse)").matches;
 const TOUCH_HINT = "Drag to steer · hold <kbd>◎</kbd> to gust, double-tap to loop · tilt steering in Menu → System";
@@ -166,6 +167,12 @@ async function main(): Promise<void> {
   const motes = new Motes(gpu, globals.uniforms);
   const windTrail = new WindTrail(gpu, globals.uniforms);
   const skyLanterns = new SkyLanterns(gpu, globals.uniforms);
+  const insects = new Insects(gpu, globals.uniforms);
+  // Catching insects on the wing: each catch sparks, plucks a note and gives a little speed;
+  // catches close together climb the scale.
+  let combo = 0;
+  let lastCatch = -10;
+  let skimTimer = 0;
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
@@ -198,6 +205,14 @@ async function main(): Promise<void> {
     if (d < 25) discoveries.find("sparrows");
   };
   birds.onChirp = (at) => audio.chirp(...heard(at));
+  insects.onCatch = (at) => {
+    const now = performance.now() / 1000;
+    combo = now - lastCatch < 1.6 ? combo + 1 : 1;
+    lastCatch = now;
+    audio.catchInsect(combo);
+    motes.puff(at, [1, 0.85, 0.45]);
+    player.boost(0.5 + Math.min(combo, 8) * 0.12);
+  };
   fish.onSplash = (at, size) => {
     motes.splash(at, size);
     const [pan, d] = heard(at);
@@ -306,7 +321,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -409,6 +424,8 @@ async function main(): Promise<void> {
     grass.setQuality(s.grass);
     audio.setMusic(s.music);
     renderer.setStyle(Math.max(0, FILTERS.indexOf(s.filter)));
+    const sub = document.querySelector("#title .sub");
+    if (sub) sub.textContent = s.avatar === "swallow" ? "a swallow on the wind" : "be the wind";
     if (s.steering === "tilt") {
       tiltRef = null;
       void enableTilt();
@@ -479,6 +496,7 @@ async function main(): Promise<void> {
     lanterns,
     renderer,
     birds,
+    insects,
     swallow,
     get panel() {
       return panel;
@@ -646,6 +664,9 @@ async function main(): Promise<void> {
 
     // A vertical loop.
     if (input.wasPressed("e") && !explore && playing) player.startLoop();
+    // Barrel rolls: double-tap left or right.
+    if (input.wasPressed("roll-left") && !explore && playing) player.startRoll(-1);
+    if (input.wasPressed("roll-right") && !explore && playing) player.startRoll(1);
     // Let go of everything the wind is carrying.
     if (input.wasPressed("x") && !explore) motes.release();
     if (input.wasPressed("l")) {
@@ -788,6 +809,17 @@ async function main(): Promise<void> {
       }, [Math.cos(windAngle), Math.sin(windAngle)]);
       windTrail.update(dt, player.pos, player.speed, player.gust);
       swallow.update(dt, player);
+      insects.update(dt, t, player.pos, player.yaw, current.avatar === "swallow");
+      // Skimming the river: the swallow drinks on the wing, its wake splashing behind.
+      {
+        const [rd, , rhw] = riverInfo(player.pos[0], player.pos[2]);
+        skimTimer -= dt;
+        if (rd < rhw * 0.95 && player.altitude < 0.95 && skimTimer <= 0) {
+          skimTimer = 0.11;
+          motes.splash([player.pos[0], player.pos[1] - player.altitude, player.pos[2]], 0.12);
+          if (Math.random() < 0.35) audio.skim();
+        }
+      }
       player.followScale += ((current.avatar === "swallow" ? 0.52 : 1) - player.followScale) * Math.min(1, dt * 2);
       birds.update(dt, player.pos, player.altitude, night, player.yaw);
       if (playing && !paused) {
@@ -965,6 +997,7 @@ async function main(): Promise<void> {
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
       // Transparent, depth-tested but not depth-writing: after everything opaque.
       secrets.encodeGlints(pass);
+      if (!explore) insects.encode(pass);
       skyLanterns.encode(pass);
       precipitation.encode(pass, rain);
     }, spans);

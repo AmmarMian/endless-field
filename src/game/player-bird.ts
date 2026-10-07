@@ -81,7 +81,7 @@ export class PlayerBird {
 
     // Beating or gliding: hard work when gusting, climbing or pulling a loop; otherwise
     // three easy beats then a long glide.
-    const working = player.gust > 0.25 || player.pitch > 0.12 || (looping && player.pitch < 1.4);
+    const working = (player.gust > 0.25 || player.pitch > 0.12 || (looping && player.pitch < 1.4)) && player.stoop < 0.5;
     this.cycle = (this.cycle + dt) % 4.6;
     const beating = working || this.cycle < 2.3;
     const wantAmp = working ? 1 : beating ? 0.8 : 0;
@@ -109,9 +109,14 @@ export class PlayerBird {
     const glideArm = 0.06;
     const glideHand = -0.04;
     const glideSweep = Math.min(0.6, 0.15 + Math.max(0, (player.speed - 8) / 18));
-    const armA = glideArm + (arm - glideArm) * k;
-    const handA = glideHand + (hand - glideHand) * k;
-    const sweep = glideSweep + (fold - glideSweep) * k;
+    let armA = glideArm + (arm - glideArm) * k;
+    let handA = glideHand + (hand - glideHand) * k;
+    let sweep = glideSweep + (fold - glideSweep) * k;
+    // Stoop: wings tucked back along the body, like an arrow.
+    const st = player.stoop;
+    armA = armA + (0.18 - armA) * st;
+    handA = handA + (-0.15 - handA) * st;
+    sweep = sweep + (1.0 - sweep) * st;
     this.sweep += (sweep - this.sweep) * Math.min(1, dt * 12);
 
     const p = player.pos;
@@ -119,7 +124,7 @@ export class PlayerBird {
     const bob = -Math.sin(ph) * 0.012 * SIZE * k;
     const pitch = looping ? -player.pitch : -player.pitch * 0.85;
     // The shader's heading maps +Z to (sin, cos); the player's forward is (sin yaw, -cos yaw).
-    this.data.set([p[0], p[1] + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 0.5, this.roll, SIZE, this.elbow, this.sweep]);
+    this.data.set([p[0], p[1] + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 0.5, this.roll + player.rollAngle, SIZE, this.elbow, this.sweep]);
     this.buffer.write(this.data);
   }
 

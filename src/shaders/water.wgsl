@@ -45,15 +45,20 @@ fn sky() -> SkyParams {
 fn vs_main(@location(0) g: vec2f) -> VOut {
   let xz = W.center + g * W.extent;
   let r = riverInfo(xz);
-  let px = r.w;
+  // The river is a curve z = c(x): take the surface (height, flow) from the river at this
+  // point's own x. The closest point on the curve can jump between the two sides of a bend,
+  // which folded the surface into intersecting slopes there; this is one continuous sheet.
+  let px = xz.x;
   let slope = (riverCenter(px + 0.75) - riverCenter(px - 0.75)) / 1.5;
   let tangent = normalize(vec2f(1.0, slope));
-  let downhill = select(-1.0, 1.0, riverInfoWater(px + 4.0) < riverInfoWater(px - 4.0));
+  // One direction for the whole river (its level wanders up and down a little along the
+  // procedural valley; following the local slope flipped the flow and left seams).
+  let downhill = 1.0;
   // Signed distance across the channel in half-widths (negative on the left bank).
   let toPoint = xz - vec2f(px, riverCenter(px));
   let sideSign = select(-1.0, 1.0, dot(toPoint, vec2f(-tangent.y, tangent.x)) >= 0.0);
   var out: VOut;
-  out.world = vec3f(xz.x, r.y, xz.y);
+  out.world = vec3f(xz.x, riverWater(px), xz.y);
   out.pos = G.viewProj * vec4f(out.world, 1.0);
   out.flow = tangent * downhill;
   out.across = sideSign * min(r.x / r.z, 4.0);
@@ -83,13 +88,14 @@ fn riverInfoWater(x: f32) -> f32 {
 fn waveHeight(p: vec2f, s: f32, t: f32, detail: f32) -> f32 {
   return simplex2d((p - vec2f(s, 0.0)) * vec2f(0.3, 0.45)) * 0.5
     + simplex2d((p - vec2f(s * 1.2, 0.0)) * 1.1 + vec2f(0.0, 7.0)) * 0.22
-    + (simplex2d((p - vec2f(s * 1.35, 0.0)) * 3.1 + vec2f(t * 0.3, -3.0)) * 0.12
-    + simplex2d((p - vec2f(s * 1.5, 0.0)) * 7.0 + vec2f(-t * 0.6, t * 0.9)) * 0.05) * detail;
+    + (simplex2d((p - vec2f(s * 1.35, 0.0)) * 3.1 + vec2f(0.0, -3.0)) * 0.12
+    + simplex2d((p - vec2f(s * 1.5, 0.0)) * 7.0 + vec2f(5.0, 2.0)) * 0.05) * detail;
 }
 
 @fragment
 fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
-  if (frag.dist > 1.6 || abs(frag.across) > 1.6) {
+  // Only the channel holds water: beyond its edge (low ground beside a bend) there is none.
+  if (frag.dist > 1.2) {
     discard;
   }
   let s = sky();
@@ -203,7 +209,7 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   // Foam, used sparingly: a thin fringe right at the waterline, and the occasional line of
   // bubbles drifting downstream (these sell the current more than anything else).
   let shore = 1.0 - smoothstep(0.0, 0.07, depth);
-  let lace = smoothstep(0.45, 0.8, simplex2d((uv - vec2f(travel * 0.6, 0.0)) * vec2f(1.2, 3.5)) * 0.5 + 0.5);
+  let lace = smoothstep(0.35, 0.9, simplex2d((uv - vec2f(travel * 0.6, 0.0)) * vec2f(0.8, 2.2)) * 0.5 + 0.5);
   let lineN = simplex2d((uv - vec2f(travel, 0.0)) * vec2f(0.08, 1.6) + vec2f(0.0, 11.0)) * 0.5 + 0.5;
   let bubbles = smoothstep(0.55, 0.85, simplex2d((uv - vec2f(travel, 0.0)) * 4.0) * 0.5 + 0.5) * aa;
   let streak = smoothstep(0.93, 0.985, lineN) * bubbles;
@@ -217,7 +223,8 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let boilN = simplex2d((uv - vec2f(travel * 0.7, 0.0)) * 0.9 + vec2f(t * 0.35, -t * 0.25)) * 0.6
     + simplex2d((uv - vec2f(travel, 0.0)) * 2.4 - vec2f(t * 0.5, 0.0)) * 0.4 * aa;
   let boil = smoothstep(0.0, 0.6, boilN * 0.5 + 0.5 - (1.0 - frag.plunge) * 0.6) * frag.plunge;
-  let foam = clamp(shore * lace * 0.6 + streak * 0.7, 0.0, 1.0) * 0.6;
+  // The shore fringe is soft and thin, and fades out at distance before it turns to speckle.
+  let foam = clamp(shore * mix(0.5, lace, aa) * 0.3 * aa + streak * 0.5, 0.0, 1.0) * 0.5;
   let foamCol = (G.sunColor * 0.75 + s.zenith * 0.55) * 0.95;
   // Each layer of foam covers what is behind it: mix the colour and cut the transmission.
   col = mix(col, foamCol, foam);
@@ -237,6 +244,10 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let f1 = applyFog(vec3f(1.0), p, G.camPos, G.fogDensity, s, mist);
   col = col * (f1 - f0) + f0;
   through *= f1.g - f0.g;
+  // Fade out at the channel's edge (where the banks rise out of it).
+  let inside = 1.0 - smoothstep(0.95, 1.2, frag.dist);
+  col *= inside;
+  through = mix(1.0, through, inside);
   return vec4f(col, clamp(through, 0.0, 1.0));
 }
 

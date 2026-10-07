@@ -84,7 +84,8 @@ fn vs_main(
   if (part >= 2u) {
     // Head: rigid about the pivot. Tilt with the tip slope, twist with the torsion mode.
     let pivot = variant.xyz;
-    var r = local - pivot;
+    // Spring: the head is still a tight bud (small, closed), opening into summer.
+    var r = (local - pivot) * mix(1.0, 0.42, seasonWeights(G.season).w);
     if (dlen > 1e-4) {
       let axis = normalize(cross(vec3f(0.0, 1.0, 0.0), dl));
       let tilt = dlen * 1.5 / H;
@@ -156,14 +157,18 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let sw = seasonWeights(G.season);
   let petalTexel = frag.part == 3u || (frag.part == 2u && albedo.r - albedo.b > 0.45);
   if (petalTexel) {
-    let gone = sw.z + sw.w * 0.85 + sw.y * 0.3;
+    let gone = sw.z + sw.y * 0.3;
     if (seasonHash(frag.organ * 53.0 + select(0.0, floor(frag.uv.x * 34.0), frag.part == 2u)) < gone) {
       discard;
     }
     albedo = mix(albedo, vec3f(0.34, 0.2, 0.07), sw.y * 0.7);
+    // In the bud the folded petals are just yellow-green tips between the bracts.
+    albedo = mix(albedo, vec3f(0.5, 0.55, 0.14), sw.w * 0.75);
   } else if (frag.part == 2u) {
     albedo = mix(albedo, albedo * 0.6 + vec3f(0.02, 0.015, 0.0), sw.y + sw.z);
-    albedo = mix(albedo, vec3f(0.16, 0.26, 0.07), sw.w * 0.85);
+    // Spring bud: overlapping green bracts (textured by the face's own detail), not a flat disc.
+    let lumB = dot(texel.rgb, vec3f(0.3, 0.59, 0.11));
+    albedo = mix(albedo, vec3f(0.15, 0.25, 0.065) * (0.75 + 0.5 * smoothstep(0.08, 0.3, lumB)), sw.w * 0.85);
   } else {
     let lum = dot(albedo, vec3f(0.3, 0.59, 0.11));
     let dry = select(0.4, 0.7, frag.part == 1u);
@@ -171,9 +176,16 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
     albedo = mix(albedo, vec3f(0.23, 0.16, 0.08) * (0.7 + lum), sw.z * 0.9);
     albedo = mix(albedo, vec3f(0.3, 0.55, 0.12) * lum * 2.2, sw.w * 0.4);
   }
-  // The far face card is single: its back shows the green calyx.
+  // The far face card is single: its back shows the calyx, overlapping green bracts (the
+  // face texture's own detail gives them texture), ringed by the paler backs of the petals.
   if (frag.part == 2u && !front) {
-    albedo = vec3f(0.17, 0.27, 0.07);
+    let lumT = dot(texel.rgb, vec3f(0.3, 0.59, 0.11));
+    if (petalTexel) {
+      albedo = mix(albedo, vec3f(dot(albedo, vec3f(0.33))), 0.25) * vec3f(0.95, 0.88, 0.7);
+    } else {
+      let bract = 0.75 + 0.5 * smoothstep(0.08, 0.3, lumT);
+      albedo = vec3f(0.15, 0.25, 0.065) * bract;
+    }
   }
   var diff = wrapDiffuse(n, l, 0.4);
   // Thin petals and leaves glow when the sun is behind them.

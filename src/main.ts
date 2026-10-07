@@ -15,6 +15,7 @@ import { Secrets } from "./world/secrets";
 import { RiverRace } from "./world/river-race";
 import { SkyLanterns } from "./world/sky-lanterns";
 import { RiverFish } from "./world/fish";
+import { PlayerBird } from "./game/player-bird";
 import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
 import { FreeCam } from "./game/freecam";
@@ -168,7 +169,7 @@ async function main(): Promise<void> {
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
-  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race, fish] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race, fish, swallow] = await Promise.all([
     track(Trees.load(gpu, globals.uniforms), "trees"),
     track(FlowerBeds.load(gpu, globals.uniforms, life.buffer), "flowerbeds"),
     track(Water.load(gpu, globals.uniforms), "water"),
@@ -180,6 +181,7 @@ async function main(): Promise<void> {
     track(Secrets.load(gpu, globals.uniforms, settings.seed, [Math.cos(0.6), Math.sin(0.6)]), "secrets"),
     track(RiverRace.load(gpu, globals.uniforms), "riverrace"),
     track(RiverFish.load(gpu, globals.uniforms), "fish"),
+    track(PlayerBird.load(gpu, globals.uniforms), "swallow"),
   ]);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
   const heard = (at: readonly number[]): [number, number] => {
@@ -304,7 +306,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -470,6 +472,10 @@ async function main(): Promise<void> {
     lanterns,
     renderer,
     birds,
+    swallow,
+    get panel() {
+      return panel;
+    },
     fish,
     secrets,
     race,
@@ -772,6 +778,8 @@ async function main(): Promise<void> {
         rain,
       }, [Math.cos(windAngle), Math.sin(windAngle)]);
       windTrail.update(dt, player.pos, player.speed, player.gust);
+      swallow.update(dt, player);
+      player.followScale += ((current.avatar === "swallow" ? 0.52 : 1) - player.followScale) * Math.min(1, dt * 2);
       birds.update(dt, player.pos, player.altitude, night, player.yaw);
       if (playing && !paused) {
         regionCheck -= dt;
@@ -935,6 +943,8 @@ async function main(): Promise<void> {
       flowers.encode(pass);
       motes.encode(pass);
       if (!explore) windTrail.encode(pass);
+      swallow.visible = current.avatar === "swallow" && !explore;
+      swallow.encode(pass);
       birds.encode(pass);
       secrets.encode(pass);
       race.encode(pass);

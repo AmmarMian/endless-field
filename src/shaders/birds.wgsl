@@ -8,6 +8,9 @@ struct Bird {
   pos: vec4f,
   // x = flap angle, y = wing spread, z = pitch, w = seed (in [0, 1); 1 + k: glowing with k)
   pose: vec4f,
+  // x = bank (roll, rad), y = size multiplier (0 = 1), z = elbow (span m; 0 = sparrow),
+  // w = wing sweep (0 spread .. 1 swept back on the upstroke)
+  extra: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -24,6 +27,7 @@ struct VOut {
   @location(3) ao: f32,
   @location(4) @interpolate(flat) part: u32,
   @location(5) @interpolate(flat) glow: f32,
+  @location(6) gloss: f32,
 }
 
 fn rotZ(v: vec2f, a: f32) -> vec2f {
@@ -42,14 +46,29 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
     // Wing: rotate about the shoulder (an axis along the body); the hand bends further.
     let side = sign(t.x);
     let d = abs(t.x);
-    let a = b.pose.x * (smoothstep(0.0, 0.012, d) + 0.6 * smoothstep(0.035, 0.075, d)) * side;
+    let elbow = select(0.035, b.extra.z, b.extra.z > 0.0);
+    let a = b.pose.x * (smoothstep(0.0, 0.012, d) + 0.6 * smoothstep(elbow, elbow * 2.1, d)) * side;
+    // On the upstroke the hand sweeps back (the wing half folds), about the elbow.
+    let sweep = b.extra.w * smoothstep(elbow * 0.6, elbow * 1.4, d) * 0.9;
+    if (sweep > 0.0) {
+      let ex = side * (SHOULDER + elbow);
+      let rel = vec2f(lp.x - ex, lp.z);
+      let cs = cos(sweep * side);
+      let sn = sin(sweep * side);
+      let r2 = vec2f(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs);
+      lp = vec3f(r2.x + ex, lp.y, r2.y);
+    }
     let pivot = vec2f(side * SHOULDER, 0.008);
     let r = rotZ(lp.xy - pivot, a) + pivot;
     lp = vec3f(r, lp.z);
     ln = vec3f(rotZ(ln.xy, a), ln.z);
   }
-  lp *= SCALE;
-  // Pitch about x (positive dips the head), then heading about y.
+  lp *= SCALE * select(1.0, b.extra.y, b.extra.y > 0.0);
+  // Bank about the body's long axis, then pitch about x (positive dips the head), then heading.
+  let cr = cos(b.extra.x);
+  let sr = sin(b.extra.x);
+  lp = vec3f(lp.x * cr - lp.y * sr, lp.x * sr + lp.y * cr, lp.z);
+  ln = vec3f(ln.x * cr - ln.y * sr, ln.x * sr + ln.y * cr, ln.z);
   let cp = cos(-b.pose.z);
   let sp = sin(-b.pose.z);
   lp = vec3f(lp.x, lp.y * cp + lp.z * sp, -lp.y * sp + lp.z * cp);
@@ -69,6 +88,7 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
   out.ao = e.a;
   out.part = part;
   out.glow = max(b.pose.w - 1.0, 0.0);
+  out.gloss = t.y;
   return out;
 }
 
@@ -90,6 +110,12 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
     // Eyes: a bright wet glint.
     let h = normalize(l + v);
     col += G.sunColor * pow(max(dot(n, h), 0.0), 80.0) * 2.0;
+  }
+  if (frag.gloss > 0.5) {
+    // Glossy steel-blue upperparts (the swallow): a broad sheen and a blue-violet edge.
+    let h = normalize(l + v);
+    col += G.sunColor * pow(max(dot(n, h), 0.0), 30.0) * 0.5 + (vec3f(0.12, 0.22, 0.55) + G.zenithColor * 0.4) * pow(1.0 - abs(dot(n, v)), 2.5) * 0.45;
+    col += frag.albedo * ambientSky(n, s) * 0.5;
   }
   if (frag.glow > 0.0) {
     // A spirit bird: lit from within, with a bright turquoise rim.

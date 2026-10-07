@@ -30,6 +30,8 @@ export class Player {
   yaw = 0;
   pitch = 0;
   speed = CRUISE;
+  /** Chase distance scale (closer when you fly as a bird, so it fills the view). */
+  followScale = 1;
   gust = 0;
   /** Recorded leader positions, newest first, for the grass push. */
   private readonly trail: { p: Vec3; age: number }[] = [];
@@ -149,11 +151,11 @@ export class Player {
   /** Smooth third-person chase camera that stays above the grass. */
   updateCamera(camera: Camera, dt: number, streamLength = 0): void {
     const f = this.forward;
-    const back = 5.5 + streamLength * 0.75 + this.gust * 2.5;
+    const back = (5.5 + streamLength * 0.75 + this.gust * 2.5) * this.followScale;
     const flat = Math.hypot(f[0], f[2]) || 1;
     const desired: Vec3 = [
       this.pos[0] - (f[0] / flat) * back,
-      this.pos[1] + 1.6 - f[1] * 2.5,
+      this.pos[1] + (1.6 - f[1] * 2.5) * (0.4 + 0.6 * this.followScale),
       this.pos[2] - (f[2] / flat) * back,
     ];
     const ground = smoothGround(desired[0], desired[2]);

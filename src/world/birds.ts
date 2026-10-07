@@ -71,7 +71,7 @@ export class Birds {
   readonly draws: Draw[];
   private readonly flocks: Flock[] = [];
   private readonly buffer: StorageBuffer;
-  private readonly data = new Float32Array(MAX * 8);
+  private readonly data = new Float32Array(MAX * 12);
   /** Instances: perched birds first, then flying ones. */
   private perched = 0;
   private flying = 0;
@@ -100,7 +100,7 @@ export class Birds {
       buffers: [{ data: new Uint8Array(bin, 0, manifest.vertexBytes), attributes: { p: "float16x4", n: "snorm8x4", t: "float16x2", e: "unorm8x4" } }],
       indices: new Uint32Array(bin, manifest.vertexBytes, manifest.indexCount),
     });
-    const buffer = storage(gpu, MAX * 32, "read");
+    const buffer = storage(gpu, MAX * 48, "read");
     const draws = manifest.variants.map((v) =>
       draw(gpu, {
         label: `bird-${v.name}`,
@@ -250,7 +250,7 @@ export class Birds {
           // Mostly gliding, banking round; a few wingbeats now and then.
           b.flap = Math.sin(a * 2.3 + b.seed * 7) > 0.6 ? Math.sin(b.phase) * 0.8 + 0.1 : 0.12;
           if (night < 0.95) {
-            flying.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed);
+            flying.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed, 0, 0, 0, 0);
           }
           continue;
         }
@@ -319,9 +319,9 @@ export class Birds {
           const hopping = b.state === 0 && b.pos[1] - terrainHeight(b.pos[0], b.pos[2]) > 0.15;
           if (hopping) {
             b.phase += dt * 28;
-            flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, Math.sin(b.phase) * 0.9 + 0.1, 1, -0.2, b.seed);
-          } else if (b.state === 0) perched.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, 0, 0, b.pitch, b.seed);
-          else flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed);
+            flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, Math.sin(b.phase) * 0.9 + 0.1, 1, -0.2, b.seed, 0, 0, 0, 0);
+          } else if (b.state === 0) perched.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, 0, 0, b.pitch, b.seed, 0, 0, 0, 0);
+          else flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed, 0, 0, 0, 0);
         }
       }
       if (f.airborne && landed >= f.birds.length - 2 && f.air > 2) {
@@ -331,8 +331,8 @@ export class Birds {
       // Give up circling after a while and settle wherever the goal is.
       if (f.airborne && f.air > 80) this.settle(f, f.birds[0].goal);
     }
-    this.perched = perched.length / 8;
-    this.flying = flying.length / 8;
+    this.perched = perched.length / 12;
+    this.flying = flying.length / 12;
     this.data.set(perched, 0);
     this.data.set(flying, perched.length);
     const n = perched.length + flying.length;

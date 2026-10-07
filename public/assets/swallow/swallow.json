@@ -1,0 +1,7 @@
+{
+  "vertexBytes": 89020,
+  "indexCount": 25962,
+  "shoulder": 0.016,
+  "elbow": 0.045,
+  "credit": "Modeled in Blender (tools/blender/model_swallow.py)"
+}

@@ -26,6 +26,8 @@ export interface Settings {
   weather: "auto" | "clear" | "rain";
   /** Generative background score. */
   music: boolean;
+  /** Who you are: the wind itself, or a swallow riding it. */
+  avatar: "wind" | "swallow";
   /** Phones: steer by dragging a finger, or by tilting the phone. */
   steering: "touch" | "tilt";
   /** Screen style: a painted or photographic look over the final image. */
@@ -34,7 +36,7 @@ export interface Settings {
   seed: number;
 }
 
-export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "time" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter" | "steering">> = {
+export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "time" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter" | "steering" | "avatar">> = {
   low: { renderScale: 0.6, grass: "low", drawDistance: 0.7, bloom: false },
   medium: { renderScale: 0.8, grass: "medium", drawDistance: 0.9, bloom: true },
   high: { renderScale: 1, grass: "high", drawDistance: 1, bloom: true },
@@ -47,7 +49,7 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "low" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature", steering: "touch", ...(mobile ? { fpsTarget: 30, showStats: false } : {}) };
+  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature", steering: "touch", avatar: "wind", ...(mobile ? { fpsTarget: 30, showStats: false } : {}) };
 }
 
 export function loadSettings(): Settings {
@@ -110,6 +112,7 @@ const PAGES: Page[] = [
     label: "World",
     icon: "△",
     rows: [
+      { k: "avatar", label: "Play as", type: "choice", options: [["wind", "The wind"], ["swallow", "A swallow"]] },
       { k: "seasonMode", label: "Season", type: "choice", options: [["summer", "Summer"], ["autumn", "Autumn"], ["winter", "Winter"], ["spring", "Spring"], ["cycle", "Turning"]] },
       { k: "weather", label: "Weather", type: "choice", options: [["auto", "Showers"], ["clear", "Clear"], ["rain", "Rain"]] },
       { k: "time", label: "Time of day", type: "choice", options: [["cycle", "Turning"], ["dawn", "Dawn"], ["day", "Day"], ["golden", "Golden hour"], ["night", "Night"]] },
@@ -161,7 +164,7 @@ const PAGES: Page[] = [
 ];
 
 /** Keys whose change does not turn the quality preset into "custom". */
-const FREE_KEYS = ["showStats", "time", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter", "steering"];
+const FREE_KEYS = ["showStats", "time", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter", "steering", "avatar"];
 
 /**
  * Settings, styled as a camera menu: tabbed pages of rows, each value stepped with ‹ ›.

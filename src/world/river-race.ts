@@ -44,7 +44,7 @@ export class RiverRace {
   private readonly gateBuf: StorageBuffer;
   private readonly gateData: Float32Array<ArrayBuffer>;
   private readonly birdBuf: StorageBuffer;
-  private readonly birdData = new Float32Array(8);
+  private readonly birdData = new Float32Array(12);
   private readonly gateDraw: Draw;
   private readonly birdDraws: Draw[];
   /** Kingfisher route: perch, every gate's centre, then the last gate's pole. */
@@ -123,7 +123,7 @@ export class RiverRace {
       buffers: [{ data: new Uint8Array(bbin, 0, bm.vertexBytes), attributes: { p: "float16x4", n: "snorm8x4", t: "float16x2", e: "unorm8x4" } }],
       indices: new Uint32Array(bbin, bm.vertexBytes, bm.indexCount),
     });
-    const birdBuf = storage(gpu, 32, "read");
+    const birdBuf = storage(gpu, 48, "read");
     const kf = (bm.variants ?? []).filter((v) => v.name.startsWith("kingfisher"));
     const birdDraws = kf.map((v) =>
       draw(gpu, {
@@ -307,7 +307,7 @@ export class RiverRace {
     const yaw = flying && Math.hypot(this.birdVel[0], this.birdVel[2]) > 0.1 ? Math.atan2(this.birdVel[0], this.birdVel[2]) : this.gates[0].yaw;
     const pitch = flying ? -Math.atan2(this.birdVel[1], Math.hypot(this.birdVel[0], this.birdVel[2]) + 1e-3) * 0.6 : Math.max(0, Math.sin(performance.now() / 700)) * 0.25;
     // It glows (and casts its light) always: easy to spot waiting, racing or beside the wind.
-    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : 0), this.bird[2], yaw, flying ? Math.sin(this.flapPhase) * 0.9 + 0.1 : 0, flying ? 1 : 0, pitch, 1.9]);
+    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : 0), this.bird[2], yaw, flying ? Math.sin(this.flapPhase) * 0.9 + 0.1 : 0, flying ? 1 : 0, pitch, 1.9, 0, 0, 0, 0]);
     this.birdBuf.write(this.birdData);
     this.flying = flying;
     // Gates.

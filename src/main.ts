@@ -13,6 +13,7 @@ import { Motes } from "./game/motes";
 import { Birds } from "./world/birds";
 import { Secrets } from "./world/secrets";
 import { placeLandmarks } from "./world/layout";
+import { Nest } from "./world/nest";
 import { RiverRace } from "./world/river-race";
 import { SkyLanterns } from "./world/sky-lanterns";
 import { RiverFish } from "./world/fish";
@@ -179,6 +180,7 @@ async function main(): Promise<void> {
   let lastCatch = -10;
   let skimTimer = 0;
   let wasPerched = false;
+  let restingHome = false;
   // Threading the needle: through a torii, or between two trunks under the canopy.
   let threadChain = 0;
   let lastThread = -10;
@@ -219,6 +221,7 @@ async function main(): Promise<void> {
     track(RiverFish.load(gpu, globals.uniforms), "fish"),
     track(PlayerBird.load(gpu, globals.uniforms), "swallow"),
   ]);
+  const nest = new Nest(gpu, globals.uniforms);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
   const heard = (at: readonly number[]): [number, number] => {
     const fx = camera.target[0] - camera.position[0];
@@ -241,6 +244,7 @@ async function main(): Promise<void> {
     audio.catchInsect(combo);
     motes.puff(at, [1, 0.85, 0.45]);
     player.boost(0.5 + Math.min(combo, 8) * 0.12);
+    nest.feed();
   };
   fish.onSplash = (at, size) => {
     motes.splash(at, size);
@@ -351,7 +355,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -527,6 +531,7 @@ async function main(): Promise<void> {
     camera,
     lanterns,
     renderer,
+    nest,
     motes,
     birds,
     thermals,
@@ -778,8 +783,9 @@ async function main(): Promise<void> {
         d -= Math.floor(d);
         dayTarget = d < 1e-4 ? null : dayPhase + d;
       }
+      if (restingHome && current.time === "cycle") dayTarget = dayPhase > 0.5 ? 1.03 : dayTarget;
       if (dayTarget !== null) {
-        const step = Math.min(dayTarget - dayPhase, dt * 0.06);
+        const step = Math.min(dayTarget - dayPhase, dt * (restingHome ? 0.02 : 0.06));
         dayPhase += step;
         if (dayTarget - dayPhase < 1e-4) dayTarget = null;
       } else if (current.time === "cycle") dayPhase += dt / DAY_LENGTH;
@@ -868,6 +874,11 @@ async function main(): Promise<void> {
       if (playing && current.avatar === "swallow" && input.idle > 6 && !player.perched && !player.landing && !player.looping && !player.riding) {
         let perch: Vec3 | null = null;
         let best = 35;
+        // At dusk and night, home: the nest under the torii beam, if it is within reach.
+        if (night > 0.25 && Math.hypot(nest.pos[0] - player.pos[0], nest.pos[2] - player.pos[2]) < 90) {
+          perch = nest.perch;
+          best = 0;
+        }
         for (const lp of lanterns.positions) {
           const d = Math.hypot(lp[0] - player.pos[0], lp[2] - player.pos[2]);
           if (d < best) {
@@ -884,6 +895,9 @@ async function main(): Promise<void> {
         player.landAt(perch);
       }
       if (player.perched && !wasPerched) audio.rest();
+      nest.update(player.pos);
+      // Resting in the nest at night: the night passes quickly (to dawn), then flows again.
+      restingHome = player.perched && Math.hypot(player.pos[0] - nest.perch[0], player.pos[2] - nest.perch[2]) < 0.5 && (night > 0.05 || dayPhase > 0.5);
       wasPerched = player.perched;
       swallow.update(dt, player, current.avatar === "swallow" && wd < whw * 0.9 ? wy : null);
       if (playing) {
@@ -1092,6 +1106,7 @@ async function main(): Promise<void> {
       if (!debug.hide.sunflowers) sunflowers.encode(pass);
       lanterns.encode(pass);
       torii.encode(pass);
+      nest.encode(pass);
       undergrowth.encode(pass);
       flowers.encode(pass);
       motes.encode(pass);

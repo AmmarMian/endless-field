@@ -1,6 +1,6 @@
-// River gates for the kingfisher's course (model: tools/blender/model_river_gate.py): a straw
-// rope hoop on bamboo poles, paper streamers fluttering. The next gate to fly through pulses
-// gold; gates already passed glow warm.
+// River gates for the kingfisher's course (model: tools/blender/model_river_gate.py): floating
+// straw rope hoops with fluttering paper streamers, glowing softly over the water. The next
+// gate to fly through pulses gold; gates already passed glow warm.
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
 
@@ -69,7 +69,8 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
     // Lit rope: gold pulse on the next gate, a steady warm glow once flown through.
     let next = select(0.0, 0.55 + 0.45 * sin(G.time * 4.0), frag.state.x > 0.5 && frag.state.x < 1.5);
     let passed = select(0.0, 0.5, frag.state.x > 1.5);
-    let glow = next * 1.4 + passed + frag.state.y * 3.0;
+    // Every ring glows a little on its own (it floats by some magic of the wind).
+    let glow = 0.22 + next * 1.4 + passed + frag.state.y * 3.0;
     col += vec3f(1.0, 0.7, 0.25) * glow * mix(0.6, 1.2, G.night);
   }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));

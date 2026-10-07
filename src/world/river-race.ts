@@ -72,15 +72,10 @@ export class RiverRace {
     this.gates = gates;
     this.radius = radius;
     this.gateData = new Float32Array(gates.length * 8);
-    // The kingfisher sits on the left pole of the first gate, and finishes on the last.
-    const pole = (g: Gate, side: number): Vec3 => {
-      const c = Math.cos(g.yaw);
-      const s = Math.sin(g.yaw);
-      const x = side * (radius + 0.12);
-      return [g.base[0] + x * c, g.base[1] + ringY + 0.37, g.base[2] - x * s];
-    };
-    this.perch = pole(gates[0], -1);
-    this.perchEnd = pole(gates[gates.length - 1], 1);
+    // The kingfisher waits on top of the first floating ring, and finishes on the last.
+    const top = (g: Gate): Vec3 => [g.centre[0], g.centre[1] + radius + 0.04, g.centre[2]];
+    this.perch = top(gates[0]);
+    this.perchEnd = top(gates[gates.length - 1]);
     this.bird = [...this.perch];
     this.route = [this.perch, ...gates.map((g) => g.centre), this.perchEnd];
     try {
@@ -185,7 +180,8 @@ export class RiverRace {
     this.onFail?.();
   }
 
-  update(dt: number, wind: Vec3): void {
+  /** `windSpeed`: the wind's speed right now; the kingfisher flies exactly as fast. */
+  update(dt: number, wind: Vec3, windSpeed: number): void {
     const toBird = Math.hypot(wind[0] - this.bird[0], wind[1] - this.bird[1], wind[2] - this.bird[2]);
     let speed = 0;
     let target: Vec3 = this.bird;
@@ -204,9 +200,9 @@ export class RiverRace {
         this.onStart?.();
       }
     } else if (this.phase === "racing") {
-      // Darts ahead at a pace the wind can match with gusts; eases off if the wind lags far
-      // behind, presses on when it is close.
-      speed = toBird > 24 ? 6 : toBird < 8 ? 11 : 9;
+      // Exactly as fast as the wind, gusting when it gusts: no rubber band. Falling behind
+      // only happens by flying a longer line than the bird.
+      speed = windSpeed;
       this.along += speed * dt;
       target = this.routeAt(this.along);
       // The wind's progress through the next gate.

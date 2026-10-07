@@ -3,8 +3,8 @@ Models a river gate for the kingfisher's course in Blender and exports it:
 
   blender -b --factory-startup --python tools/blender/model_river_gate.py -- <out dir> [--preview <png>]
 
-A hoop of twisted straw rope (shimenawa) held between two bamboo poles standing in the water,
-hung with zigzag paper streamers (shide) that flutter. The hoop's centre is at (0, RING_Y, 0);
+A floating hoop of twisted straw rope (shimenawa), hung with zigzag paper streamers (shide)
+that flutter; it hovers over the water and glows (in the shader). The hoop's centre is at (0, RING_Y, 0);
 the wind passes through along +Z.
 
 Vertex layout (shared with the other models): p.xyz position, p.w part (0 bamboo, 1 rope,
@@ -170,7 +170,8 @@ def export(obs):
 
 def main():
     reset()
-    obs = [poles(), rope(), bindings(), *shide()]
+    # Floating hoops: no poles, just the rope ring and its streamers.
+    obs = [rope(), *shide()]
     if PREVIEW:
         render_preview(obs)
     v, idx = export(obs)

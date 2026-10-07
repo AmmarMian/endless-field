@@ -833,7 +833,7 @@ async function main(): Promise<void> {
     // A faint glow over feeding flocks (by day), so they can be spotted and flown to.
     secrets.setExtraGlints(night > 0.5 ? [] : birds.feedingSpots().map((h) => [h[0], h[1] + 1.4, h[2], 0.55] as [number, number, number, number]));
     secrets.update(dt, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, camera.position);
-    race.update(dt, explore ? freecam.pos : player.pos);
+    race.update(dt, explore ? freecam.pos : player.pos, explore ? 6 : player.speed);
     audio.setWhirr(whirr);
     whirr = 0;
     renderer.setPost({ time: t, exposure: atmExposure * (1 - canopy * 0.45) });

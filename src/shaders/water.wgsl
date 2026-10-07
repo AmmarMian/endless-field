@@ -100,8 +100,10 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let travel = t * speed;
   let uv = vec2f(dot(p.xz, flow), dot(p.xz, side));
   let camDist = distance(G.camPos, p);
-  let grazing = 1.0 - abs(normalize(G.camPos - p).y);
-  let detail = (1.0 - smoothstep(4.0, 30.0, camDist)) * (1.0 - grazing * 0.6);
+  // Ripple detail fades only by its size on screen (anti-aliasing), never by the camera's
+  // distance as such: the water must look the same wherever you watch it from.
+  let uvFoot = length(fwidth(vec2f(dot(p.xz, flow), dot(p.xz, side))));
+  let detail = 1.0 - smoothstep(0.04, 0.25, uvFoot);
   // Two-phase flow mapping: two copies of the ripple field are advected by the local speed
   // and reset half a cycle apart, cross-faded so the surface evolves as it flows instead of
   // sliding as a rigid band (and shear across the channel never stretches it).
@@ -127,7 +129,7 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let footprint = length(fwidth(uv));
   let detailAA = 1.0 / (1.0 + footprint * footprint * 60.0);
   // Rain beats the wind ripples flat; its own rings take over.
-  let amp = detailAA * 0.075 * mix(1.0, 0.45, smoothstep(10.0, 60.0, camDist)) * (1.0 + frag.rapids * 3.0) * blendGain * (1.0 - 0.65 * G.rain);
+  let amp = detailAA * 0.075 * (1.0 + frag.rapids * 3.0) * blendGain * (1.0 - 0.65 * G.rain);
   let gradLocal = vec2f(hx, hy) / e * amp;
   var grad = flow * gradLocal.x + side * gradLocal.y;
   // Rain on the river: each 0.6 m cell gets a drop at its own moment; the ring spreads and fades.

@@ -3,7 +3,9 @@ import waterShader from "../shaders/water.wgsl";
 import { riverInfo, worldConstants } from "./height";
 
 const GRID = 192;
-const EXTENT = 190;
+// Cells are exactly SNAP meters, and the grid moves by whole cells: every vertex sits on a
+// world-fixed lattice, so the flow sampled at the vertices never shifts as the camera moves.
+const EXTENT = 192;
 const SNAP = 2;
 
 /** River surface: a camera-centered grid that only shades inside the river channel; drawn

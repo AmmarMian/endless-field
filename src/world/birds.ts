@@ -77,6 +77,11 @@ export class Birds {
   private flying = 0;
   /** Called with the flock's position when it takes off. */
   onTakeoff: ((at: Vec3, n: number) => void) | null = null;
+  /**
+   * Where a startled flock should head: given its spot and the direction it flees (radians,
+   * atan2(dx, dz)), a place worth showing the wind, or null to just settle further off.
+   */
+  guide: ((from: Vec3, away: number) => [number, number] | null) | null = null;
   /** A feeding flock chirping (so it can be found by ear). */
   onChirp: ((at: Vec3) => void) | null = null;
 
@@ -198,7 +203,12 @@ export class Birds {
           f.airborne = true;
           f.air = 0;
           const away = Math.atan2(f.home[0] - wind[0], f.home[2] - wind[2]);
-          const goal = this.findSpot(f.home[0] + Math.sin(away) * 60, f.home[2] + Math.cos(away) * 60, 0, 40, wind) ?? f.home;
+          // Birds lead the way: toward somewhere the wind has not been yet, if there is one.
+          const lead = this.guide?.(f.home, away);
+          const goal =
+            (lead && this.findSpot(lead[0], lead[1], 6, 35)) ??
+            this.findSpot(f.home[0] + Math.sin(away) * 60, f.home[2] + Math.cos(away) * 60, 0, 40, wind) ??
+            f.home;
           for (const b of f.birds) {
             b.state = 1;
             b.timer = rand(0, 0.35);
@@ -217,8 +227,33 @@ export class Birds {
         if (near < 80 && night < 0.5) this.onChirp?.(f.home);
       }
       let landed = 0;
-      for (const b of f.birds) {
+      for (const [bi, b] of f.birds.entries()) {
         b.timer -= dt;
+        // Two lookouts circle high over the feeding flock: a sign, from afar, of birds below.
+        const lookout = bi < 2 && !f.airborne;
+        if (lookout) {
+          b.phase += dt * 20;
+          const a = (performance.now() / 1000) * 0.45 + bi * Math.PI + b.seed;
+          const r = 9 + bi * 3;
+          const ty = f.home[1] + 11 + bi * 2 + Math.sin(a * 0.7) * 1.5;
+          const want: Vec3 = [f.home[0] + Math.cos(a) * r, ty, f.home[2] + Math.sin(a) * r];
+          const tan: Vec3 = [-Math.sin(a) * r * 0.45, 0, Math.cos(a) * r * 0.45];
+          for (let j = 0; j < 3; j++) {
+            const dv = tan[j] + (want[j] - b.pos[j]) * 0.8 - b.vel[j];
+            b.vel[j] += dv * Math.min(1, dt * 2);
+            b.pos[j] += b.vel[j] * dt;
+          }
+          b.state = 1;
+          b.yaw = Math.atan2(b.vel[0], b.vel[2]);
+          b.pitch = -Math.atan2(b.vel[1], Math.hypot(b.vel[0], b.vel[2])) * 0.7;
+          b.spread = 1;
+          // Mostly gliding, banking round; a few wingbeats now and then.
+          b.flap = Math.sin(a * 2.3 + b.seed * 7) > 0.6 ? Math.sin(b.phase) * 0.8 + 0.1 : 0.12;
+          if (night < 0.95) {
+            flying.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed);
+          }
+          continue;
+        }
         if (b.state === 0) {
           // Feeding: peck, turn, and the odd little hop.
           if (b.timer <= 0) {
@@ -289,12 +324,12 @@ export class Birds {
           else flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed);
         }
       }
-      if (f.airborne && landed === f.birds.length && f.air > 2) {
+      if (f.airborne && landed >= f.birds.length - 2 && f.air > 2) {
         f.airborne = false;
         f.home = f.birds[0].goal;
       }
       // Give up circling after a while and settle wherever the goal is.
-      if (f.airborne && f.air > 30) this.settle(f, f.birds[0].goal);
+      if (f.airborne && f.air > 80) this.settle(f, f.birds[0].goal);
     }
     this.perched = perched.length / 8;
     this.flying = flying.length / 8;

@@ -141,6 +141,30 @@ async function main(): Promise<void> {
     if (d < 25) discoveries.find("sparrows");
   };
   birds.onChirp = (at) => audio.chirp(...heard(at));
+  // Startled birds lead the way to somewhere the wind has not found yet, preferring places
+  // roughly in the direction they flee, not too far.
+  birds.guide = (from, away) => {
+    const places: [number, number][] = secrets.hidden.map((s) => [s.x, s.z] as [number, number]);
+    if (!discoveries.has("lantern")) places.push([PATH.x0 + 6, pathZ(PATH.x0 + 6)]);
+    if (!discoveries.has("pollen")) places.push([SUNFLOWERS.x - SUNFLOWERS.dir[0] * SUNFLOWERS.rx, SUNFLOWERS.z - SUNFLOWERS.dir[1] * SUNFLOWERS.rx]);
+    if (!discoveries.has("spray")) places.push([from[0], riverCenter(from[0])]);
+    if (!discoveries.has("leaves")) places.push([480, 250]);
+    let best: [number, number] | null = null;
+    let bestScore = -Infinity;
+    for (const [x, z] of places) {
+      const dx = x - from[0];
+      const dz = z - from[2];
+      const d = Math.hypot(dx, dz);
+      if (d < 40 || d > 450) continue;
+      const align = (dx * Math.sin(away) + dz * Math.cos(away)) / d;
+      const score = align * 1.2 - d / 300;
+      if (score > bestScore) {
+        bestScore = score;
+        best = [x, z];
+      }
+    }
+    return bestScore > -1.2 ? best : null;
+  };
   // Secrets: woken by the wind, each answers with a jingle and the meadow around it bursts
   // into flower; bells ring and pinwheels whirr where they are.
   secrets.onWake = (s) => {

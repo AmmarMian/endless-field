@@ -25,7 +25,11 @@ export class Audio {
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = 0.8;
-    this.master.connect(ctx.destination);
+    // Everything passes a low-pass that closes under water (muffled, as heard when diving).
+    this.muffle = ctx.createBiquadFilter();
+    this.muffle.type = "lowpass";
+    this.muffle.frequency.value = 20000;
+    this.master.connect(this.muffle).connect(ctx.destination);
 
     this.reverb = ctx.createConvolver();
     this.reverb.buffer = this.impulse(3.2);
@@ -57,6 +61,13 @@ export class Audio {
   }
 
   private music: Music | null = null;
+  private muffle!: BiquadFilterNode;
+
+  /** Under water (0..1): sounds dull and close. */
+  setUnderwater(k: number): void {
+    if (!this.ctx) return;
+    this.muffle.frequency.setTargetAtTime(20000 * Math.pow(0.02, k), this.ctx.currentTime, 0.08);
+  }
   private rainGain: GainNode | null = null;
   private patterGain: GainNode | null = null;
 
@@ -542,6 +553,44 @@ export class Audio {
     if (!this.ctx) return;
     const t = this.ctx.currentTime + 0.05;
     [69, 66, 62].forEach((n, i) => this.bell(n, t + i * 0.22, 0.07));
+  }
+
+  /** A fish breaking the surface: a wet slap and a short spray hiss. */
+  splash(size: number, pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const near = Math.max(0, Math.min(1, 10 / Math.max(distance, 1)));
+    if (near < 0.05) return;
+    const t = ctx.currentTime;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.8;
+    p.connect(this.master);
+    p.connect(this.reverb);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer(1);
+    const f = ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.frequency.setValueAtTime(900 + size * 400, t);
+    f.frequency.exponentialRampToValueAtTime(2600, t + 0.25);
+    f.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.16 * near * (0.5 + size), t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    src.connect(f).connect(g).connect(p);
+    src.start(t);
+    src.stop(t + 0.5);
+    // The "plop": a quick falling tone as the water closes.
+    const o = ctx.createOscillator();
+    o.frequency.setValueAtTime(520 - size * 120, t + 0.02);
+    o.frequency.exponentialRampToValueAtTime(180, t + 0.12);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0, t + 0.02);
+    og.gain.linearRampToValueAtTime(0.06 * near, t + 0.03);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+    o.connect(og).connect(p);
+    o.start(t + 0.02);
+    o.stop(t + 0.16);
   }
 
   /** Holds every sound (pause). */

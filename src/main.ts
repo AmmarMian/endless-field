@@ -14,6 +14,7 @@ import { Birds } from "./world/birds";
 import { Secrets } from "./world/secrets";
 import { RiverRace } from "./world/river-race";
 import { SkyLanterns } from "./world/sky-lanterns";
+import { RiverFish } from "./world/fish";
 import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
 import { FreeCam } from "./game/freecam";
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
-  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race, fish] = await Promise.all([
     track(Trees.load(gpu, globals.uniforms), "trees"),
     track(FlowerBeds.load(gpu, globals.uniforms, life.buffer), "flowerbeds"),
     track(Water.load(gpu, globals.uniforms), "water"),
@@ -161,6 +162,7 @@ async function main(): Promise<void> {
     track(Birds.load(gpu, globals.uniforms), "birds"),
     track(Secrets.load(gpu, globals.uniforms, settings.seed, [Math.cos(0.6), Math.sin(0.6)]), "secrets"),
     track(RiverRace.load(gpu, globals.uniforms), "riverrace"),
+    track(RiverFish.load(gpu, globals.uniforms), "fish"),
   ]);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
   const heard = (at: readonly number[]): [number, number] => {
@@ -177,6 +179,11 @@ async function main(): Promise<void> {
     if (d < 25) discoveries.find("sparrows");
   };
   birds.onChirp = (at) => audio.chirp(...heard(at));
+  fish.onSplash = (at, size) => {
+    motes.splash(at, size);
+    const [pan, d] = heard(at);
+    audio.splash(size, pan, d);
+  };
   // The kingfisher's course on the river: follow it through every gate.
   race.onStart = () => audio.kingfisher(...heard([race.start[0], 0, race.start[1]]));
   race.onGate = (i) => audio.lantern(i + 1);
@@ -280,7 +287,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene), `shader ${(d as { label?: string }).label ?? "?"}`)),
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) => track(d.compile(renderer.scene), `shader ${(d as { label?: string }).label ?? "?"}`)),
   );
 
 
@@ -413,6 +420,8 @@ async function main(): Promise<void> {
   });
   let cpuMs = 0;
   let night = 0;
+  let underwater = 0;
+  let waterY = -1000;
   /** Time of day in [0, 1): 0 dawn, ~0.2 midday, ~0.5 golden hour, ~0.62 dusk, ~0.8 night. */
   let dayPhase = 0.46;
   /** A requested jump ahead (N): the day fast-forwards to this phase. */
@@ -435,6 +444,7 @@ async function main(): Promise<void> {
     lanterns,
     renderer,
     birds,
+    fish,
     secrets,
     race,
     skyLanterns,
@@ -692,6 +702,8 @@ async function main(): Promise<void> {
       .map((tr) => ({ x: tr.x, z: tr.z, r: trees.trunkRadius(tr) + 0.6 }));
     if (explore) {
       freecam.update(dt, obstacles);
+      // Free roam lifts nothing, but splashes and falling things still play out.
+      motes.update(dt, freecam.pos, [0, 0, 1], 0, 0, { altitude: 99, forest: 0, river: 0, sunflowers: 0, season: [1, 0, 0, 0], night, rain }, [Math.cos(windAngle), Math.sin(windAngle)]);
       flowers.update(dt, freecam.pos[0], freecam.pos[1], freecam.pos[2], 0);
     } else {
       // Before the first click the wind wanders toward flowers on its own.
@@ -809,7 +821,20 @@ async function main(): Promise<void> {
     }
     if (explore) freecam.writeTrail(globals.trail);
     else player.writeTrail(globals.trail);
+    // Under water? (the camera below the river's surface, over its bed)
+    {
+      const [cx, cy, cz] = camera.position;
+      const [d, wy, hw] = riverInfo(cx, cz);
+      waterY = wy;
+      const target = d < hw * 1.6 && cy < wy - 0.02 && terrainHeight(cx, cz) < wy ? 1 : 0;
+      underwater += (target - underwater) * Math.min(1, rawDt * 10);
+      if (Math.abs(target - underwater) < 0.01) underwater = target;
+      renderer.setUnderwater(underwater);
+      audio.setUnderwater(underwater);
+    }
     globals.updateFrame(camera, t, renderer.viewport, {
+      underwater,
+      waterY,
       night: night * night * (3 - 2 * night),
       mist,
       mistBase,
@@ -866,6 +891,7 @@ async function main(): Promise<void> {
     }
     secrets.update(dt, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, camera.position);
     race.update(dt, explore ? freecam.pos : player.pos, explore ? 6 : player.speed);
+    fish.update(dt, camera.position, t);
     audio.setWhirr(whirr);
     whirr = 0;
     renderer.setPost({ time: t, exposure: atmExposure * (1 - canopy * 0.45) });
@@ -881,15 +907,15 @@ async function main(): Promise<void> {
       torii.encode(pass);
       undergrowth.encode(pass);
       flowers.encode(pass);
-      if (!explore) {
-        motes.encode(pass);
-        windTrail.encode(pass);
-      }
+      motes.encode(pass);
+      if (!explore) windTrail.encode(pass);
       birds.encode(pass);
       secrets.encode(pass);
       race.encode(pass);
-      if (!debug.hide.water) water.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);
+      fish.encode(pass);
+      // The water blends over what lies beneath it, so it comes after the bed and the fish.
+      if (!debug.hide.water) water.encode(pass);
       flowers.encodeGlow(pass);
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
       // Transparent, depth-tested but not depth-writing: after everything opaque.

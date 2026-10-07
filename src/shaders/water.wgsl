@@ -1,9 +1,12 @@
-// River water. A camera-following ribbon laid along the procedural river; the surface is
-// opaque but shades what lies beneath it analytically (the riverbed height is known), so
-// we get depth-based absorption, caustics and shore foam without a refraction pass.
+// River water. A camera-following ribbon laid along the procedural river, drawn after
+// everything beneath it and blended over it: out = rgb + scene * a. From above, rgb is the
+// reflection, the light scattered back by the water column and the foam, and a is what the
+// column lets through (Beer-Lambert over the analytic depth, so the real bed, plants and fish
+// show through it). From below (swimming) the surface is opaque: Snell's window shows the sky
+// bent through the surface, and outside it total internal reflection mirrors the deep water.
 import { Globals } from "./lib/globals.wgsl";
 import { riverCenter, riverHalfWidth, riverInfo, riverSpeed, riverWater, terrainHeight } from "./lib/terrain.wgsl";
-import { SkyParams, applyFog, skyColor } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFog, skyColor, underwaterFog } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
 struct WaterParams {
@@ -14,8 +17,6 @@ struct WaterParams {
 
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<uniform> W: WaterParams;
-@group(0) @binding(2) var samp: sampler;
-@group(0) @binding(3) var pebbles: texture_2d<f32>;
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -84,7 +85,7 @@ fn waveHeight(p: vec2f, s: f32, t: f32, detail: f32) -> f32 {
 }
 
 @fragment
-fn fs_main(frag: VOut) -> @location(0) vec4f {
+fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   if (frag.dist > 1.6 || abs(frag.across) > 1.6) {
     discard;
   }
@@ -149,6 +150,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let n = normalize(vec3f(-grad.x, 1.0, -grad.y));
 
   let v = normalize(G.camPos - p);
+  if (G.camPos.y < p.y) {
+    return underside(p, n, v, s, frag);
+  }
   let ndv = max(dot(n, v), 0.0);
   var fresnel = 0.02 + 0.98 * pow(1.0 - ndv, 5.0);
 
@@ -170,23 +174,24 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let sunSpec = pow(max(dot(r, G.sunDir), 0.0), glintExp) * 45.0 * glintExp / 1200.0 + pow(max(dot(r, G.sunDir), 0.0), 120.0) * 0.35;
   refl = refl + G.sunColor * sunSpec;
 
-  // Refraction: riverbed pebbles seen through the water column.
+  // Transmission: the water column between the surface and the bed (known analytically),
+  // along the view ray. Shallow water is clear; the deep channel turns dark teal.
   let bedY = terrainHeight(p.xz);
   let depth = max(p.y - bedY, 0.0);
   let path = depth / max(v.y, 0.12);
-  // Fine features fade before they alias (footprint: screen size of a meter, above).
   let aa = 1.0 - smoothstep(0.08, 0.4, footprint);
-  let bedUv = p.xz * 0.45 + n.xz * min(depth, 0.6) * 0.25 * aa;
-  let bed = textureSample(pebbles, samp, bedUv).rgb * 0.8;
-  let caust = pow(1.0 - abs(simplex2d(p.xz * 1.1 + flow * t * 0.6) + simplex2d(p.xz * 1.6 - flow * t * 0.45)) * 0.5, 7.0);
-  let bedLit = bed * (G.sunColor * max(G.sunDir.y, 0.1) * (0.6 + caust * 2.2) + s.zenith * 0.4);
-  let absorb = exp(-path * vec3f(0.42, 0.14, 0.11));
-  let scatter = vec3f(0.025, 0.085, 0.075) * (G.sunColor * 0.5 + s.zenith * 0.6);
-  let refr = bedLit * absorb + scatter * (1.0 - absorb);
+  let absorb = exp(-path * vec3f(0.5, 0.17, 0.13));
+  let deep = smoothstep(0.6, 2.8, depth);
+  let scatter = mix(vec3f(0.025, 0.085, 0.075), vec3f(0.008, 0.04, 0.05), deep) * (G.sunColor * 0.5 + s.zenith * 0.6);
+  // The part of the scene the column passes (grey: blending has one factor), and the colour
+  // it adds: its own in-scatter plus the per-channel tint the grey factor cannot give.
+  var through = dot(absorb, vec3f(0.25, 0.45, 0.3));
+  let tint = scatter * (vec3f(1.0) - absorb);
 
   // Reflections fade out in the last few centimeters so the waterline melts into the beach.
   fresnel = fresnel * smoothstep(0.0, 0.3, depth);
-  var col = mix(refr, refl, fresnel);
+  var col = tint * (1.0 - fresnel) + refl * fresnel;
+  through *= 1.0 - fresnel;
 
   let edge = smoothstep(0.35, 1.0, abs(frag.across));
   // Foam, used sparingly: a thin fringe right at the waterline, and the occasional line of
@@ -208,12 +213,50 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let boil = smoothstep(0.0, 0.6, boilN * 0.5 + 0.5 - (1.0 - frag.plunge) * 0.6) * frag.plunge;
   let foam = clamp(shore * lace * 0.6 + streak * 0.7, 0.0, 1.0) * 0.6;
   let foamCol = (G.sunColor * 0.75 + s.zenith * 0.55) * 0.95;
+  // Each layer of foam covers what is behind it: mix the colour and cut the transmission.
   col = mix(col, foamCol, foam);
+  through *= 1.0 - foam;
   // Aerated water still shows a little blue-green body between the streaks.
   let rapidBody = mix(foamCol * 0.55, foamCol, smoothstep(-0.2, 0.6, streakN));
   col = mix(col, rapidBody, frag.rapids * 0.85);
-  col = mix(col, foamCol * mix(0.8, 1.0, white), clamp(white * 0.6 + boil * 0.75, 0.0, 1.0));
+  through *= 1.0 - frag.rapids * 0.85;
+  let whiteK = clamp(white * 0.6 + boil * 0.75, 0.0, 1.0);
+  col = mix(col, foamCol * mix(0.8, 1.0, white), whiteK);
+  through *= 1.0 - whiteK;
 
-  col = applyFog(col, p, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
-  return vec4f(col, 1.0);
+  // Fog is linear in the colour (f(c) = A c + B): apply it to ours, and scale what we let
+  // through by A (the scene behind gets fogged by the same amount).
+  let mist = vec4f(G.mist, G.mistBase, G.canopy, G.time);
+  let f0 = applyFog(vec3f(0.0), p, G.camPos, G.fogDensity, s, mist);
+  let f1 = applyFog(vec3f(1.0), p, G.camPos, G.fogDensity, s, mist);
+  col = col * (f1 - f0) + f0;
+  through *= f1.g - f0.g;
+  return vec4f(col, clamp(through, 0.0, 1.0));
+}
+
+// The surface from below. Rays within ~48.6 deg of straight up leave the water bent toward the
+// horizon (Snell's window: the sky and sun, rippling); beyond, they are totally reflected back
+// down, mirroring the dim water. Opaque (alpha 0 lets nothing through), then fogged by the
+// water between the eye and the surface.
+fn underside(p: vec3f, nUp: vec3f, v: vec3f, s: SkyParams, frag: VOut) -> vec4f {
+  let i = -v;
+  let nDown = -nUp;
+  let t = refract(i, nDown, 1.333);
+  var col: vec3f;
+  let deepCol = vec3f(0.012, 0.06, 0.07) * (G.sunColor * 0.6 + s.zenith * 0.8);
+  if (dot(t, t) < 1e-4) {
+    // Total internal reflection: the underside mirrors the deep water (and faint caustics).
+    let shimmer = simplex2d(p.xz * 2.0 + vec2f(G.time * 0.6, 0.0)) * 0.5 + 0.5;
+    col = deepCol * (0.8 + shimmer * 0.4);
+  } else {
+    let up = normalize(t);
+    let transmit = 1.0 - pow(1.0 - max(dot(up, nUp), 0.0), 5.0);
+    col = skyColor(normalize(vec3f(up.x, max(up.y, 0.01), up.z)), s) * transmit;
+    col += G.sunColor * pow(max(dot(up, G.sunDir), 0.0), 300.0) * 6.0;
+    // The window's rim is bright and soft, then fades into the mirror.
+    let edge = smoothstep(0.0, 0.25, length(t));
+    col = mix(deepCol, col, edge);
+  }
+  col = underwaterFog(col, p, G.camPos, max(G.underwater, 1.0), G.sunColor, G.zenithColor);
+  return vec4f(col, 0.0);
 }

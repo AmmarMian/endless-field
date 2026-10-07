@@ -131,6 +131,19 @@ export class Motes {
     return n;
   }
 
+  /** A splash on the water: a ring of droplets thrown up and out. */
+  splash(at: Vec3, size: number): void {
+    const n = Math.round(10 + size * 16);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+      const r = 0.8 + Math.random() * 1.6 * (0.6 + size);
+      this.spawn(Kind.Spray, [at[0], at[1] + 0.03, at[2]], [0.85, 0.92, 1.0], 0);
+      const m = this.motes[this.motes.length - 1];
+      m.vel = [Math.cos(a) * r, 1.8 + Math.random() * 2.2 * (0.6 + size), Math.sin(a) * r];
+      m.life = 1.2;
+    }
+  }
+
   /** A puff of pollen from a flower the wind brushed. */
   puff(at: Vec3, color: [number, number, number]): void {
     for (let i = 0; i < 6; i++) {

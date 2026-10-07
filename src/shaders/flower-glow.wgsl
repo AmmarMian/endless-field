@@ -38,6 +38,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   // Flowers only light up as you approach: dark beyond ~90 m, full glow within ~45 m.
   let range = 1.0 - smoothstep(45.0, 90.0, dist);
   out.color = f.color.rgb * closed * pulse * range * mix(0.9, 0.55, smoothstep(5.0, 60.0, dist)) * (1.0 + G.night * 0.4);
+  // Swimming: lights beyond the water's reach fade into it.
+  out.color *= exp(-length(G.camPos - world) * 0.3 * G.underwater);
   return out;
 }
 

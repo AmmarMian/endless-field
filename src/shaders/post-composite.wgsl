@@ -9,6 +9,11 @@ struct Params {
   texel: vec2f,
   style: f32,
   aspect: f32,
+  // Camera under water (0..1): the image wavers and takes the water's tint.
+  underwater: f32,
+  pad0: f32,
+  pad1: f32,
+  pad2: f32,
 }
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
@@ -144,8 +149,11 @@ fn finish(c: vec3f, uv: vec2f, vignette: f32) -> vec3f {
 }
 
 @fragment
-fn fs_main(@location(0) uv: vec2f, @builtin(position) frag: vec4f) -> @location(0) vec4f {
+fn fs_main(@location(0) uvIn: vec2f, @builtin(position) frag: vec4f) -> @location(0) vec4f {
   let style = i32(params.style + 0.5);
+  // Under water the view wavers, as through moving water.
+  let uw = params.underwater;
+  let uv = uvIn + uw * 0.0035 * vec2f(sin(uvIn.y * 38.0 + params.time * 2.1), cos(uvIn.x * 31.0 + params.time * 1.7));
   let glow = (textureSampleLevel(bloom, samp, uv, 0.0).rgb * params.bloomStrength + textureSampleLevel(shafts, samp, uv, 0.0).rgb) * params.exposure;
   let tx = params.texel;
   var col: vec3f;
@@ -238,6 +246,13 @@ fn fs_main(@location(0) uv: vec2f, @builtin(position) frag: vec4f) -> @location(
     c = aces(c);
     let d = uv - 0.5;
     col = c * (1.0 - params.vignette * dot(d, d) * 1.6);
+  }
+  if (uw > 0.0) {
+    // A cool green-blue cast and darker edges, as if seen through a mask of water.
+    let lum = luma(col);
+    col = mix(col, mix(vec3f(lum) * vec3f(0.55, 0.95, 1.0), col * vec3f(0.7, 0.95, 1.0), 0.5), uw * 0.6);
+    let d = uvIn - 0.5;
+    col *= 1.0 - uw * dot(d, d) * 1.4;
   }
   var outc = srgb(clamp(col, vec3f(0.0), vec3f(1.0)));
   outc = outc + (hash12(frag.xy + params.time * 61.0) - 0.5) / 255.0;

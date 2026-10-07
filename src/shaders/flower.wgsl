@@ -1,7 +1,7 @@
 // Procedural flowers. One shared template mesh carries parametric coordinates; the vertex
 // shader shapes stem, leaves, petals and center from per-flower bloom, wind and the stream.
 import { Globals, TRAIL_LEN } from "./lib/globals.wgsl";
-import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFog, ambientSky, underwaterFog } from "./lib/atmosphere.wgsl";
 
 struct Flower {
   // xyz = root, w = bloom (0 closed bud .. 1 open)
@@ -179,5 +179,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   var col = frag.albedo * (ambientSky(n, s) * 0.6 + G.sunColor * (ndl * 0.85 + back * trans * 0.5));
   col = col + frag.emissive;
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
+  col = underwaterFog(col, frag.world, G.camPos, G.underwater, G.sunColor, G.zenithColor);
   return vec4f(col, 1.0);
 }

@@ -4,7 +4,7 @@ import { SNOW, seasonGrass, seasonWeights } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
 import { mountainCorridor, mountainHeight, riverInfo, riverInfoAt, riverValley, terrainBroad, terrainHeightR } from "./lib/terrain.wgsl";
 import { LifeCell, fieldColor, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl";
-import { SkyParams, applyFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFog, ambientSky, caustics, underwaterFog, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome, canopyLight } from "./lib/biome.wgsl";
 import { bedColor, bedMask } from "./lib/beds.wgsl";
@@ -275,6 +275,16 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * mix(1.0, 0.5, ndv);
   col = col + G.sunColor * albedo * back * 0.9 * farMix * mix(1.0, wave, grassy);
   col = col + albedo * lampLight(frag.world);
+  // Under the river: wet and dark, with caustics dancing on the bed (fading with depth).
+  let submerged = frag.river.y - frag.world.y;
+  if (frag.river.x < frag.river.z * 1.8 && submerged > 0.0) {
+    let xz = frag.world.xz;
+    let c1 = simplex2d(xz * 1.1 + vec2f(G.time * 0.55, G.time * 0.2));
+    let c2 = simplex2d(xz * 1.7 - vec2f(G.time * 0.4, -G.time * 0.3));
+    let caust = caustics(xz, G.time, c1, c2) * exp(-submerged * 0.5) * max(G.sunDir.y, 0.05);
+    col = col * mix(1.0, 0.55, smoothstep(0.0, 0.4, submerged)) + albedo * G.sunColor * caust * 1.6;
+  }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
+  col = underwaterFog(col, frag.world, G.camPos, G.underwater, G.sunColor, G.zenithColor);
   return vec4f(col, 1.0);
 }

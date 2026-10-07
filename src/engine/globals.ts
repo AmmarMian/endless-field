@@ -221,6 +221,8 @@ export class Globals {
       rain: 0,
       wet: 0,
       season: 0,
+      underwater: 0,
+      waterY: -1000,
       frustum: vec4Views(new Float32Array(24)),
       trail: this.trailViews,
       lamps: this.lampViews,

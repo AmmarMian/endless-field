@@ -6,6 +6,8 @@ const WALK = 6;
 const FLY = 30;
 /** Highest a flying explorer may go above the ground (meters). */
 const MAX_FLY = 10;
+/** Swimming speed (m/s). */
+const SWIM = 2.2;
 const TRAIL_LEN = 24;
 
 /**
@@ -67,6 +69,16 @@ export class FreeCam {
     return Math.max(terrainHeight(x, z), water - 0.35);
   }
 
+  /** Deep enough to swim here: [water surface, bed] or null. */
+  private deepWater(x: number, z: number): [number, number] | null {
+    const [d, water, hw] = riverInfo(x, z);
+    const bed = terrainHeight(x, z);
+    return d < hw * 1.4 && water - bed > 1.1 ? [water, bed] : null;
+  }
+
+  /** Swimming: below or floating at the surface of deep water. */
+  swimming = false;
+
   update(dt: number, obstacles: { x: number; z: number; r: number }[]): void {
     const k = this.keys;
     const fwd = (k.has("KeyW") ? 1 : 0) - (k.has("KeyS") ? 1 : 0);
@@ -84,7 +96,19 @@ export class FreeCam {
     let vx = (sy * fwd + cy * strafe) * speed;
     let vz = (-cy * fwd + sy * strafe) * speed;
     let vy = 0;
-    if (this.fly) {
+    const deep = this.deepWater(this.pos[0], this.pos[2]);
+    // Walking into deep water, or dropping into it from the air, you swim.
+    this.swimming = !!deep && (!this.fly || this.pos[1] < deep[0] + 0.5);
+    if (this.swimming) {
+      // Swimming: slower, in the direction you look; Space rises, C dives.
+      const swim = SWIM * (sprinting ? 2 : 1);
+      const cp = Math.cos(this.pitch);
+      vx = (sy * fwd * cp + cy * strafe) * swim;
+      vz = (-cy * fwd * cp + sy * strafe) * swim;
+      vy = Math.sin(this.pitch) * fwd * swim;
+      if (k.has("Space")) vy += swim * 0.8;
+      if (k.has("KeyC") || k.has("ControlLeft") || k.has("ControlRight")) vy -= swim * 0.8;
+    } else if (this.fly) {
       // Flying follows the look direction; Space / C move straight up and down.
       vy = Math.sin(this.pitch) * fwd * speed;
       const cp = Math.cos(this.pitch);
@@ -106,14 +130,28 @@ export class FreeCam {
     }
     const g = this.ground(this.pos[0], this.pos[2]);
     const moving = Math.hypot(vx, vz) > 0.1;
-    if (this.fly) {
+    const deepNow = this.deepWater(this.pos[0], this.pos[2]);
+    if (this.swimming && deepNow) {
+      const [water, bed] = deepNow;
+      let y = this.pos[1] + vy * dt;
+      // Buoyant: with no vertical intent, drift up and float with the eyes just above water.
+      if (Math.abs(vy) < 0.05) y += (water + 0.18 - y) * Math.min(1, dt * (y > water - 0.8 ? 2.5 : 0.4));
+      this.pos[1] = Math.min(water + 0.3, Math.max(bed + 0.35, y));
+      this.bob += dt * 2;
+    } else if (this.swimming) {
+      // Swam out over the bank: stand up.
+      this.swimming = false;
+      this.pos[1] += (g + EYE - this.pos[1]) * Math.min(1, dt * 12);
+    } else if (this.fly) {
       // Stay close to the ground: the world is built to be seen from within it. The ceiling
       // follows a smoothed ground and is approached softly, so it never judders.
       this.ceilingGround += (g - this.ceilingGround) * Math.min(1, dt * 1.2);
       const top = this.ceilingGround + MAX_FLY;
       let y = this.pos[1] + vy * dt;
       if (y > top) y += (top - y) * Math.min(1, dt * 3);
-      this.pos[1] = Math.max(y, g + 0.8);
+      // Over deep water the wind can plunge straight in (and then swims).
+      this.pos[1] = deepNow ? Math.max(y, deepNow[1] + 0.35) : Math.max(y, g + 0.8);
+      if (deepNow && this.pos[1] < deepNow[0]) this.fly = false;
     } else {
       this.bob += dt * (moving ? 9 * Math.sqrt(sprint) : 0);
       const target = g + EYE + (moving ? Math.sin(this.bob) * 0.035 : 0);

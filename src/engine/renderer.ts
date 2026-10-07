@@ -103,7 +103,7 @@ export class Renderer {
         bloom: this.up[0],
         shafts: this.shafts,
         samp: linear,
-        params: { bloomStrength: 0.1, exposure: 0.8, vignette: 0.6, time: 0, grade: [1.0, 0.6, 0.35, 1.15], style: 0, ...this.screenParams() },
+        params: { bloomStrength: 0.1, exposure: 0.8, vignette: 0.6, time: 0, grade: [1.0, 0.6, 0.35, 1.15], style: 0, underwater: 0, pad0: 0, pad1: 0, pad2: 0, ...this.screenParams() },
       },
     });
 
@@ -139,6 +139,11 @@ export class Renderer {
   private screenParams(): { texel: [number, number]; aspect: number } {
     const s = this.scene.size;
     return { texel: [1 / s[0], 1 / s[1]], aspect: s[0] / s[1] };
+  }
+
+  /** Camera under water (0..1): wavering image and water tint in the final composite. */
+  setUnderwater(k: number): void {
+    this.composite.set({ params: { underwater: k } });
   }
 
   /** Screen style: 0 none, 1 painterly, 2 watercolor, 3 film, 4 miniature, 5 ink. */

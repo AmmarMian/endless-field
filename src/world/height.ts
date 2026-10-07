@@ -123,9 +123,12 @@ export function riverWater(x: number): number {
   return terrainBroad(x, riverCenter(x)) * 0.6 - 3 + riverRise(x);
 }
 
+/** Depth of the main channel at its centre (m); the upper streams are shallower. */
+export const RIVER_DEPTH = 3.2;
+
 export function riverBed(d: number, water: number, hw: number, upper: number): number {
   const inC = Math.min(1, Math.max(0, d / hw));
-  return water - 0.12 - 1.7 * (1 + (0.45 - 1) * upper) * Math.pow(1 - inC * inC, 1.4);
+  return water - 0.12 - RIVER_DEPTH * (1 + (0.45 - 1) * upper) * Math.pow(1 - inC * inC, 1.4);
 }
 
 function riverSlope(x: number): number {

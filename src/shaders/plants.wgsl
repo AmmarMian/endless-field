@@ -1,7 +1,7 @@
 // Wildflower bed plants (Poly Haven ground cover): alpha-to-coverage foliage with wind sway.
 import { Globals } from "./lib/globals.wgsl";
 import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
-import { SkyParams, applyFogPre, morningFog, ambientSky, wrapDiffuse } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFogPre, morningFog, ambientSky, underwaterFog, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { LifeCell, lifeIndex, lifeKey } from "./lib/field.wgsl";
 
 struct Plant {
@@ -122,5 +122,6 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   col = col + texel.rgb * petal * G.night * 0.9 * P.nightGlow * (0.7 + 0.3 * sin(G.time * 1.1 + frag.world.x * 0.7 + frag.world.z));
   col = col + base * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
+  col = underwaterFog(col, frag.world, G.camPos, G.underwater, G.sunColor, G.zenithColor);
   return vec4f(col, a);
 }

@@ -111,7 +111,7 @@ export fn riverWater(x: f32) -> f32 {
 // Channel bed: deepest mid-stream, shallower in the mountain stream.
 export fn riverBed(d: f32, water: f32, hw: f32, upper: f32) -> f32 {
   let inC = clamp(d / hw, 0.0, 1.0);
-  return water - 0.12 - 1.7 * mix(1.0, 0.45, upper) * pow(1.0 - inC * inC, 1.4);
+  return water - 0.12 - 3.2 * mix(1.0, 0.45, upper) * pow(1.0 - inC * inC, 1.4);
 }
 
 fn riverSlope(x: f32) -> f32 {

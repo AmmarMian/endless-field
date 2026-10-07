@@ -4,7 +4,7 @@ import { seasonGrass, seasonWeights } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
 import { Blade, fieldColor } from "./lib/field.wgsl";
 import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
-import { SkyParams, applyFogPre, morningFog, ambientSky } from "./lib/atmosphere.wgsl";
+import { SkyParams, applyFogPre, morningFog, ambientSky, underwaterFog } from "./lib/atmosphere.wgsl";
 
 override NSEG: u32 = 5u;
 
@@ -178,5 +178,6 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   col = col + frag.glow * pow(frag.t, 6.0);
   col = col + albedo * frag.lamp;
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
+  col = underwaterFog(col, frag.world, G.camPos, G.underwater, G.sunColor, G.zenithColor);
   return vec4f(col, 1.0);
 }

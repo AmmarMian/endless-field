@@ -131,3 +131,21 @@ export fn ambientSky(n: vec3f, s: SkyParams) -> vec3f {
   let up = n.y * 0.5 + 0.5;
   return mix(s.horizon * 0.55, s.zenith * 0.9, up);
 }
+
+// River water seen from inside: light is absorbed per channel along the path (red first) and
+// replaced by a teal in-scatter. `uw` is how far the camera is under (0 dry .. 1 submerged).
+export fn underwaterFog(col: vec3f, worldPos: vec3f, camPos: vec3f, uw: f32, sunColor: vec3f, zenith: vec3f) -> vec3f {
+  if (uw <= 0.0) {
+    return col;
+  }
+  let dist = length(worldPos - camPos);
+  let t = exp(-dist * vec3f(0.24, 0.075, 0.065));
+  let scatter = vec3f(0.018, 0.085, 0.09) * (sunColor * 0.6 + zenith * 0.8);
+  return mix(col, col * t + scatter * (vec3f(1.0) - t), uw);
+}
+
+// Caustics: light focused by the moving surface, a bright net on whatever lies under water.
+export fn caustics(xz: vec2f, t: f32, n1: f32, n2: f32) -> f32 {
+  // n1, n2: two simplex samples of the moving surface at different scales (caller-provided).
+  return pow(1.0 - abs(n1 + n2) * 0.5, 7.0);
+}

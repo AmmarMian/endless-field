@@ -698,3 +698,104 @@ kbd {
 #pause-btn:hover {
   border-color: var(--osd-accent);
 }
+
+/* ---- Phones ---- */
+
+#view {
+  touch-action: none;
+}
+
+#gust-btn,
+#map-btn {
+  display: none;
+}
+
+body.touch #gust-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  right: calc(18px + env(safe-area-inset-right));
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  background: var(--osd-bg-soft);
+  backdrop-filter: blur(8px);
+  color: var(--osd-fg);
+  font-size: 30px;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.touch #gust-btn.on {
+  border-color: var(--osd-accent);
+  color: var(--osd-accent);
+  transform: scale(0.94);
+}
+
+body.touch #map-btn {
+  display: block;
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(150px + env(safe-area-inset-right));
+  padding: 6px 11px;
+  border: 1px solid var(--osd-line);
+  border-radius: 4px;
+  background: var(--osd-bg-soft);
+  backdrop-filter: blur(8px);
+  color: var(--osd-fg);
+  font: 600 11px var(--osd-font);
+  letter-spacing: 0.2em;
+  pointer-events: auto;
+}
+
+body.touch #gear {
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(14px + env(safe-area-inset-right));
+}
+
+body.touch #pause-btn {
+  top: calc(12px + env(safe-area-inset-top));
+}
+
+body.touch #controls {
+  bottom: calc(112px + env(safe-area-inset-bottom));
+  max-width: calc(100vw - 32px);
+  white-space: normal;
+  text-align: center;
+  font-size: 11px;
+}
+
+body.touch #settings {
+  top: calc(52px + env(safe-area-inset-top));
+}
+
+body.touch .osd-row {
+  min-height: 42px;
+}
+
+body.touch .osd-row .val button {
+  width: 32px;
+  height: 32px;
+  font-size: 20px;
+}
+
+body.touch .osd-foot {
+  display: none;
+}
+
+@media (max-width: 520px) {
+  #settings {
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
+
+  .osd-tab span {
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+}

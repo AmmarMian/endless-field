@@ -46,7 +46,14 @@ const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
 const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>X</kbd> let go · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
 const EXPLORE_HINT = "<kbd>WASD</kbd> move · <kbd>←</kbd><kbd>→</kbd> look · <kbd>Shift</kbd> sprint · <kbd>V</kbd> fly · <kbd>Space</kbd><kbd>C</kbd> up / down · <kbd>M</kbd> wind";
-controlsEl.innerHTML = WIND_HINT;
+const TOUCH = matchMedia("(pointer: coarse)").matches;
+const TOUCH_HINT = "Drag to steer · hold <kbd>◎</kbd> to gust · tilt steering in Menu → System";
+controlsEl.innerHTML = TOUCH ? TOUCH_HINT : WIND_HINT;
+if (TOUCH) {
+  document.body.classList.add("touch");
+  const hint = document.getElementById("start-hint");
+  if (hint) hint.textContent = "tap to begin";
+}
 
 const params = new URLSearchParams(location.search);
 
@@ -259,7 +266,60 @@ async function main(): Promise<void> {
     controlsEl.classList.add("show");
     setTimeout(() => controlsEl.classList.remove("show"), 9000);
     audio.start();
+    if (current.steering === "tilt") void enableTilt();
   };
+  // Phones: a gust button (hold) and a map button; tilt steering if chosen.
+  if (TOUCH) {
+    const hud = document.getElementById("hud") ?? document.body;
+    const gustBtn = document.createElement("button");
+    gustBtn.id = "gust-btn";
+    gustBtn.textContent = "◎";
+    gustBtn.setAttribute("aria-label", "Gust");
+    const hold = (on: boolean) => (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      input.touchGust = on;
+      gustBtn.classList.toggle("on", on);
+    };
+    gustBtn.addEventListener("pointerdown", hold(true));
+    gustBtn.addEventListener("pointerup", hold(false));
+    gustBtn.addEventListener("pointercancel", hold(false));
+    gustBtn.addEventListener("pointerleave", hold(false));
+    const mapBtn = document.createElement("button");
+    mapBtn.id = "map-btn";
+    mapBtn.textContent = "MAP";
+    mapBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    mapBtn.addEventListener("click", () => worldMap.toggle());
+    hud.append(gustBtn, mapBtn);
+  }
+  /** Tilt: the phone's lean steers (relative to how it was held when tilt began). */
+  let tiltRef: [number, number] | null = null;
+  let tiltOn = false;
+  const onOrient = (e: DeviceOrientationEvent) => {
+    if (e.beta === null || e.gamma === null) return;
+    // In landscape the phone's axes swap.
+    const angle = (screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0) as number;
+    let side = e.gamma;
+    let fwd = e.beta;
+    if (angle === 90) [side, fwd] = [e.beta, -e.gamma];
+    else if (angle === 270 || angle === -90) [side, fwd] = [-e.beta, e.gamma];
+    if (!tiltRef) tiltRef = [side, fwd];
+    const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+    input.tilt = current.steering === "tilt" ? [clamp((side - tiltRef[0]) / 22), clamp((fwd - tiltRef[1]) / 22)] : null;
+  };
+  async function enableTilt(): Promise<void> {
+    if (tiltOn) return;
+    // iOS asks permission, and only from a tap.
+    const D = DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> };
+    try {
+      if (D.requestPermission && (await D.requestPermission()) !== "granted") return;
+    } catch {
+      return;
+    }
+    tiltOn = true;
+    tiltRef = null;
+    window.addEventListener("deviceorientation", onOrient);
+  }
   canvas.addEventListener("pointerdown", start);
   window.addEventListener("keydown", (e) => {
     if (e.code === "Space" || e.code === "Enter") start();
@@ -281,6 +341,10 @@ async function main(): Promise<void> {
     grass.setQuality(s.grass);
     audio.setMusic(s.music);
     renderer.setStyle(Math.max(0, FILTERS.indexOf(s.filter)));
+    if (s.steering === "tilt") {
+      tiltRef = null;
+      void enableTilt();
+    } else input.tilt = null;
   };
   const panel = new SettingsPanel(settings, applySettings);
   const worldMap = new WorldMap(
@@ -498,7 +562,7 @@ async function main(): Promise<void> {
         motes.reset();
         windTrail.reset();
       }
-      controlsEl.innerHTML = explore ? EXPLORE_HINT : WIND_HINT;
+      controlsEl.innerHTML = explore ? EXPLORE_HINT : TOUCH ? TOUCH_HINT : WIND_HINT;
       controlsEl.classList.add("show");
       clearTimeout(hintTimer);
       hintTimer = window.setTimeout(() => controlsEl.classList.remove("show"), 7000);

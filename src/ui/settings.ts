@@ -26,13 +26,15 @@ export interface Settings {
   weather: "auto" | "clear" | "rain";
   /** Generative background score. */
   music: boolean;
+  /** Phones: steer by dragging a finger, or by tilting the phone. */
+  steering: "touch" | "tilt";
   /** Screen style: a painted or photographic look over the final image. */
   filter: Filter;
   /** World seed: 0 is the original landscape; any other value generates a different one. */
   seed: number;
 }
 
-export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "time" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter">> = {
+export const PRESETS: Record<Preset, Omit<Settings, "preset" | "showStats" | "time" | "fpsTarget" | "autoResolution" | "seed" | "seasonMode" | "music" | "weather" | "filter" | "steering">> = {
   low: { renderScale: 0.6, grass: "low", drawDistance: 0.7, bloom: false },
   medium: { renderScale: 0.8, grass: "medium", drawDistance: 0.9, bloom: true },
   high: { renderScale: 1, grass: "high", drawDistance: 1, bloom: true },
@@ -44,8 +46,8 @@ const KEY = "endless-field-settings";
 function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
-  const preset: Preset = mobile ? "medium" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature" };
+  const preset: Preset = mobile ? "low" : "high";
+  return { preset, ...PRESETS[preset], showStats: true, time: "cycle", fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature", steering: "touch", ...(mobile ? { fpsTarget: 30, showStats: false } : {}) };
 }
 
 export function loadSettings(): Settings {
@@ -129,6 +131,7 @@ const PAGES: Page[] = [
       { k: "drawDistance", label: "Draw distance", type: "range", min: 0.5, max: 1.5, step: 0.05 },
       { k: "fpsTarget", label: "Frame rate", type: "choice", options: [[0, "Display"], [60, "60"], [30, "30"]] },
       { k: "showStats", label: "Frame counter", type: "toggle" },
+      { k: "steering", label: "Phone steering", type: "choice", options: [["touch", "Drag"], ["tilt", "Tilt"]] },
     ],
   },
   {
@@ -154,7 +157,7 @@ const PAGES: Page[] = [
 ];
 
 /** Keys whose change does not turn the quality preset into "custom". */
-const FREE_KEYS = ["showStats", "time", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter"];
+const FREE_KEYS = ["showStats", "time", "fpsTarget", "autoResolution", "seed", "seasonMode", "music", "weather", "filter", "steering"];
 
 /**
  * Settings, styled as a camera menu: tabbed pages of rows, each value stepped with ‹ ›.

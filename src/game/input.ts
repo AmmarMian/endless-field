@@ -91,7 +91,7 @@ export class Input {
       const side = e.code === "KeyA" || e.code === "ArrowLeft" ? "left" : e.code === "KeyD" || e.code === "ArrowRight" ? "right" : null;
       if (side && !e.repeat) {
         const now = performance.now();
-        if (now - (this.lastTap[side] ?? -1e9) < 280) {
+        if (now - (this.lastTap[side] ?? -1e9) < 380) {
           this.pressed.add(`roll-${side}`);
           this.lastTap[side] = -1e9;
         } else this.lastTap[side] = now;

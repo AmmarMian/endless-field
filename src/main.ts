@@ -17,6 +17,7 @@ import { SkyLanterns } from "./world/sky-lanterns";
 import { RiverFish } from "./world/fish";
 import { PlayerBird } from "./game/player-bird";
 import { Insects } from "./world/insects";
+import { THERMAL_TOP, Thermals } from "./world/thermals";
 import { WindTrail } from "./game/wind-trail";
 import { Player } from "./game/player";
 import { FreeCam } from "./game/freecam";
@@ -47,7 +48,7 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
-const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>E</kbd> loop · <kbd>A</kbd><kbd>A</kbd> roll · <kbd>X</kbd> let go · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
+const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>E</kbd> loop · <kbd>←</kbd><kbd>←</kbd> roll · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
 const EXPLORE_HINT = "<kbd>WASD</kbd> move · <kbd>←</kbd><kbd>→</kbd> look · <kbd>Shift</kbd> sprint · <kbd>V</kbd> fly · <kbd>Space</kbd><kbd>C</kbd> up / down · <kbd>M</kbd> wind";
 const TOUCH = matchMedia("(pointer: coarse)").matches;
 const TOUCH_HINT = "Drag to steer · hold <kbd>◎</kbd> to gust, double-tap to loop · tilt steering in Menu → System";
@@ -168,11 +169,35 @@ async function main(): Promise<void> {
   const windTrail = new WindTrail(gpu, globals.uniforms);
   const skyLanterns = new SkyLanterns(gpu, globals.uniforms);
   const insects = new Insects(gpu, globals.uniforms);
+  const thermals = new Thermals(gpu, globals.uniforms);
   // Catching insects on the wing: each catch sparks, plucks a note and gives a little speed;
   // catches close together climb the scale.
   let combo = 0;
   let lastCatch = -10;
   let skimTimer = 0;
+  // Threading the needle: through a torii, or between two trunks under the canopy.
+  let threadChain = 0;
+  let lastThread = -10;
+  const threadSeen = new Map<string, number>();
+  const prevWind: Vec3 = [0, 0, 0];
+  const thread = (at: Vec3, key: string, now: number) => {
+    if ((threadSeen.get(key) ?? -10) > now - 2) return;
+    threadSeen.set(key, now);
+    threadChain = now - lastThread < 6 ? threadChain + 1 : 1;
+    lastThread = now;
+    audio.lantern(threadChain);
+    player.boost(1.6);
+    motes.puff(at, [1, 0.95, 0.75]);
+  };
+  const crosses = (a: Vec3, b: Vec3, p: [number, number], q: [number, number]): boolean => {
+    // Does the wind's step a->b cross the segment p-q (seen from above)?
+    const cross = (ox: number, oz: number, ax: number, az: number, bx: number, bz: number) => (ax - ox) * (bz - oz) - (az - oz) * (bx - ox);
+    const d1 = cross(p[0], p[1], q[0], q[1], a[0], a[2]);
+    const d2 = cross(p[0], p[1], q[0], q[1], b[0], b[2]);
+    const d3 = cross(a[0], a[2], b[0], b[2], p[0], p[1]);
+    const d4 = cross(a[0], a[2], b[0], b[2], q[0], q[1]);
+    return d1 * d2 < 0 && d3 * d4 < 0;
+  };
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
@@ -312,7 +337,8 @@ async function main(): Promise<void> {
   let rain = 0;
   let wet = 0;
   let raining = false;
-  let weatherTimer = 150 + Math.random() * 150;
+  // The first shower comes within a minute or so; then every few minutes.
+  let weatherTimer = 40 + Math.random() * 40;
   const precipitation = new Rain(gpu, globals.uniforms);
   const seasonEl = document.createElement("div");
   seasonEl.id = "season";
@@ -321,7 +347,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, swallow.draw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -496,6 +522,7 @@ async function main(): Promise<void> {
     lanterns,
     renderer,
     birds,
+    thermals,
     insects,
     swallow,
     get panel() {
@@ -665,8 +692,13 @@ async function main(): Promise<void> {
     // A vertical loop.
     if (input.wasPressed("e") && !explore && playing) player.startLoop();
     // Barrel rolls: double-tap left or right.
-    if (input.wasPressed("roll-left") && !explore && playing) player.startRoll(-1);
-    if (input.wasPressed("roll-right") && !explore && playing) player.startRoll(1);
+    // ...and a roll near a flock invites it to fly along (a murmuration).
+    const rollL = input.wasPressed("roll-left");
+    const rollR = input.wasPressed("roll-right");
+    if ((rollL || rollR) && !explore && playing) {
+      player.startRoll(rollL ? -1 : 1);
+      if (birds.invite(player.pos, 30) > 0) audio.birds(6, 0, 6);
+    }
     // Let go of everything the wind is carrying.
     if (input.wasPressed("x") && !explore) motes.release();
     if (input.wasPressed("l")) {
@@ -722,7 +754,7 @@ async function main(): Promise<void> {
     weatherTimer -= dt;
     if (weatherTimer <= 0) {
       raining = !raining;
-      weatherTimer = raining ? 60 + Math.random() * 90 : 150 + Math.random() * 240;
+      weatherTimer = raining ? 60 + Math.random() * 60 : 120 + Math.random() * 120;
     }
     const rainTarget = current.weather === "rain" ? 1 : current.weather === "clear" ? 0 : raining ? 1 : 0;
     const prevRain = rain;
@@ -808,8 +840,48 @@ async function main(): Promise<void> {
         rain,
       }, [Math.cos(windAngle), Math.sin(windAngle)]);
       windTrail.update(dt, player.pos, player.speed, player.gust);
+      // Thermals by day: rising air the wind can circle up in.
+      thermals.update(t, player.pos, player.yaw, (1 - night) * (1 - rain));
+      player.thermal = thermals.lift(player.pos, (1 - night) * (1 - rain));
+      birds.soarAt(thermals.columns);
+      // Flying into a thermal: carried up it, to music.
+      if (!player.riding && !player.looping && playing) {
+        const col = thermals.at(player.pos, (1 - night) * (1 - rain));
+        if (col) {
+          player.ride(col, col.ground + THERMAL_TOP);
+          audio.thermal();
+        }
+      }
       swallow.update(dt, player);
-      insects.update(dt, t, player.pos, player.yaw, current.avatar === "swallow");
+      if (playing) {
+        const a = prevWind;
+        const b = player.pos;
+        const now = t;
+        // Under a torii's lintel, between its pillars.
+        for (const [gi, g] of gates.entries()) {
+          const dx = g.cos;
+          const dz = -g.sin;
+          const sa = (a[0] - g.x) * dx + (a[2] - g.z) * dz;
+          const sb = (b[0] - g.x) * dx + (b[2] - g.z) * dz;
+          const lateral = Math.abs((b[0] - g.x) * -dz + (b[2] - g.z) * dx);
+          if (sa * sb < 0 && lateral < 1.9 && b[1] - terrainHeight(g.x, g.z) < 4.3) thread(b, `torii${gi}`, now);
+        }
+        // Between two trunks, under the canopy.
+        if (player.altitude < 3.4) {
+          const near = trees.near(b[0], b[2], 9).slice(0, 14);
+          for (let i = 0; i < near.length; i++) {
+            for (let j = i + 1; j < near.length; j++) {
+              const ti = near[i];
+              const tj = near[j];
+              const gap = Math.hypot(ti.x - tj.x, ti.z - tj.z);
+              if (gap < 2.2 || gap > 7.5) continue;
+              if (crosses(a, b, [ti.x, ti.z], [tj.x, tj.z])) thread(b, `${Math.round(ti.x)},${Math.round(ti.z)}|${Math.round(tj.x)},${Math.round(tj.z)}`, now);
+            }
+          }
+        }
+      }
+      prevWind.splice(0, 3, player.pos[0], player.pos[1], player.pos[2]);
+      insects.update(dt, t, player.pos, player.yaw, current.avatar === "swallow", rain);
       // Skimming the river: the swallow drinks on the wing, its wake splashing behind.
       {
         const [rd, , rhw] = riverInfo(player.pos[0], player.pos[2]);
@@ -997,7 +1069,10 @@ async function main(): Promise<void> {
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
       // Transparent, depth-tested but not depth-writing: after everything opaque.
       secrets.encodeGlints(pass);
-      if (!explore) insects.encode(pass);
+      if (!explore) {
+        insects.encode(pass);
+        thermals.encode(pass);
+      }
       skyLanterns.encode(pass);
       precipitation.encode(pass, rain);
     }, spans);

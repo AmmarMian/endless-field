@@ -10,6 +10,9 @@ const MAX = SWARMS * PER;
 
 interface Swarm {
   centre: Vec3;
+  /** Ground (or water) under it, and its usual height above that. */
+  ground: number;
+  height: number;
   radius: number;
   /** Which of its insects are still there. */
   alive: boolean[];
@@ -63,13 +66,15 @@ export class Insects {
       const [d, , hw] = riverInfo(x, z);
       const overWater = d < hw;
       // Over water they hang low (to be caught skimming); over the meadow a little higher.
-      const y = surfaceHeight(x, z) + (overWater ? rand(0.7, 1.1) : rand(1.2, 3.2));
-      return { centre: [x, y, z], radius: rand(0.9, 1.6), alive: new Array(PER).fill(true), seeds: Array.from({ length: PER }, () => Math.random()), regrow: 0 };
+      const ground = surfaceHeight(x, z);
+      const height = overWater ? rand(0.7, 1.1) : rand(1.2, 3.2);
+      return { centre: [x, ground + height, z], ground, height, radius: rand(0.9, 1.6), alive: new Array(PER).fill(true), seeds: Array.from({ length: PER }, () => Math.random()), regrow: 0 };
     }
     return null;
   }
 
-  update(dt: number, t: number, wind: Vec3, heading: number, catching: boolean): void {
+  /** `rain` 0..1: in the rain, insects keep low, just over the grass and the water. */
+  update(dt: number, t: number, wind: Vec3, heading: number, catching: boolean, rain = 0): void {
     while (this.swarms.length < SWARMS) {
       const s = this.place(wind, heading);
       if (!s) break;
@@ -86,6 +91,9 @@ export class Insects {
         if (n) this.swarms[si] = n;
         continue;
       }
+      // Rain brings them down (they shelter low); they rise again as it clears.
+      const wantY = s.ground + Math.max(0.45, s.height * (1 - 0.7 * rain));
+      s.centre[1] += (wantY - s.centre[1]) * Math.min(1, dt * 0.3);
       for (let i = 0; i < PER; i++) {
         if (!s.alive[i]) continue;
         const q = s.seeds[i] * 100;

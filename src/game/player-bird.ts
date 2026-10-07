@@ -81,9 +81,11 @@ export class PlayerBird {
 
     // Beating or gliding: hard work when gusting, climbing or pulling a loop; otherwise
     // three easy beats then a long glide.
-    const working = (player.gust > 0.25 || player.pitch > 0.12 || (looping && player.pitch < 1.4)) && player.stoop < 0.5;
+    const soaring = player.thermal > 0.25;
+    const working = (player.gust > 0.25 || player.pitch > 0.12 || (looping && player.pitch < 1.4)) && player.stoop < 0.5 && !soaring;
     this.cycle = (this.cycle + dt) % 4.6;
-    const beating = working || this.cycle < 2.3;
+    // Soaring in a thermal: wings held wide and still.
+    const beating = working || (this.cycle < 2.3 && !soaring);
     const wantAmp = working ? 1 : beating ? 0.8 : 0;
     this.flapAmp += (wantAmp - this.flapAmp) * Math.min(1, dt * 1.6);
     const wantFreq = working ? 1.9 : 1.35;

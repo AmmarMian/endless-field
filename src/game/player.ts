@@ -7,6 +7,8 @@ const GUST = 21;
 const CRUISE_ALT = 1.7;
 /** The wind skims the field; it never climbs above the treetops of a meadow. */
 const MAX_ALT = 10;
+/** How much higher a thermal can carry the wind (m). */
+const THERMAL_EXTRA = 18;
 const TRAIL_LEN = 24;
 /** Meters between trail samples. */
 const TRAIL_STEP = 0.9;
@@ -50,6 +52,26 @@ export class Player {
     this.rollT = 0;
     this.rollDir = dir;
   }
+  /** Riding a thermal: carried up in a spiral to its top. */
+  riding: { x: number; z: number; top: number; radius: number; angle: number; dir: number } | null = null;
+
+  /** Enters a thermal: the wind is carried up around it to `top`, then glides out. */
+  ride(c: { x: number; z: number; ground: number; radius: number }, top: number): void {
+    if (this.riding || this.looping || this.rideCooldown > 0) return;
+    const angle = Math.atan2(this.pos[2] - c.z, this.pos[0] - c.x);
+    // Circle the way the wind was already turning (or counter-clockwise).
+    const fx = Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const dir = (this.pos[0] - c.x) * fz - (this.pos[2] - c.z) * fx > 0 ? 1 : -1;
+    this.riding = { x: c.x, z: c.z, top, radius: Math.max(4.5, c.radius * 0.6), angle, dir };
+  }
+
+  private rideCooldown = 0;
+
+  /** Rising air under the wind right now (0..1, set each frame from the thermals). */
+  thermal = 0;
+  /** Extra ceiling won in a thermal (m), given back slowly once out of it. */
+  private ceilingExtra = 0;
   /** Stooping: diving steeply with the wings tucked (0..1), building speed. */
   stoop = 0;
   /** Speed banked from a dive, spent slowly after pulling out. */
@@ -116,6 +138,41 @@ export class Player {
     const sx = dz(steerX);
     const sy = dz(steerY);
 
+    this.rideCooldown = Math.max(0, this.rideCooldown - dt);
+    if (this.riding) {
+      // Carried up the thermal: a rising spiral around its core, wings still. Diving breaks
+      // out early; at the top the wind glides out along the circle's tangent.
+      const r = this.riding;
+      const w = (r.dir * 9) / r.radius;
+      r.angle += w * dt;
+      const wantR = r.radius;
+      const cx = r.x + Math.cos(r.angle) * wantR;
+      const cz = r.z + Math.sin(r.angle) * wantR;
+      this.pos[0] += (cx - this.pos[0]) * Math.min(1, dt * 2.5);
+      this.pos[2] += (cz - this.pos[2]) * Math.min(1, dt * 2.5);
+      const climb = Math.min(4.2, Math.max(0.6, (r.top - this.pos[1]) * 0.5));
+      this.pos[1] += climb * dt;
+      // Heading along the circle; nose a little up while climbing.
+      const tx = -Math.sin(r.angle) * r.dir;
+      const tz = Math.cos(r.angle) * r.dir;
+      const want = Math.atan2(tx, -tz);
+      let dy = want - this.yaw;
+      dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      this.yaw += dy * Math.min(1, dt * 4);
+      this.pitch = damp(this.pitch, 0.18, 2, dt);
+      this.speed = damp(this.speed, 9, 1.5, dt);
+      this.gust = damp(this.gust, 0, 2, dt);
+      this.thermal = 1;
+      this.ceilingExtra = THERMAL_EXTRA;
+      this.ceilingGround = damp(this.ceilingGround, terrainHeight(this.pos[0], this.pos[2]), 1.2, dt);
+      if (this.pos[1] >= r.top - 0.3 || input.dive) {
+        this.riding = null;
+        this.rideCooldown = 5;
+        this.pitch = 0;
+      }
+      this.recordTrail();
+      return;
+    }
     if (this.looping) {
       // A vertical loop: the pitch turns steadily through a full circle (radius ~6 m) at a
       // brisk speed; heading is held; out of it the wind flies on as it was going.
@@ -162,7 +219,11 @@ export class Player {
     const fwd = this.forward;
     const ahead = terrainHeight(this.pos[0] + fwd[0] * 6, this.pos[2] + fwd[2] * 6);
     const groundSlope = Math.atan2(ahead - ground, 6);
-    let targetPitch = groundSlope + (ground + CRUISE_ALT - this.pos[1]) * 0.12;
+    // In rising air the wind holds its height (no pull back down to skimming altitude);
+    // otherwise it glides back down toward the grass.
+    this.ceilingExtra = Math.max(this.ceilingExtra - dt * 1.2, this.thermal * (THERMAL_EXTRA));
+    const holdHeight = this.ceilingExtra > 1;
+    let targetPitch = groundSlope + (ground + CRUISE_ALT - this.pos[1]) * (holdHeight ? 0.012 : 0.12);
     if (input.rise) targetPitch = 0.55;
     else if (input.dive) targetPitch = -0.45;
     else if (sy !== 0) targetPitch = -sy * 0.75 + groundSlope * 0.5;
@@ -170,7 +231,7 @@ export class Player {
     // off as the wind nears it instead of being clamped, which made the camera judder.
     this.ceilingGround = this.ceilingInit ? damp(this.ceilingGround, ground, 1.2, dt) : ground;
     this.ceilingInit = true;
-    const room = this.ceilingGround + MAX_ALT - this.pos[1];
+    const room = this.ceilingGround + MAX_ALT + this.ceilingExtra - this.pos[1];
     targetPitch = Math.min(targetPitch, Math.max(-0.35, room * 0.12));
     // Soft floor: nearing the grass, a dive eases into skimming along the ground's slope
     // (instead of hitting a hard clamp every frame, which shook the camera).
@@ -187,7 +248,9 @@ export class Player {
     // Backstop for sudden rises in the ground: lift, without snapping the pitch.
     if (this.pos[1] < g + 0.45) this.pos[1] = g + 0.45;
     // Backstop only (e.g. flying off a cliff edge): settle down smoothly.
-    if (this.pos[1] > this.ceilingGround + MAX_ALT + 3) this.pos[1] = damp(this.pos[1], this.ceilingGround + MAX_ALT + 3, 2, dt);
+    // The thermal carries the wind up: lift without a wingbeat.
+    if (this.thermal > 0.02) this.pos[1] += this.thermal * 3.4 * dt;
+    if (this.pos[1] > this.ceilingGround + MAX_ALT + this.ceilingExtra + 3) this.pos[1] = damp(this.pos[1], this.ceilingGround + MAX_ALT + this.ceilingExtra + 3, 2, dt);
 
     this.recordTrail();
     for (const t of this.trail) t.age += dt;
@@ -220,7 +283,7 @@ export class Player {
   /** Smooth third-person chase camera that stays above the grass. */
   updateCamera(camera: Camera, dt: number, streamLength = 0): void {
     const f = this.forward;
-    const back = (5.5 + streamLength * 0.75 + this.gust * 2.5) * this.followScale * (this.looping ? 1.6 : 1);
+    const back = (5.5 + streamLength * 0.75 + this.gust * 2.5) * this.followScale * (this.looping ? 1.6 : this.riding ? 1.5 : 1);
     // Behind along the heading (not the pitch: through a loop the pitch turns all the way
     // round, and the camera must stay put behind it rather than flip over).
     const hx = Math.sin(this.yaw);

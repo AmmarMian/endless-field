@@ -613,6 +613,39 @@ export class Audio {
     this.splash(0.1, 0, 3);
   }
 
+  /**
+   * Riding a thermal: a slow rising phrase over a soft, swelling chord, as the air lifts you
+   * (about as long as the climb).
+   */
+  thermal(): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t0 = ctx.currentTime + 0.05;
+    // A warm pad: three soft sines swelling in and fading.
+    const pad = ctx.createGain();
+    pad.gain.setValueAtTime(0, t0);
+    pad.gain.linearRampToValueAtTime(0.035, t0 + 2.5);
+    pad.gain.linearRampToValueAtTime(0.03, t0 + 7);
+    pad.gain.exponentialRampToValueAtTime(0.0001, t0 + 11);
+    pad.connect(this.master);
+    pad.connect(this.reverb);
+    for (const n of [50, 57, 62, 66]) {
+      const o = ctx.createOscillator();
+      o.frequency.value = 440 * Math.pow(2, (n - 69) / 12);
+      o.detune.value = (Math.random() - 0.5) * 8;
+      o.connect(pad);
+      o.start(t0);
+      o.stop(t0 + 11.5);
+    }
+    // The phrase: up the scale, unhurried, glass on top of the piano.
+    const rise = [62, 64, 66, 69, 71, 74, 76, 78, 81, 83, 86];
+    rise.forEach((n, i) => {
+      const t = t0 + 0.4 + i * 0.62;
+      this.bell(n, t, 0.07);
+      if (i % 2 === 0) this.glass(n + 12, t, 0.01, 1.6);
+    });
+  }
+
   /** Holds every sound (pause). */
   setPaused(on: boolean): void {
     if (!this.ctx) return;

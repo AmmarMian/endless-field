@@ -30,6 +30,16 @@ export class Player {
   yaw = 0;
   pitch = 0;
   speed = CRUISE;
+  /** In a vertical loop (pitch runs once round the full circle). */
+  looping = false;
+  /** Starts a vertical loop (ignored if already looping or too close to the ground ahead). */
+  startLoop(): void {
+    if (this.looping) return;
+    this.looping = true;
+    this.loopYaw = this.yaw;
+    this.pitch = Math.max(0, this.pitch);
+  }
+  private loopYaw = 0;
   /** Chase distance scale (closer when you fly as a bird, so it fills the view). */
   followScale = 1;
   gust = 0;
@@ -88,6 +98,25 @@ export class Player {
     const sx = dz(steerX);
     const sy = dz(steerY);
 
+    if (this.looping) {
+      // A vertical loop: the pitch turns steadily through a full circle (radius ~6 m) at a
+      // brisk speed; heading is held; out of it the wind flies on as it was going.
+      this.gust = damp(this.gust, 0.6, 3, dt);
+      this.speed = damp(this.speed, 13, 2, dt);
+      this.yaw = this.loopYaw;
+      this.pitch += (this.speed / 6.2) * dt;
+      const f = this.forward;
+      for (let j = 0; j < 3; j++) this.pos[j] += f[j] * this.speed * dt;
+      const g = terrainHeight(this.pos[0], this.pos[2]);
+      if (this.pos[1] < g + 0.6) this.pos[1] = g + 0.6;
+      if (this.pitch >= Math.PI * 2) {
+        this.pitch -= Math.PI * 2;
+        this.looping = false;
+        this.ceilingGround = g;
+      }
+      this.recordTrail();
+      return;
+    }
     this.gust = damp(this.gust, gusting ? 1 : 0, gusting ? 3 : 1.6, dt);
     this.speed = damp(this.speed, CRUISE + (GUST - CRUISE) * this.gust, 1.8, dt);
     this.yaw += sx * Math.abs(sx) * 1.9 * dt;
@@ -124,9 +153,13 @@ export class Player {
     // Backstop only (e.g. flying off a cliff edge): settle down smoothly.
     if (this.pos[1] > this.ceilingGround + MAX_ALT + 3) this.pos[1] = damp(this.pos[1], this.ceilingGround + MAX_ALT + 3, 2, dt);
 
+    this.recordTrail();
+    for (const t of this.trail) t.age += dt;
+  }
+
+  private recordTrail(): void {
     // Trail for the grass push: newest first, fading with age. Samples are dropped by distance
     // (not time) and the head follows the wind continuously, so the push slides smoothly.
-    for (const t of this.trail) t.age += dt;
     const head = this.trail[0];
     if (!head || Math.hypot(head.p[0] - this.pos[0], head.p[2] - this.pos[2]) > TRAIL_STEP) {
       this.trail.unshift({ p: [this.pos[0], this.pos[1], this.pos[2]], age: 0 });
@@ -151,13 +184,13 @@ export class Player {
   /** Smooth third-person chase camera that stays above the grass. */
   updateCamera(camera: Camera, dt: number, streamLength = 0): void {
     const f = this.forward;
-    const back = (5.5 + streamLength * 0.75 + this.gust * 2.5) * this.followScale;
-    const flat = Math.hypot(f[0], f[2]) || 1;
-    const desired: Vec3 = [
-      this.pos[0] - (f[0] / flat) * back,
-      this.pos[1] + (1.6 - f[1] * 2.5) * (0.4 + 0.6 * this.followScale),
-      this.pos[2] - (f[2] / flat) * back,
-    ];
+    const back = (5.5 + streamLength * 0.75 + this.gust * 2.5) * this.followScale * (this.looping ? 1.6 : 1);
+    // Behind along the heading (not the pitch: through a loop the pitch turns all the way
+    // round, and the camera must stay put behind it rather than flip over).
+    const hx = Math.sin(this.yaw);
+    const hz = -Math.cos(this.yaw);
+    const rise = this.looping ? 2.5 : (1.6 - f[1] * 2.5) * (0.4 + 0.6 * this.followScale);
+    const desired: Vec3 = [this.pos[0] - hx * back, this.pos[1] + rise, this.pos[2] - hz * back];
     const ground = smoothGround(desired[0], desired[2]);
     desired[1] = Math.max(desired[1], ground + 1.3);
     if (!this.camInit) {
@@ -171,7 +204,8 @@ export class Player {
     if (this.camPos[1] < under) this.camPos[1] = damp(this.camPos[1], under, 10, dt);
     this.camPos[1] = Math.max(this.camPos[1], terrainHeight(this.camPos[0], this.camPos[2]) + 0.35);
     camera.position.splice(0, 3, ...this.camPos);
-    camera.target.splice(0, 3, this.pos[0] + f[0] * 4, this.pos[1] + f[1] * 4 + 0.3, this.pos[2] + f[2] * 4);
+    if (this.looping) camera.target.splice(0, 3, this.pos[0], this.pos[1], this.pos[2]);
+    else camera.target.splice(0, 3, this.pos[0] + f[0] * 4, this.pos[1] + f[1] * 4 + 0.3, this.pos[2] + f[2] * 4);
     camera.fovY = ((60 + this.gust * 12) * Math.PI) / 180;
   }
 }

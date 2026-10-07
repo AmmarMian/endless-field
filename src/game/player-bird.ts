@@ -10,7 +10,7 @@ interface Manifest {
 }
 
 /** Times life size: big enough to read from the chase camera, still a swallow. */
-const SIZE = 3.6;
+const SIZE = 2.8;
 
 /**
  * Playing as a bird: a barn swallow (tools/blender/model_swallow.py) flies where the wind
@@ -59,38 +59,67 @@ export class PlayerBird {
     return new PlayerBird(d, buffer, manifest.elbow);
   }
 
+  /**
+   * The flight cycle, keyframed on a phase (0 at the top of the stroke):
+   *   downstroke (first half)  the extended wing sweeps down, the hand lagging the arm then
+   *                            flicking through at the bottom
+   *   upstroke (second half)   the wing flexes: the hand folds back toward the body and the
+   *                            arm lifts it, short and quick
+   * Beats come in a few at a time with long glides between; everything eases (no jumps).
+   */
   update(dt: number, player: Player): void {
     // Turn rate -> bank: lean into the turn, eased.
     if (this.lastYaw !== null && dt > 0) {
       let d = player.yaw - this.lastYaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      this.yawRate += (d / dt - this.yawRate) * Math.min(1, dt * 6);
+      this.yawRate += (d / dt - this.yawRate) * Math.min(1, dt * 4);
     }
     this.lastYaw = player.yaw;
-    const wantRoll = Math.max(-0.9, Math.min(0.9, this.yawRate * 0.55));
-    this.roll += (wantRoll - this.roll) * Math.min(1, dt * 5);
+    const looping = player.looping;
+    const wantRoll = looping ? 0 : Math.max(-0.85, Math.min(0.85, this.yawRate * 0.5));
+    this.roll += (wantRoll - this.roll) * Math.min(1, dt * 3);
 
-    // Wingbeats: hard and steady when gusting or climbing; otherwise bursts and glides.
-    const climbing = player.pitch > 0.12;
-    const working = player.gust > 0.25 || climbing;
-    this.cycle = (this.cycle + dt) % 3.2;
-    const burst = working || this.cycle < 1.1;
-    // Big, unhurried strokes (it is drawn large, so it flaps slower than a real swallow),
-    // easing in and out of glides: no sudden changes of rate or reach.
-    const wantAmp = working ? 0.62 : burst ? 0.48 : 0.05;
-    this.flapAmp += (wantAmp - this.flapAmp) * Math.min(1, dt * 2.2);
-    const wantFreq = working ? 3.6 : 2.8;
-    this.freq += (wantFreq - this.freq) * Math.min(1, dt * 1.5);
-    this.phase += dt * 2 * Math.PI * this.freq;
-    const flap = Math.sin(this.phase) * this.flapAmp + 0.06 + (1 - Math.min(1, this.flapAmp / 0.3)) * 0.06;
-    // The upstroke folds the hand back a little; fast glides keep the wings swept.
-    const up = (Math.cos(this.phase) * 0.5 + 0.5) * 0.45 * Math.min(1, this.flapAmp / 0.3);
-    const fastSweep = Math.min(0.55, Math.max(0, (player.speed - 9) / 14)) * (1 - Math.min(1, this.flapAmp / 0.3) * 0.7);
-    this.sweep += (Math.max(up, fastSweep) - this.sweep) * Math.min(1, dt * 6);
+    // Beating or gliding: hard work when gusting, climbing or pulling a loop; otherwise
+    // three easy beats then a long glide.
+    const working = player.gust > 0.25 || player.pitch > 0.12 || (looping && player.pitch < 1.4);
+    this.cycle = (this.cycle + dt) % 4.6;
+    const beating = working || this.cycle < 2.3;
+    const wantAmp = working ? 1 : beating ? 0.8 : 0;
+    this.flapAmp += (wantAmp - this.flapAmp) * Math.min(1, dt * 1.6);
+    const wantFreq = working ? 1.9 : 1.35;
+    this.freq += (wantFreq - this.freq) * Math.min(1, dt * 1.2);
+    // Keep the cycle turning slowly while gliding so beats resume from where they paused.
+    this.phase += dt * 2 * Math.PI * this.freq * (0.25 + 0.75 * Math.min(1, this.flapAmp * 3));
+    const ph = this.phase;
+    const k = this.flapAmp;
+    // Arm: from +0.75 rad at the top to -0.6 at the bottom (the downstroke is the longer,
+    // powered half: warp the phase so it takes ~58% of the cycle).
+    const warped = ph % (2 * Math.PI);
+    const down = warped < Math.PI * 1.16;
+    const t = down ? warped / (Math.PI * 1.16) : (warped - Math.PI * 1.16) / (Math.PI * 0.84);
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    const armTop = 0.72;
+    const armBottom = -0.58;
+    const arm = down ? armTop + (armBottom - armTop) * ease(t) : armBottom + (armTop - armBottom) * ease(t);
+    // Hand: lags the arm (still raised early in the downstroke, flicking through at the end);
+    // on the upstroke it trails down and folds back.
+    const hand = down ? 0.25 * (1 - ease(Math.min(1, t * 1.6))) - 0.3 * Math.max(0, t - 0.6) / 0.4 : -0.35 * Math.sin(Math.PI * t);
+    const fold = down ? 0 : Math.sin(Math.PI * t) ** 1.3 * 0.95;
+    // Glide pose: wings held level with a slight lift, hands swept back as speed rises.
+    const glideArm = 0.06;
+    const glideHand = -0.04;
+    const glideSweep = Math.min(0.6, 0.15 + Math.max(0, (player.speed - 8) / 18));
+    const armA = glideArm + (arm - glideArm) * k;
+    const handA = glideHand + (hand - glideHand) * k;
+    const sweep = glideSweep + (fold - glideSweep) * k;
+    this.sweep += (sweep - this.sweep) * Math.min(1, dt * 12);
 
     const p = player.pos;
+    // A little body rise and fall with each stroke (the body answers the wings).
+    const bob = -Math.sin(ph) * 0.012 * SIZE * k;
+    const pitch = looping ? -player.pitch : -player.pitch * 0.85;
     // The shader's heading maps +Z to (sin, cos); the player's forward is (sin yaw, -cos yaw).
-    this.data.set([p[0], p[1], p[2], Math.PI - player.yaw, flap, 1, -player.pitch * 0.85, 0.5, this.roll, SIZE, this.elbow, this.sweep]);
+    this.data.set([p[0], p[1] + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 0.5, this.roll, SIZE, this.elbow, this.sweep]);
     this.buffer.write(this.data);
   }
 

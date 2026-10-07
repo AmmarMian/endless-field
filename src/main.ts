@@ -46,10 +46,10 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
-const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>X</kbd> let go · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
+const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>E</kbd> loop · <kbd>X</kbd> let go · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
 const EXPLORE_HINT = "<kbd>WASD</kbd> move · <kbd>←</kbd><kbd>→</kbd> look · <kbd>Shift</kbd> sprint · <kbd>V</kbd> fly · <kbd>Space</kbd><kbd>C</kbd> up / down · <kbd>M</kbd> wind";
 const TOUCH = matchMedia("(pointer: coarse)").matches;
-const TOUCH_HINT = "Drag to steer · hold <kbd>◎</kbd> to gust · tilt steering in Menu → System";
+const TOUCH_HINT = "Drag to steer · hold <kbd>◎</kbd> to gust, double-tap to loop · tilt steering in Menu → System";
 controlsEl.innerHTML = TOUCH ? TOUCH_HINT : WIND_HINT;
 if (TOUCH) {
   document.body.classList.add("touch");
@@ -342,7 +342,14 @@ async function main(): Promise<void> {
       input.touchGust = on;
       gustBtn.classList.toggle("on", on);
     };
-    gustBtn.addEventListener("pointerdown", hold(true));
+    // Double-tap the gust button: a vertical loop.
+    let lastTap = 0;
+    gustBtn.addEventListener("pointerdown", (e) => {
+      const now = performance.now();
+      if (now - lastTap < 320) player.startLoop();
+      lastTap = now;
+      hold(true)(e);
+    });
     gustBtn.addEventListener("pointerup", hold(false));
     gustBtn.addEventListener("pointercancel", hold(false));
     gustBtn.addEventListener("pointerleave", hold(false));
@@ -637,6 +644,8 @@ async function main(): Promise<void> {
       hintTimer = window.setTimeout(() => controlsEl.classList.remove("show"), 7000);
     }
 
+    // A vertical loop.
+    if (input.wasPressed("e") && !explore && playing) player.startLoop();
     // Let go of everything the wind is carrying.
     if (input.wasPressed("x") && !explore) motes.release();
     if (input.wasPressed("l")) {

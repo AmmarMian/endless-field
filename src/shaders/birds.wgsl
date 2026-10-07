@@ -28,6 +28,10 @@ struct VOut {
   @location(4) @interpolate(flat) part: u32,
   @location(5) @interpolate(flat) glow: f32,
   @location(6) gloss: f32,
+  // Feathers: x = along (0 root .. 1 tip), y = across (-1 .. 1, 0 on the shaft); z = 1 on
+  // a feather. Body: the model-space position, for plumage texture.
+  @location(7) feather: vec3f,
+  @location(8) local: vec3f,
 }
 
 fn rotZ(v: vec2f, a: f32) -> vec2f {
@@ -39,15 +43,24 @@ fn rotZ(v: vec2f, a: f32) -> vec2f {
 @vertex
 fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, @location(3) e: vec4f, @builtin(instance_index) ii: u32) -> VOut {
   let b = birds[ii];
-  let part = u32(round(p.w));
+  // p.w: the part, plus (feathers) how far along the feather in the fraction.
+  let part = u32(floor(p.w + 0.01));
+  let along = fract(p.w + 0.01) / 0.9;
   var lp = p.xyz;
+  let modelPos = p.xyz;
   var ln = n.xyz;
   if (part == 3u && t.x != 0.0) {
     // Wing: rotate about the shoulder (an axis along the body); the hand bends further.
     let side = sign(t.x);
     let d = abs(t.x);
     let elbow = select(0.035, b.extra.z, b.extra.z > 0.0);
-    let a = b.pose.x * (smoothstep(0.0, 0.012, d) + 0.6 * smoothstep(elbow, elbow * 2.1, d)) * side;
+    // The hand: a further bend at the wrist. The sparrows bend it with the arm; the swallow
+    // (elbow given) keyframes it on its own (pose.y), lagging the arm through the stroke.
+    let hand = select(b.pose.x * 0.6, b.pose.y, b.extra.z > 0.0);
+    // The swallow's wing body grows out of the flank: its root stays in the body and the arm's
+    // turn eases in over the first 3 cm (a smooth shoulder, no kink); the hand bends on top.
+    let armW = select(smoothstep(0.0, 0.012, d), smoothstep(0.0, 0.03, d), b.extra.z > 0.0);
+    let a = (b.pose.x * armW + hand * smoothstep(elbow, elbow * 2.1, d)) * side;
     // On the upstroke the hand sweeps back (the wing half folds), about the elbow.
     let sweep = b.extra.w * smoothstep(elbow * 0.6, elbow * 1.4, d) * 0.9;
     if (sweep > 0.0) {
@@ -89,6 +102,9 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
   out.part = part;
   out.glow = max(b.pose.w - 1.0, 0.0);
   out.gloss = t.y;
+  // z: 1 on the swallow's wing and tail feathers, 2 on its body, 0 for other birds.
+  out.feather = vec3f(along, n.w, select(0.0, select(2.0, 1.0, part == 3u || part == 4u), b.extra.z > 0.0));
+  out.local = modelPos;
   return out;
 }
 
@@ -105,17 +121,47 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let wrap = clamp((dot(n, l) + 0.35) / 1.35, 0.0, 1.0);
   let thin = select(0.0, 0.5, frag.part == 3u || frag.part == 4u);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 4.0) * thin;
-  var col = frag.albedo * (ambientSky(n, s) * 0.75 * frag.ao + G.sunColor * (wrap * 0.85 + back));
+  var albedo = frag.albedo;
+  // Pattern frequencies on screen (derivatives in uniform control flow, before branching).
+  let fineF = 1.0 - smoothstep(0.3, 1.0, length(fwidth(vec2f(frag.feather.x * 60.0, abs(frag.feather.y) * 14.0))));
+  let q = frag.local.xz * vec2f(320.0, 240.0) + vec2f(0.0, frag.local.y * 200.0);
+  let fineB = 1.0 - smoothstep(0.3, 1.0, length(fwidth(q)));
+  if (frag.feather.z > 0.5 && frag.feather.z < 1.5) {
+    // A feather: darker toward the shaft with a fine pale shaft line, barbs as faint slanting
+    // stripes, slightly lighter worn edges and a soft grey-brown fringe at the tip.
+    let u = frag.feather.x;
+    let a = abs(frag.feather.y);
+    let fine = fineF;
+    albedo *= 0.82 + 0.18 * smoothstep(0.0, 0.7, a);
+    let shaft = (1.0 - smoothstep(0.03, 0.1, a)) * smoothstep(0.02, 0.1, u) * (1.0 - smoothstep(0.85, 1.0, u));
+    albedo = mix(albedo, albedo * 1.5 + vec3f(0.025), shaft * 0.6 * fine);
+    albedo *= 1.0 + 0.07 * sin(u * 60.0 + a * 14.0) * fine;
+    albedo += vec3f(0.02, 0.02, 0.022) * smoothstep(0.8, 1.0, a);
+    albedo = mix(albedo, vec3f(0.16, 0.15, 0.14), smoothstep(0.88, 1.0, u) * 0.35);
+  } else if (frag.feather.z > 1.5) {
+    // Body plumage: small overlapping feathers, crescent-edged, fading out at a distance.
+    let cell = fract(q) - vec2f(0.5, 0.15);
+    let crescent = smoothstep(0.32, 0.46, length(cell));
+    let fine = fineB;
+    albedo *= 1.0 - 0.12 * crescent * fine;
+  }
+  var col = albedo * (ambientSky(n, s) * 0.75 * frag.ao + G.sunColor * (wrap * 0.85 + back));
   if (frag.part == 2u) {
     // Eyes: a bright wet glint.
     let h = normalize(l + v);
     col += G.sunColor * pow(max(dot(n, h), 0.0), 80.0) * 2.0;
   }
-  if (frag.gloss > 0.5) {
-    // Glossy steel-blue upperparts (the swallow): a broad sheen and a blue-violet edge.
-    let h = normalize(l + v);
-    col += G.sunColor * pow(max(dot(n, h), 0.0), 30.0) * 0.5 + (vec3f(0.12, 0.22, 0.55) + G.zenithColor * 0.4) * pow(1.0 - abs(dot(n, v)), 2.5) * 0.45;
-    col += frag.albedo * ambientSky(n, s) * 0.5;
+  if (frag.feather.z > 0.5) {
+    // Structural colour of the swallow's dark plumage: not a gloss, a hue that shifts with
+    // the angle (steel-blue facing you, violet to green-blue toward the edges), only on the
+    // dark upper feathers.
+    let edge = 1.0 - abs(dot(n, v));
+    let dark = 1.0 - smoothstep(0.08, 0.25, dot(albedo, vec3f(0.33)));
+    let hue = mix(vec3f(0.12, 0.28, 0.75), mix(vec3f(0.42, 0.2, 0.7), vec3f(0.1, 0.5, 0.55), smoothstep(0.5, 0.9, edge)), smoothstep(0.2, 0.7, edge));
+    col += hue * dark * (ambientSky(n, s) * 0.1 + G.sunColor * wrap * 0.035);
+    // Feathered and matte: soft sky fill (dark plumage still reads), a faint velvet rim.
+    col += albedo * ambientSky(n, s) * 0.35;
+    col += albedo * (G.zenithColor * 0.4 + G.sunColor * 0.12) * pow(1.0 - abs(dot(n, v)), 3.0);
   }
   if (frag.glow > 0.0) {
     // A spirit bird: lit from within, with a bright turquoise rim.

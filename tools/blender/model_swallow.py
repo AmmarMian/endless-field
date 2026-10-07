@@ -72,6 +72,9 @@ def body():
     el("ELLIPSOID", (0, 0.012, 0.0), 0.026, 0.95, 1.6, 0.85)
     el("ELLIPSOID", (0, -0.022, 0.001), 0.02, 0.8, 1.7, 0.7)
     el("ELLIPSOID", (0, -0.05, 0.003), 0.012, 0.75, 1.8, 0.55)
+    # The rump runs on over the tail's roots (upper and under tail coverts), so the tail
+    # grows out of the body rather than meeting it at a point.
+    el("ELLIPSOID", (0, -0.064, 0.003), 0.0085, 0.95, 1.9, 0.5)
     el("ELLIPSOID", (0, 0.046, 0.008), 0.02, 1.0, 1.05, 0.88)
     bpy.context.view_layer.objects.active = ob
     ob.select_set(True)
@@ -132,6 +135,9 @@ def feather(bm, length, width, root, direction, lift=0.0, twist=0.0, camber=0.15
     d = Vector(direction).normalized()
     up = Vector((0, 0, 1))
     side = d.cross(up).normalized()
+    # Feather coordinates for the shader (shaft, edges, tip fringe): along 0..1, across -1..1.
+    fu = bm.verts.layers.float.get("fu") or bm.verts.layers.float.new("fu")
+    fv = bm.verts.layers.float.get("fv") or bm.verts.layers.float.new("fv")
     grid = []
     for i in range(rows + 1):
         u = i / rows
@@ -142,7 +148,10 @@ def feather(bm, length, width, root, direction, lift=0.0, twist=0.0, camber=0.15
         for j in (-1, 0, 1):
             h = camber * width * (1 - j * j) * 0.5 + lift * u * length
             p = Vector(root) + d * (u * length) + side * (j * w * 0.5 * math.cos(tw)) + up * (h + j * w * 0.5 * math.sin(tw))
-            row.append(bm.verts.new(p))
+            vert = bm.verts.new(p)
+            vert[fu] = u
+            vert[fv] = float(j)
+            row.append(vert)
         grid.append(row)
     for i in range(rows):
         for j in range(2):
@@ -178,30 +187,56 @@ def wing(side):
     for i in range(3):
         root = Vector((s * (SHOULDER + 0.002 + i * 0.004), 0.004, z + 0.0008))
         feather(bm, 0.034, 0.013, root, ang(86 - i * 3), camber=0.2)
-    # Coverts: a smooth cambered sheet over the feather roots from the shoulder to beyond the
-    # wrist, its trailing edge softly scalloped (feather tips); a rounded leading edge.
-    nu, nv = 24, 6
-    grid = []
-    for iu in range(nu + 1):
-        u = iu / nu
-        x = SHOULDER - 0.002 + u * 0.062
-        lead = 0.016 - u * 0.004 - max(0.0, u - 0.7) * 0.02
-        depth = (0.022 + 0.004 * math.sin(math.pi * u)) * (1 - max(0.0, u - 0.75) * 2.4)
-        row = []
-        for iv in range(nv + 1):
-            v = iv / nv
-            scallop = 0.0025 * abs(math.sin(u * math.pi * 9)) * v ** 3
-            y = lead - v * depth + scallop
-            zz = z + 0.0032 * math.sin(math.pi * (0.15 + v * 0.85)) + 0.0012 - v * 0.0008
-            row.append(bm.verts.new((s * x, y, zz)))
-        grid.append(row)
-    for iu in range(nu):
-        for iv in range(nv):
-            a, b, c, d = grid[iu][iv], grid[iu][iv + 1], grid[iu + 1][iv + 1], grid[iu + 1][iv]
-            bm.faces.new((a, b, c, d) if s > 0 else (d, c, b, a))
     ob = obj_from_bm(bm, f"wing{side}", 3)
     sol = ob.modifiers.new("sol", "SOLIDIFY")
     sol.thickness = 0.0009
+    return [ob, wing_body(side)]
+
+
+def wing_body(side):
+    """The wing itself, under the flight feathers: a lofted airfoil from deep inside the
+    flank (a thick, smooth root that grows out of the body) through the arm to the hand,
+    thinning and sweeping back. Its upper and lower skins are the coverts, so the feathers'
+    roots are hidden from above and below."""
+    s = side
+    # (span x, leading edge y, chord, thickness, centre z)
+    stations = [
+        # Root deep in the flank, below the line of the back (the head must show over it).
+        (0.009, 0.018, 0.044, 0.011, -0.0015),
+        (0.016, 0.018, 0.045, 0.0095, 0.0022),
+        (0.024, 0.017, 0.043, 0.0085, 0.0052),
+        (0.036, 0.015, 0.038, 0.0075, 0.007),
+        (0.052, 0.013, 0.032, 0.0058, 0.007),
+        (0.066, 0.008, 0.026, 0.0045, 0.0068),
+        (0.08, 0.001, 0.02, 0.0034, 0.0066),
+        (0.094, -0.008, 0.014, 0.0024, 0.0064),
+        (0.104, -0.016, 0.008, 0.0014, 0.0062),
+    ]
+    m = 10  # points per surface (upper / lower)
+    bm = bmesh.new()
+    rings = []
+    for x, le, c, th, zc in stations:
+        ring = []
+        for k in range(2 * m):
+            upper = k < m
+            q = (k / (m - 1)) if upper else ((2 * m - 1 - k) / (m - 1))
+            q = q * q  # crowd points at the rounded leading edge
+            # NACA-like thickness, a gentle camber.
+            half = 5 * th * (0.2969 * math.sqrt(q) - 0.126 * q - 0.3516 * q * q + 0.2843 * q ** 3 - 0.1036 * q ** 4)
+            camber = th * 0.6 * 4 * q * (1 - q)
+            z = zc + camber + (half if upper else -half)
+            ring.append(bm.verts.new((s * x, le - q * c, z)))
+        rings.append(ring)
+    n = 2 * m
+    for i in range(len(rings) - 1):
+        for k in range(n):
+            a, b, c2, d = rings[i][k], rings[i][(k + 1) % n], rings[i + 1][(k + 1) % n], rings[i + 1][k]
+            bm.faces.new((a, b, c2, d) if s > 0 else (d, c2, b, a))
+    bm.faces.new(rings[0] if s < 0 else rings[0][::-1])
+    bm.faces.new(rings[-1][::-1] if s < 0 else rings[-1])
+    ob = obj_from_bm(bm, f"wingbody{side}", 3)
+    sub = ob.modifiers.new("sub", "SUBSURF")
+    sub.levels = 1
     return ob
 
 
@@ -227,7 +262,7 @@ def tail():
 # Paint (Blender space: x right, y forward, z up)
 
 
-BLUE = np.array([0.03, 0.06, 0.2])
+BLUE = np.array([0.03, 0.045, 0.1])
 RED = np.array([0.5, 0.11, 0.05])
 CREAM = np.array([0.88, 0.8, 0.66])
 
@@ -256,12 +291,17 @@ def paint(pos, nrm, part):
     # Wings: blue-black above with a steel gloss; the underwing coverts pale, the flight
     # feathers greyer below.
     under = nrm[:, 2] < 0
-    wingc = np.where(under[:, None], np.where((np.abs(x) < 0.06)[:, None], CREAM * 0.85, np.array([0.18, 0.18, 0.2])), BLUE * (0.9 + 0.2 * fine[:, None]))
+    # Above: coverts (the smooth sheet, no feather coordinate) a rich steel-blue; flight
+    # feathers blue-black, edged blue toward their bases; each feather a touch different.
+    coverts = FU <= 0.0001
+    flight = np.array([0.03, 0.045, 0.1]) * (0.85 + 0.3 * fine[:, None]) + BLUE * 0.35 * (1 - np.clip(FU, 0, 1))[:, None]
+    above = np.where(coverts[:, None], BLUE * 1.15 * (0.9 + 0.2 * fine[:, None]), flight)
+    wingc = np.where(under[:, None], np.where((np.abs(x) < 0.06)[:, None], CREAM * 0.85, np.array([0.18, 0.18, 0.2])), above)
     col[part == 3] = wingc[part == 3]
     gloss[part == 3] = (~under)[part == 3]
     # Tail: blue-black, a white spot on each feather except the middle pair.
     spot = (np.abs(x) > 0.006) & (y < -0.075) & (y > -0.092)
-    tailc = np.where(spot[:, None], np.array([0.85, 0.84, 0.8]), BLUE * 0.85)
+    tailc = np.where(spot[:, None], np.array([0.85, 0.84, 0.8]), BLUE * 0.8 + np.array([0.01, 0.01, 0.02]))
     col[part == 4] = tailc[part == 4]
     gloss[part == 4] = 1
     return np.clip(col, 0, 1), gloss
@@ -269,7 +309,7 @@ def paint(pos, nrm, part):
 
 def collect(obs):
     dg = bpy.context.evaluated_depsgraph_get()
-    pos_l, nrm_l, part_l, idx_l = [], [], [], []
+    pos_l, nrm_l, part_l, idx_l, fu_l, fv_l = [], [], [], [], [], []
     base = 0
     for ob in obs:
         ev = ob.evaluated_get(dg)
@@ -285,9 +325,16 @@ def collect(obs):
         pos_l.append(co.reshape(-1, 3))
         nrm_l.append(nr.reshape(-1, 3))
         part_l.append(np.full(n, ob["part"], np.float32))
+        for name, lst in (("fu", fu_l), ("fv", fv_l)):
+            a = np.zeros(n, np.float32)
+            if name in me.attributes:
+                me.attributes[name].data.foreach_get("value", a)
+            lst.append(a)
         idx_l.append(tris.reshape(-1, 3) + base)
         base += n
         ev.to_mesh_clear()
+    global FU, FV
+    FU, FV = np.concatenate(fu_l), np.concatenate(fv_l)
     return np.concatenate(pos_l), np.concatenate(nrm_l), np.concatenate(part_l), np.concatenate(idx_l)
 
 
@@ -299,7 +346,9 @@ def export(pos, nrm, part, idx, col, gloss):
     idx = idx[:, [0, 2, 1]]
     v = np.zeros(len(gp), dtype=[("p", "<f2", 4), ("n", "i1", 4), ("t", "<f2", 2), ("e", "u1", 4)])
     v["p"][:, :3] = gp
-    v["p"][:, 3] = part
+    # p.w: part, plus how far along its feather the vertex is (feathers only) in the fraction.
+    v["p"][:, 3] = part + np.where((part == 3) | (part == 4), np.clip(FU, 0, 1) * 0.9, 0)
+    v["n"][:, 3] = np.clip(np.round(FV * 127), -127, 127)
     v["n"][:, :3] = np.clip(np.round(gn * 127), -127, 127)
     v["t"][:, 0] = span
     v["t"][:, 1] = gloss
@@ -361,7 +410,7 @@ def preview(pos, nrm, idx, col, gloss):
 def main():
     reset()
     skin = body()
-    obs = [skin, bill(skin), eyes(skin), wing(1), wing(-1), tail()]
+    obs = [skin, bill(skin), eyes(skin), *wing(1), *wing(-1), tail()]
     pos, nrm, part, idx = collect(obs)
     col, gloss = paint(pos, nrm, part)
     export(pos, nrm, part, idx, col, gloss)

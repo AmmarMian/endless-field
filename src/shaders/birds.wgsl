@@ -166,9 +166,9 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   if (frag.glow > 0.0) {
     // A spirit bird: lit from within, with a bright turquoise rim.
     let rim = pow(1.0 - abs(dot(n, v)), 2.0);
-    let rimCol = select(vec3f(0.45, 0.95, 1.0), vec3f(1.0, 0.85, 0.6), frag.feather.z > 0.5);
-    // The swallow's own light is a hint (its glow shows mostly on the grass around it).
-    let k = select(1.0, 0.45, frag.feather.z > 0.5);
+    // A glowing bird's own light is a hint, warm (its glow shows mostly around it).
+    let rimCol = vec3f(1.0, 0.85, 0.6);
+    let k = 0.45;
     col += albedo * frag.glow * 0.5 * k + rimCol * rim * frag.glow * 0.4 * k;
   }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
@@ -195,14 +195,14 @@ fn vs_halo(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   let right = normalize(cross(vec3f(0.0, 1.0, 0.0), view));
   let up = cross(view, right);
   // Grows a little with distance, so the light still reads from far off.
-  let size = (0.7 + d * 0.008) * select(1.0, 0.75, b.extra.z > 0.0);
+  let size = (0.7 + d * 0.008) * 0.75;
   var out: HOut;
   out.pos = G.viewProj * vec4f(b.pos.xyz + vec3f(0.0, 0.05, 0.0) + (right * c.x + up * c.y) * size, 1.0);
   out.uv = c;
   out.k = max(b.pose.w - 1.0, 0.0) * (0.85 + 0.15 * sin(G.time * 3.0));
   out.warm = select(0.0, 1.0, b.extra.z > 0.0);
   // The swallow's halo is faint: a soft presence, not a lamp.
-  out.k *= select(1.0, 0.4, b.extra.z > 0.0);
+  out.k *= 0.4;
   return out;
 }
 
@@ -211,7 +211,7 @@ fn fs_halo(frag: HOut) -> @location(0) vec4f {
   let r2 = dot(frag.uv, frag.uv);
   let light = exp(-r2 * 5.0) * 0.9 + exp(-r2 * 28.0) * 1.6;
   // The swallow (elbow given) glows warm; the kingfisher keeps its turquoise heart.
-  let core = select(vec3f(0.45, 0.9, 1.0), vec3f(1.0, 0.86, 0.6), frag.warm > 0.5);
+  let core = vec3f(1.0, 0.86, 0.6);
   let col = mix(vec3f(1.0, 0.75, 0.35), core, exp(-r2 * 6.0));
   return vec4f(col * light * frag.k * mix(0.35, 0.5, G.night), 0.0);
 }

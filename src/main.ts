@@ -1065,7 +1065,9 @@ async function main(): Promise<void> {
       motes.encode(pass);
       if (!explore) windTrail.encode(pass);
       swallow.visible = current.avatar === "swallow" && !explore;
-      swallow.glow = swallow.visible ? Math.min(1, 0.06 + night * 0.75 + rain * 0.2 + canopy * 0.3) : 0;
+      const darkGlow = Math.min(1, 0.06 + night * 0.75 + rain * 0.2 + canopy * 0.3);
+      swallow.glow = swallow.visible ? darkGlow : 0;
+      race.glow = darkGlow;
       swallow.encode(pass);
       birds.encode(pass);
       secrets.encode(pass);

@@ -60,6 +60,8 @@ export class RiverRace {
   private readonly perchEnd: Vec3;
   private readonly radius: number;
   done: boolean;
+  /** Its soft light, matching the player's swallow (set each frame from the darkness). */
+  glow = 0.3;
   onStart: (() => void) | null = null;
   onGate: ((index: number, count: number) => void) | null = null;
   onFail: (() => void) | null = null;
@@ -306,8 +308,8 @@ export class RiverRace {
     this.flapPhase += dt * 32;
     const yaw = flying && Math.hypot(this.birdVel[0], this.birdVel[2]) > 0.1 ? Math.atan2(this.birdVel[0], this.birdVel[2]) : this.gates[0].yaw;
     const pitch = flying ? -Math.atan2(this.birdVel[1], Math.hypot(this.birdVel[0], this.birdVel[2]) + 1e-3) * 0.6 : Math.max(0, Math.sin(performance.now() / 700)) * 0.25;
-    // It glows (and casts its light) always: easy to spot waiting, racing or beside the wind.
-    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : 0), this.bird[2], yaw, flying ? Math.sin(this.flapPhase) * 0.9 + 0.1 : 0, flying ? 1 : 0, pitch, 1.9, 0, 0, 0, 0]);
+    // It carries the same soft light as the player's swallow (stronger as it gets dark).
+    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : 0), this.bird[2], yaw, flying ? Math.sin(this.flapPhase) * 0.9 + 0.1 : 0, flying ? 1 : 0, pitch, 1 + this.glow * 0.6, 0, 0, 0, 0]);
     this.birdBuf.write(this.birdData);
     this.flying = flying;
     // Gates.

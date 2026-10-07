@@ -364,6 +364,100 @@ export class Audio {
     }
   }
 
+  /** A sparrow's chirrup from a feeding flock, panned and distanced, so it can be found by ear. */
+  chirp(pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const near = Math.max(0, Math.min(1, 14 / Math.max(distance, 1))) ** 0.8;
+    if (near < 0.05) return;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.85;
+    // Farther birds sound duller.
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 3000 + near * 6000;
+    p.connect(lp).connect(this.master);
+    lp.connect(this.reverb);
+    const notes = 2 + Math.floor(Math.random() * 3);
+    let t = ctx.currentTime + Math.random() * 0.1;
+    const base = 3600 + Math.random() * 900;
+    for (let i = 0; i < notes; i++) {
+      const o = ctx.createOscillator();
+      // "Chirrup": a quick rise then a fall, wobbling fast.
+      const f = base * (1 + (Math.random() - 0.5) * 0.12);
+      o.frequency.setValueAtTime(f * 0.8, t);
+      o.frequency.linearRampToValueAtTime(f * 1.15, t + 0.025);
+      o.frequency.exponentialRampToValueAtTime(f * 0.7, t + 0.07);
+      const fm = ctx.createOscillator();
+      fm.frequency.value = 160 + Math.random() * 80;
+      const fmAmt = ctx.createGain();
+      fmAmt.gain.value = f * 0.05;
+      fm.connect(fmAmt).connect(o.frequency);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.045 * near, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+      o.connect(g).connect(p);
+      o.start(t);
+      fm.start(t);
+      o.stop(t + 0.09);
+      fm.stop(t + 0.09);
+      t += 0.09 + Math.random() * 0.06;
+    }
+  }
+
+  /** A soft, glassy sine shimmering above a piano note (the "magic" in the discovery sounds). */
+  private glass(note: number, t: number, level: number, length = 2.5): void {
+    const ctx = this.ctx!;
+    const o = ctx.createOscillator();
+    o.frequency.value = 440 * Math.pow(2, (note - 69) / 12);
+    const vib = ctx.createOscillator();
+    vib.frequency.value = 5.5;
+    const va = ctx.createGain();
+    va.gain.value = 3;
+    vib.connect(va).connect(o.frequency);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + length);
+    o.connect(g);
+    g.connect(this.reverb);
+    g.connect(this.master);
+    o.start(t);
+    vib.start(t);
+    o.stop(t + length + 0.1);
+    vib.stop(t + length + 0.1);
+  }
+
+  /** Something new found: a quick rising arpeggio with a glassy shimmer on top. */
+  discovery(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.05;
+    const run = [69, 74, 78, 81, 86];
+    run.forEach((n, i) => {
+      this.bell(n, t + i * 0.085, 0.12);
+      this.glass(n + 12, t + i * 0.085, 0.012, 1.2);
+    });
+    const end = t + run.length * 0.085 + 0.05;
+    [62, 69, 78].forEach((n) => this.bell(n, end, 0.08));
+    this.glass(90, end, 0.018, 3);
+  }
+
+  /** Entering a named place: a calm open chord, low, with a far-off sparkle. */
+  region(): void {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime + 0.1;
+    [50, 57, 66, 69].forEach((n, i) => this.bell(n, t + i * 0.18, 0.07));
+    this.glass(81, t + 0.8, 0.008, 3.5);
+    this.glass(88, t + 1.1, 0.006, 3.5);
+  }
+
+  /** Holds every sound (pause). */
+  setPaused(on: boolean): void {
+    if (!this.ctx) return;
+    void (on ? this.ctx.suspend() : this.ctx.resume());
+  }
+
   /** Called each frame with speed in [0, 1]. */
   update(speed: number, altitude: number): void {
     if (!this.ctx) return;

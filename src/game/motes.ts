@@ -85,6 +85,8 @@ export class Motes {
   private readonly buffer: StorageBuffer;
   private readonly data = new Float32Array(MAX * STRIDE);
   private spawnDebt = 0;
+  /** Called with each kind the wind lifts from the land. */
+  onPickup: ((kind: Kind) => void) | null = null;
   private time = 0;
 
   constructor(gpu: Gpu, globals: SharedUniforms) {
@@ -227,6 +229,7 @@ export class Motes {
       const ground = terrainHeight(leader[0], leader[2]);
       const pos: Vec3 = [leader[0] + (Math.random() - 0.5) * 1.5, ground + 0.1 + Math.random() * 0.4, leader[2] + (Math.random() - 0.5) * 1.5];
       this.spawn(kind, pos, color, kind === Kind.Spray ? 0.6 + Math.random() : 4 + Math.random() * 8);
+      this.onPickup?.(kind);
     }
 
     const side: Vec3 = [-forward[2], 0, forward[0]];

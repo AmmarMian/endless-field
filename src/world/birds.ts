@@ -38,6 +38,8 @@ interface Flock {
   airborne: boolean;
   /** Seconds aloft. */
   air: number;
+  /** Seconds to the next chirp. */
+  chirp?: number;
 }
 
 function rand(a: number, b: number): number {
@@ -75,6 +77,8 @@ export class Birds {
   private flying = 0;
   /** Called with the flock's position when it takes off. */
   onTakeoff: ((at: Vec3, n: number) => void) | null = null;
+  /** A feeding flock chirping (so it can be found by ear). */
+  onChirp: ((at: Vec3) => void) | null = null;
 
   private constructor(draws: Draw[], buffer: StorageBuffer) {
     this.draws = draws;
@@ -106,10 +110,13 @@ export class Birds {
     return new Birds(draws, buffer);
   }
 
-  /** A fresh feeding spot `near..far` meters from (x, z), away from `avoid`. */
-  private findSpot(x: number, z: number, near: number, far: number, avoid?: Vec3): Vec3 | null {
+  /**
+   * A fresh feeding spot `near..far` meters from (x, z), away from `avoid`; with `ahead` (a
+   * heading), within the half circle in front.
+   */
+  private findSpot(x: number, z: number, near: number, far: number, avoid?: Vec3, ahead?: number): Vec3 | null {
     for (let tries = 0; tries < 12; tries++) {
-      const a = Math.random() * Math.PI * 2;
+      const a = ahead === undefined ? Math.random() * Math.PI * 2 : ahead - Math.PI / 2 + (Math.random() - 0.5) * 2.2;
       const r = rand(near, far);
       const px = x + Math.cos(a) * r;
       const pz = z + Math.sin(a) * r;
@@ -160,16 +167,17 @@ export class Birds {
     return flock;
   }
 
-  update(dt: number, wind: Vec3, windAlt: number, night: number): void {
+  update(dt: number, wind: Vec3, windAlt: number, night: number, heading = 0): void {
     // Keep a few flocks feeding around the wind; ones left far behind move on ahead.
     while (this.flocks.length < FLOCKS) {
-      const spot = this.findSpot(wind[0], wind[2], 40, 160);
+      // The first flock lands close ahead, so it is met early; the rest further out.
+      const spot = this.findSpot(wind[0], wind[2], this.flocks.length ? 35 : 25, this.flocks.length ? 140 : 55, undefined, heading);
       if (!spot) break;
       this.flocks.push(this.spawnFlock(spot));
     }
     for (const f of this.flocks) {
       if (!f.airborne && Math.hypot(f.home[0] - wind[0], f.home[2] - wind[2]) > 220) {
-        const spot = this.findSpot(wind[0], wind[2], 70, 170);
+        const spot = this.findSpot(wind[0], wind[2], 60, 150, undefined, heading);
         if (spot) this.settle(f, spot);
       }
     }
@@ -197,6 +205,12 @@ export class Birds {
         }
       }
       if (f.airborne) f.air += dt;
+      // Feeding flocks chirp now and then: the way to find them in the long grass.
+      f.chirp = (f.chirp ?? Math.random() * 3) - dt;
+      if (!f.airborne && f.chirp <= 0) {
+        f.chirp = 1.2 + Math.random() * 2.8;
+        if (near < 80 && night < 0.5) this.onChirp?.(f.home);
+      }
       let landed = 0;
       for (const b of f.birds) {
         b.timer -= dt;
@@ -205,10 +219,12 @@ export class Birds {
           if (b.timer <= 0) {
             b.timer = rand(0.4, 2.5);
             if (Math.random() < 0.35) {
-              b.vel[1] = 1.6;
+              // Mostly small hops; now and then a lookout flutters up above the grass.
+              const lookout = Math.random() < 0.3;
+              b.vel[1] = lookout ? 4.2 : 1.6;
               const a = b.yaw + rand(-1, 1);
-              b.vel[0] = Math.sin(a) * 0.6;
-              b.vel[2] = Math.cos(a) * 0.6;
+              b.vel[0] = Math.sin(a) * (lookout ? 1.2 : 0.6);
+              b.vel[2] = Math.cos(a) * (lookout ? 1.2 : 0.6);
             } else b.yaw += rand(-1.2, 1.2);
           }
           b.vel[1] -= 9.8 * dt;
@@ -260,7 +276,11 @@ export class Birds {
         const show = 1 - night;
         if (show > 0.05) {
           // Perched models stand on their feet; flying ones are centred on the body.
-          if (b.state === 0) perched.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, 0, 0, b.pitch, b.seed);
+          const hopping = b.state === 0 && b.pos[1] - terrainHeight(b.pos[0], b.pos[2]) > 0.15;
+          if (hopping) {
+            b.phase += dt * 28;
+            flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, Math.sin(b.phase) * 0.9 + 0.1, 1, -0.2, b.seed);
+          } else if (b.state === 0) perched.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, 0, 0, b.pitch, b.seed);
           else flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed);
         }
       }

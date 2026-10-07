@@ -41,13 +41,21 @@ function defaults(): Settings {
   // Phones and small integrated GPUs start on medium.
   const mobile = matchMedia("(pointer: coarse)").matches;
   const preset: Preset = mobile ? "medium" : "high";
-  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: true, weather: "auto", filter: "none" };
+  return { preset, ...PRESETS[preset], showStats: true, night: false, fpsTarget: 60, autoResolution: true, seed: 0, seasonMode: "summer", music: false, weather: "auto", filter: "miniature" };
 }
 
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...defaults(), ...(JSON.parse(raw) as Partial<Settings>) };
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Settings> & { v?: number };
+      // v2: music became opt-in; older saves had it on by default.
+      if ((saved.v ?? 1) < 2) {
+        saved.music = false;
+        saved.filter = "miniature";
+      }
+      return { ...defaults(), ...saved };
+    }
   } catch {
     // Storage can be unavailable (private mode); fall back to defaults.
   }
@@ -56,7 +64,7 @@ export function loadSettings(): Settings {
 
 function saveSettings(s: Settings): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(s));
+    localStorage.setItem(KEY, JSON.stringify({ ...s, v: 2 }));
   } catch {
     // Non-essential.
   }
@@ -68,7 +76,8 @@ type Row =
   | { k: keyof Settings; label: string; type: "range"; min: number; max: number; step: number }
   | { k: keyof Settings; label: string; type: "number" }
   | { label: string; type: "action"; run: (p: SettingsPanel) => void }
-  | { label: string; type: "keys"; keys: string };
+  | { label: string; type: "keys"; keys: string }
+  | { label: string; type: "note"; text: string; found: boolean };
 
 interface Page {
   id: string;
@@ -119,6 +128,7 @@ const PAGES: Page[] = [
       { k: "showStats", label: "Frame counter", type: "toggle" },
     ],
   },
+  { id: "notes", label: "Notes", icon: "✎", rows: [] },
   {
     id: "keys",
     label: "Keys",
@@ -128,6 +138,7 @@ const PAGES: Page[] = [
       { label: "Gust", type: "keys", keys: "Space · hold click" },
       { label: "Rise / dive", type: "keys", keys: "↑ ↓" },
       { label: "Let go", type: "keys", keys: "X" },
+      { label: "Pause", type: "keys", keys: "P" },
       { label: "Free roam", type: "keys", keys: "M" },
       { label: "Map", type: "keys", keys: "K" },
       { label: "Film simulation", type: "keys", keys: "L" },
@@ -154,6 +165,8 @@ export class SettingsPanel {
   private readonly hint: HTMLElement;
   private page = 0;
   private row = 0;
+  /** Field notes, supplied by the game (rows of the Notes page). */
+  notes: () => { name: string; text: string; found: boolean }[] = () => [];
 
   constructor(private settings: Settings, private readonly onChange: (s: Settings) => void) {
     const gear = document.createElement("button");
@@ -217,7 +230,7 @@ export class SettingsPanel {
   /** Steps a row's value by `dir` (-1 / +1); toggles flip, actions run. */
   private step(r: Row, dir: number): void {
     if (r.type === "action") return r.run(this);
-    if (r.type === "keys" || r.type === "number") return;
+    if (r.type === "keys" || r.type === "number" || r.type === "note") return;
     const v = this.settings[r.k];
     if (r.type === "toggle") this.apply(r.k, !v);
     else if (r.type === "range") {
@@ -233,7 +246,7 @@ export class SettingsPanel {
     if (!this.open) return;
     const typing = e.target instanceof HTMLInputElement;
     if (typing && e.key !== "Escape") return;
-    const rows = PAGES[this.page].rows;
+    const rows = this.rowsOf(PAGES[this.page]);
     const go = (fn: () => void) => {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -265,6 +278,19 @@ export class SettingsPanel {
     }
   }
 
+  private rowsOf(page: Page): Row[] {
+    if (page.id !== "notes") return page.rows;
+    return this.notes().map((n) => ({ label: n.name, type: "note" as const, text: n.text, found: n.found }));
+  }
+
+  /** Opens the menu on the field notes. */
+  showNotes(): void {
+    this.page = PAGES.findIndex((p) => p.id === "notes");
+    this.row = 0;
+    this.toggle(true);
+    this.render();
+  }
+
   private selectPage(i: number): void {
     this.page = (i + PAGES.length) % PAGES.length;
     this.row = 0;
@@ -273,6 +299,7 @@ export class SettingsPanel {
   private valueText(r: Row): string {
     if (r.type === "action") return "▸";
     if (r.type === "keys") return r.keys;
+    if (r.type === "note") return r.text;
     const v = this.settings[r.k];
     if (r.type === "toggle") return v ? (r.on ?? "On") : (r.off ?? "Off");
     if (r.type === "range") return Number(v).toFixed(2);
@@ -294,8 +321,16 @@ export class SettingsPanel {
       }),
     );
     const page = PAGES[this.page];
-    this.body.replaceChildren(
-      ...page.rows.map((r, i) => {
+    const rows = this.rowsOf(page);
+    if (page.id === "notes") {
+      const found = rows.filter((r) => r.type === "note" && r.found).length;
+      const head = document.createElement("div");
+      head.className = "osd-count";
+      head.textContent = `${found} / ${rows.length} found`;
+      this.body.replaceChildren(head);
+    } else this.body.replaceChildren();
+    this.body.append(
+      ...rows.map((r, i) => {
         const el = document.createElement("div");
         el.className = `osd-row ${r.type}` + (i === this.row ? " sel" : "");
         const label = document.createElement("span");
@@ -340,6 +375,7 @@ export class SettingsPanel {
         } else {
           val.textContent = this.valueText(r);
         }
+        if (r.type === "note" && !r.found) el.classList.add("unknown");
         el.append(label, val);
         el.addEventListener("click", () => {
           const was = this.row === i;

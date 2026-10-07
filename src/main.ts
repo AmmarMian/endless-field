@@ -29,9 +29,11 @@ import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
 import { SUNFLOWERS, Sunflowers, gradeSunflowerField, sunflowerField } from "./world/sunflowers";
 import { Lanterns } from "./world/lanterns";
-import { Torii } from "./world/torii";
+import { Torii, toriiGates } from "./world/torii";
+import { Discoveries } from "./game/discoveries";
+import { Kind } from "./game/motes";
 import { Rain } from "./world/rain";
-import { PATH, pathZ } from "./world/lantern-path";
+import { PATH, pathNear, pathZ } from "./world/lantern-path";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const errorBox = document.getElementById("error")!;
@@ -130,6 +132,15 @@ async function main(): Promise<void> {
     const d = Math.hypot(dx, dz) || 1;
     const pan = (dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1));
     audio.birds(n, pan, d);
+    if (d < 25) discoveries.find("sparrows");
+  };
+  birds.onChirp = (at) => {
+    const fx = camera.target[0] - camera.position[0];
+    const fz = camera.target[2] - camera.position[2];
+    const dx = at[0] - camera.position[0];
+    const dz = at[2] - camera.position[2];
+    const d = Math.hypot(dx, dz) || 1;
+    audio.chirp((dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1)), d);
   };
   const player = new Player(0, 30, 0.4);
   const freecam = new FreeCam(canvas);
@@ -139,6 +150,55 @@ async function main(): Promise<void> {
   const chainEl = document.createElement("div");
   chainEl.id = "chain";
   (document.getElementById("hud") ?? document.body).append(chainEl);
+  // Discoveries: a toast with a little jingle the first time each living thing is found.
+  const discoverEl = document.createElement("div");
+  discoverEl.id = "discover";
+  const regionEl = document.createElement("div");
+  regionEl.id = "region";
+  (document.getElementById("hud") ?? document.body).append(discoverEl, regionEl);
+  let discoverTimer = 0;
+  const toast = (tag: string, name: string, text: string, seconds: number) => {
+    discoverEl.innerHTML = "";
+    for (const [cls, value] of [["tag", tag], ["name", name], ["text", text]]) {
+      if (!value) continue;
+      const el = document.createElement("div");
+      el.className = cls;
+      el.textContent = value;
+      discoverEl.append(el);
+    }
+    discoverEl.classList.add("show");
+    clearTimeout(discoverTimer);
+    discoverTimer = window.setTimeout(() => discoverEl.classList.remove("show"), seconds * 1000);
+  };
+  const discoveries = new Discoveries();
+  discoveries.onFind = (n) => {
+    audio.discovery();
+    toast(`Field note · ${discoveries.count}`, n.name, n.text, 6);
+  };
+  motes.onPickup = (kind) => {
+    const id = { [Kind.Leaf]: "leaves", [Kind.Pollen]: "pollen", [Kind.Spray]: "spray", [Kind.Firefly]: "fireflies", [Kind.Snow]: "snow" }[kind as number];
+    if (id) discoveries.find(id);
+  };
+  const gates = toriiGates();
+  /** Named places: a banner (and a soft sting) the first time the wind enters each one. */
+  const REGIONS: { name: string; inside: (x: number, z: number) => boolean }[] = [
+    { name: "Lantern Path", inside: (x, z) => pathNear(x, z, 10) },
+    { name: "Sunflower Field", inside: (x, z) => sunflowerField(x, z) > 0.2 },
+    { name: "The River", inside: (x, z) => { const [d, , hw] = riverInfo(x, z); return d < hw + 8; } },
+    { name: "Eastern Wood", inside: (x, z) => ecology(x, z).forest > 0.55 },
+  ];
+  const regionsSeen = new Set<string>();
+  let regionCheck = 0;
+  let regionTimer = 0;
+  const showRegion = (name: string) => {
+    regionEl.innerHTML = `<span class="rule"></span><span class="name"></span><span class="rule"></span>`;
+    regionEl.querySelector(".name")!.textContent = name;
+    regionEl.classList.add("show");
+    audio.region();
+    clearTimeout(regionTimer);
+    regionTimer = window.setTimeout(() => regionEl.classList.remove("show"), 4500);
+  };
+  discoveries.onHint = (n) => toast("A whisper on the wind", "", n.hint, 7);
   let chainTimer = 0;
   const SEASONS = ["summer", "autumn", "winter", "spring"] as const;
   let season = 0;
@@ -325,6 +385,40 @@ async function main(): Promise<void> {
   }
 
   let framesShown = 0;
+  // Pause: the world holds still (time, wind, creatures, sound); the view can still be admired.
+  let paused = false;
+  let simTime = 0;
+  const pauseEl = document.createElement("div");
+  pauseEl.id = "pause";
+  pauseEl.hidden = true;
+  pauseEl.innerHTML = `<div class="pz-box"><div class="pz-tag">Paused</div>
+    <button data-a="resume">Resume</button><button data-a="notes">Field notes</button><button data-a="menu">Settings</button>
+    <div class="pz-hint"><kbd>P</kbd> resume</div></div>`;
+  (document.getElementById("hud") ?? document.body).append(pauseEl);
+  const setPaused = (on: boolean) => {
+    if (on === paused) return;
+    paused = on;
+    pauseEl.hidden = !on;
+    audio.setPaused(on);
+    if (!on) panel.toggle(false);
+  };
+  pauseEl.addEventListener("pointerdown", (e) => e.stopPropagation());
+  pauseEl.addEventListener("click", (e) => {
+    const a = (e.target as HTMLElement).dataset.a;
+    if (a === "resume") setPaused(false);
+    if (a === "notes") panel.showNotes();
+    if (a === "menu") panel.toggle(true);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && playing) setPaused(true);
+  });
+  const pauseBtn = document.createElement("button");
+  pauseBtn.id = "pause-btn";
+  pauseBtn.title = "Pause (P)";
+  pauseBtn.textContent = "❚❚";
+  pauseBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+  pauseBtn.addEventListener("click", () => setPaused(!paused));
+  (document.getElementById("hud") ?? document.body).append(pauseBtn);
   function tick(frame: Frame): void {
     if (pendingScale !== null) {
       renderer.setRenderScale(pendingScale);
@@ -335,11 +429,13 @@ async function main(): Promise<void> {
       stage("");
       loadingEl?.classList.add("done");
     }
-    const t = debug.fixedTime ?? time.time;
-    const rawDt = Math.min(time.deltaTime, 1 / 15);
-    dtSmooth += (rawDt - dtSmooth) * 0.2;
-    const dt = dtSmooth;
-    input.suspended = panel.open || worldMap.open;
+    if (input.wasPressed("p") && playing) setPaused(!paused);
+    const rawDt = paused ? 0 : Math.min(time.deltaTime, 1 / 15);
+    simTime += rawDt;
+    const t = debug.fixedTime ?? simTime;
+    if (!paused) dtSmooth += (rawDt - dtSmooth) * 0.2;
+    const dt = paused ? 0 : dtSmooth;
+    input.suspended = panel.open || worldMap.open || paused;
     input.update(rawDt);
     if (input.wasPressed("k")) worldMap.toggle();
     worldMap.update(explore ? freecam.pos[0] : player.pos[0], explore ? freecam.pos[2] : player.pos[2], explore ? freecam.yaw : player.yaw);
@@ -467,6 +563,7 @@ async function main(): Promise<void> {
       }
 
       const touched = flowers.update(dt, player.pos[0], player.pos[1], player.pos[2], 2.4 + player.gust);
+      if (touched.length) discoveries.find("flowers");
       for (const f of touched) {
         motes.puff([f.x, f.y + f.height, f.z], f.color);
         life.bloom(f.x, f.z, 9 + Math.random() * 4);
@@ -489,7 +586,26 @@ async function main(): Promise<void> {
         rain,
       }, [Math.cos(windAngle), Math.sin(windAngle)]);
       windTrail.update(dt, player.pos, player.speed, player.gust);
-      birds.update(dt, player.pos, player.altitude, night);
+      birds.update(dt, player.pos, player.altitude, night, player.yaw);
+      if (playing && !paused) {
+        regionCheck -= dt;
+        if (regionCheck <= 0) {
+          regionCheck = 0.5;
+          const [px, , pz] = player.pos;
+          for (const r of REGIONS) {
+            if (!regionsSeen.has(r.name) && r.inside(px, pz)) {
+              regionsSeen.add(r.name);
+              showRegion(r.name);
+              break;
+            }
+          }
+          if (gates.some((g) => Math.hypot(g.x - px, g.z - pz) < 4)) discoveries.find("torii");
+        }
+        const w = seasonWeightsTs(season);
+        discoveries.update(dt, (id) =>
+          id === "snow" ? w[2] > 0.5 : id === "fireflies" ? night > 0.5 : id === "chain" ? discoveries.has("lantern") : id === "leaves" ? true : true,
+        );
+      }
       {
         const low = 1 - Math.min(1, Math.max(0, (player.altitude - 1.5) / 4));
         let leafy = 0;
@@ -576,6 +692,8 @@ async function main(): Promise<void> {
     lanterns.update(camera.position);
     const lanternEvent = lanterns.touch(explore ? freecam.pos : player.pos, t);
     if (lanternEvent) {
+      discoveries.find("lantern");
+      if (lanternEvent.complete) discoveries.find("chain");
       audio.lantern(lanternEvent.chain);
       if (lanternEvent.complete) audio.lanternsComplete();
       const p = lanterns.progress;

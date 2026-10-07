@@ -159,6 +159,40 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
       }
     }
   }
+  // A wingtip slicing the surface: along the wind's recent path the water splits, a thin
+  // white furrow right behind the tip and a V of ridges spreading out behind (~19 degrees,
+  // the classic wake angle), fading as the wake ages.
+  var wakeFoam = 0.0;
+  if (G.dip > 0.01 && camDist < 90.0) {
+    var along = 0.0;
+    for (var i = 0u; i < 23u; i = i + 1u) {
+      let a = G.trail[i];
+      let b = G.trail[i + 1u];
+      if (b.w <= 0.0 && i > 0u) {
+        break;
+      }
+      let ab = b.xz - a.xz;
+      let len = length(ab);
+      if (len < 1e-3) {
+        continue;
+      }
+      let dir = ab / len;
+      let ap = p.xz - a.xz;
+      let tseg = clamp(dot(ap, dir), 0.0, len);
+      let off = p.xz - (a.xz + dir * tseg);
+      let sd = length(off);
+      let behind = along + tseg;
+      let k = G.dip * exp(-behind * 0.1);
+      wakeFoam = max(wakeFoam, exp(-sd * sd * 120.0) * exp(-behind * 0.3) * k);
+      let ridge = sd - behind * 0.34;
+      let rv = exp(-ridge * ridge * 24.0) * k * smoothstep(0.0, 0.8, behind);
+      grad = grad + normalize(off + vec2f(1e-4, 0.0)) * rv * 0.45 * cos(ridge * 22.0);
+      along = along + len;
+      if (along > 20.0) {
+        break;
+      }
+    }
+  }
   let n = normalize(vec3f(-grad.x, 1.0, -grad.y));
 
   let v = normalize(G.camPos - p);
@@ -224,7 +258,7 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
     + simplex2d((uv - vec2f(travel, 0.0)) * 2.4 - vec2f(t * 0.5, 0.0)) * 0.4 * aa;
   let boil = smoothstep(0.0, 0.6, boilN * 0.5 + 0.5 - (1.0 - frag.plunge) * 0.6) * frag.plunge;
   // The shore fringe is soft and thin, and fades out at distance before it turns to speckle.
-  let foam = clamp(shore * mix(0.5, lace, aa) * 0.3 * aa + streak * 0.5, 0.0, 1.0) * 0.5;
+  let foam = clamp(shore * mix(0.5, lace, aa) * 0.3 * aa + streak * 0.5 + wakeFoam * 1.6, 0.0, 1.0) * 0.5;
   let foamCol = (G.sunColor * 0.75 + s.zenith * 0.55) * 0.95;
   // Each layer of foam covers what is behind it: mix the colour and cut the transmission.
   col = mix(col, foamCol, foam);

@@ -233,6 +233,7 @@ export class Globals {
       underwater: 0,
       waterY: -1000,
       playerGlow: 0,
+      dip: 0,
       frustum: vec4Views(new Float32Array(24)),
       trail: this.trailViews,
       lamps: this.lampViews,

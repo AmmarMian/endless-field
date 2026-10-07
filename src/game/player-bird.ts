@@ -22,6 +22,11 @@ export class PlayerBird {
   readonly haloDraw: Draw;
   /** Its own soft light (0 none .. 1 full), brighter as it gets dark. */
   glow = 0;
+  /** On its side with a wingtip in the water (0..1), held while it skims low. */
+  dip = 0;
+  private dipSide = 1;
+  /** Where the lowered wingtip touches the water (valid while dipping). */
+  readonly tip: [number, number, number] = [0, 0, 0];
   private readonly buffer: StorageBuffer;
   private readonly data = new Float32Array(12);
   private phase = 0;
@@ -81,7 +86,8 @@ export class PlayerBird {
    *                            arm lifts it, short and quick
    * Beats come in a few at a time with long glides between; everything eases (no jumps).
    */
-  update(dt: number, player: Player): void {
+  /** `water`: the river's surface under the bird when over it, else null. */
+  update(dt: number, player: Player, water: number | null = null): void {
     // Turn rate -> bank: lean into the turn, eased.
     if (this.lastYaw !== null && dt > 0) {
       let d = player.yaw - this.lastYaw;
@@ -90,7 +96,13 @@ export class PlayerBird {
     }
     this.lastYaw = player.yaw;
     const looping = player.looping;
-    const wantRoll = looping ? 0 : Math.max(-0.85, Math.min(0.85, this.yawRate * 0.5));
+    // Low over the river: roll onto its side and slice the water with a wingtip, held as
+    // long as it stays low over the water (toward the way it is turning).
+    const skimming = water !== null && player.pos[1] - water < 2.1 && !looping && !player.riding;
+    this.dip += ((skimming ? 1 : 0) - this.dip) * Math.min(1, dt * (skimming ? 2.5 : 4));
+    if (Math.abs(this.yawRate) > 0.25) this.dipSide = this.yawRate > 0 ? 1 : -1;
+    const turnRoll = Math.max(-0.85, Math.min(0.85, this.yawRate * 0.5));
+    const wantRoll = looping ? 0 : turnRoll + (this.dipSide * 1.2 - turnRoll) * this.dip;
     this.roll += (wantRoll - this.roll) * Math.min(1, dt * 3);
 
     // Beating or gliding: hard work when gusting, climbing or pulling a loop; otherwise
@@ -100,7 +112,7 @@ export class PlayerBird {
     this.cycle = (this.cycle + dt) % 4.6;
     // Soaring in a thermal: wings held wide and still.
     const beating = working || (this.cycle < 2.3 && !soaring);
-    const wantAmp = working ? 1 : beating ? 0.8 : 0;
+    const wantAmp = (working ? 1 : beating ? 0.8 : 0) * (1 - this.dip);
     this.flapAmp += (wantAmp - this.flapAmp) * Math.min(1, dt * 1.6);
     const wantFreq = working ? 1.9 : 1.35;
     this.freq += (wantFreq - this.freq) * Math.min(1, dt * 1.2);
@@ -136,11 +148,19 @@ export class PlayerBird {
     this.sweep += (sweep - this.sweep) * Math.min(1, dt * 12);
 
     const p = player.pos;
+    // Dipping: hold the body just high enough that the lowered tip cuts the surface.
+    let bodyY = p[1];
+    if (water !== null && this.dip > 0.001) bodyY = p[1] + (Math.max(water + 0.38, p[1] - 1.2) - p[1]) * this.dip;
+    const halfSpan = 0.47;
+    this.tip[0] = p[0] + this.dipSide * Math.cos(player.yaw) * halfSpan * Math.cos(1.2);
+    this.tip[1] = water ?? bodyY;
+    this.tip[2] = p[2] + this.dipSide * Math.sin(player.yaw) * halfSpan * Math.cos(1.2);
     // A little body rise and fall with each stroke (the body answers the wings).
-    const bob = -Math.sin(ph) * 0.012 * SIZE * k;
+    // Gliding while it slices the water (no wingbeats through the surface).
+    const bob = -Math.sin(ph) * 0.012 * SIZE * k * (1 - this.dip);
     const pitch = looping ? -player.pitch : -player.pitch * 0.85;
     // The shader's heading maps +Z to (sin, cos); the player's forward is (sin yaw, -cos yaw).
-    this.data.set([p[0], p[1] + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 1 + this.glow * 0.6, this.roll + player.rollAngle, SIZE, this.elbow, this.sweep]);
+    this.data.set([p[0], bodyY + bob, p[2], Math.PI - player.yaw, armA, handA, pitch, 1 + this.glow * 0.6, this.roll + player.rollAngle, SIZE, this.elbow, this.sweep]);
     this.buffer.write(this.data);
   }
 

@@ -852,7 +852,8 @@ async function main(): Promise<void> {
           audio.thermal();
         }
       }
-      swallow.update(dt, player);
+      const [wd, wy, whw] = riverInfo(player.pos[0], player.pos[2]);
+      swallow.update(dt, player, current.avatar === "swallow" && wd < whw * 0.9 ? wy : null);
       if (playing) {
         const a = prevWind;
         const b = player.pos;
@@ -886,7 +887,12 @@ async function main(): Promise<void> {
       {
         const [rd, , rhw] = riverInfo(player.pos[0], player.pos[2]);
         skimTimer -= dt;
-        if (rd < rhw * 0.95 && player.altitude < 0.95 && skimTimer <= 0) {
+        if (swallow.dip > 0.5 && skimTimer <= 0) {
+          // The wingtip slicing the water: a continuous fine spray off it.
+          skimTimer = 0.07;
+          motes.splash([swallow.tip[0], swallow.tip[1], swallow.tip[2]], 0.06);
+          if (Math.random() < 0.3) audio.skim();
+        } else if (rd < rhw * 0.95 && player.altitude < 0.95 && skimTimer <= 0) {
           skimTimer = 0.11;
           motes.splash([player.pos[0], player.pos[1] - player.altitude, player.pos[2]], 0.12);
           if (Math.random() < 0.35) audio.skim();
@@ -983,6 +989,7 @@ async function main(): Promise<void> {
       underwater,
       waterY,
       playerGlow: swallow.glow,
+      dip: swallow.visible ? swallow.dip : 0,
       night: night * night * (3 - 2 * night),
       mist,
       mistBase,

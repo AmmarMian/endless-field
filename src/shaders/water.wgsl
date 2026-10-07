@@ -9,6 +9,9 @@ import { riverCenter, riverHalfWidth, riverInfo, riverSpeed, riverWater, terrain
 import { SkyParams, applyFog, skyColor, underwaterFog } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
+/** How fast the surface drifts, relative to the channel's hydraulic speed. */
+const FLOW_SCALE = 0.3;
+
 struct WaterParams {
   center: vec2f,
   extent: f32,
@@ -96,7 +99,8 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let side = vec2f(-flow.y, flow.x);
   // Faster in the middle of the channel, lazy at the banks.
   // Velocity profile across the channel: fastest mid-stream, still moving at the banks.
-  let speed = frag.speed * mix(1.0, 0.55, smoothstep(0.3, 1.1, abs(frag.across)));
+  // A lazy meadow river: the drift is a fraction of the hydraulic speed (which reads as racing).
+  let speed = frag.speed * FLOW_SCALE * mix(1.0, 0.55, smoothstep(0.3, 1.1, abs(frag.across)));
   let travel = t * speed;
   let uv = vec2f(dot(p.xz, flow), dot(p.xz, side));
   let camDist = distance(G.camPos, p);

@@ -784,7 +784,7 @@ async function main(): Promise<void> {
       night = day.night;
       atmSeason = season;
       atmosphereDirty = false;
-      const atm = weatherAtmosphere(day.atm, season, rain);
+      const atm = weatherAtmosphere(day.atm, season, rain, day.night);
       globals.setAtmosphere(atm);
       atmExposure = atm.exposure * 0.8;
       renderer.setPost({ bloomStrength: 0.1 + 0.12 * night });

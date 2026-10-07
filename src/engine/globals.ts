@@ -22,7 +22,7 @@ export function seasonWeights(s: number): [number, number, number, number] {
  * Season and weather on top of the time of day: autumn warms the light, winter cools and
  * pales it, spring clears it; rain closes the sky into an overcast grey and thickens the haze.
  */
-export function weatherAtmosphere(a: Atmosphere, season: number, rain: number): Atmosphere {
+export function weatherAtmosphere(a: Atmosphere, season: number, rain: number, night = 0): Atmosphere {
   const [su, au, wi, sp] = seasonWeights(season);
   const tint = (c: number[], warm: number[], cold: number[], fresh: number[]) =>
     c.map((v, i) => v * (su + au * warm[i] + wi * cold[i] + sp * fresh[i])) as [number, number, number];
@@ -31,14 +31,23 @@ export function weatherAtmosphere(a: Atmosphere, season: number, rain: number): 
   let zenithColor = a.zenithColor;
   // Overcast: soft, cool neutral greys (greying the warm evening colors would turn them brown),
   // as bright as the sky they replace; the sun is only a diffuse glow.
-  const toward = (c: number[], target: number[]) => {
+  // By night the rain is a deep blue-indigo dark, not grey: the warm lights glow against it.
+  const toward = (c: number[], target: number[], dim = 1) => {
     const lum = (c[0] + c[1] + c[2]) / 3;
-    return c.map((v, i) => v + (target[i] * lum - v) * rain) as [number, number, number];
+    return c.map((v, i) => v + (target[i] * lum * dim - v) * rain) as [number, number, number];
   };
-  sunColor = toward(sunColor, [0.95, 1.0, 1.08]).map((v) => v * (1 - 0.7 * rain)) as [number, number, number];
-  horizonColor = toward(horizonColor, [0.97, 1.0, 1.04]);
-  zenithColor = toward(zenithColor, [0.9, 0.98, 1.12]);
-  return { ...a, sunColor, horizonColor, zenithColor, fogDensity: a.fogDensity * (1 + 1.6 * rain + 0.3 * wi), exposure: a.exposure * (1 + 0.25 * rain) };
+  const mixT = (day: number[], dark: number[]) => day.map((v, i) => v + (dark[i] - v) * night);
+  sunColor = toward(sunColor, mixT([0.95, 1.0, 1.08], [0.7, 0.85, 1.3])).map((v) => v * (1 - 0.7 * rain)) as [number, number, number];
+  horizonColor = toward(horizonColor, mixT([0.97, 1.0, 1.04], [0.55, 0.7, 1.45]), 1 - 0.35 * night);
+  zenithColor = toward(zenithColor, mixT([0.9, 0.98, 1.12], [0.45, 0.6, 1.6]), 1 - 0.3 * night);
+  return {
+    ...a,
+    sunColor,
+    horizonColor,
+    zenithColor,
+    fogDensity: a.fogDensity * (1 + (1.6 - 0.9 * night) * rain + 0.3 * wi),
+    exposure: a.exposure * (1 + 0.25 * rain * (1 - night)),
+  };
 }
 
 /** Moonlit night: cool light, deep indigo sky, a faint warm glow left on the horizon. */

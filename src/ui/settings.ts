@@ -156,6 +156,7 @@ const PAGES: Page[] = [
       { label: "Vertical loop", type: "keys", keys: "E" },
       { label: "Barrel roll", type: "keys", keys: "double-tap ← / →" },
       { label: "Stoop (fast dive)", type: "keys", keys: "hold ↓ from height" },
+      { label: "Rest (land and settle)", type: "keys", keys: "B" },
       { label: "Let go", type: "keys", keys: "X" },
       { label: "Pause", type: "keys", keys: "P" },
       { label: "Free roam", type: "keys", keys: "M" },

@@ -606,41 +606,8 @@ kbd {
 }
 
 #chain.show,
-#season.show,
-#friend.show {
+#season.show {
   opacity: 1;
-}
-
-#friend {
-  position: absolute;
-  left: 50%;
-  top: 64%;
-  transform: translateX(-50%);
-  max-width: min(82vw, 520px);
-  padding: 9px 16px 10px 14px;
-  border-left: 3px solid var(--osd-accent);
-  border-radius: 3px;
-  background: var(--osd-bg-soft);
-  backdrop-filter: blur(8px);
-  color: var(--osd-fg);
-  opacity: 0;
-  transition: opacity 0.6s ease;
-  pointer-events: none;
-}
-
-#friend b {
-  display: block;
-  font: 600 13px var(--osd-font);
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
-}
-
-#friend span {
-  display: block;
-  margin-top: 3px;
-  font: 400 14px var(--osd-font);
-  letter-spacing: 0.02em;
-  opacity: 0.85;
 }
 
 #settings .osd-body {

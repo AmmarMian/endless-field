@@ -142,6 +142,13 @@ export class BirdAnimator {
     this.time = at;
   }
 
+  /** How far through its current clip (0..1; loops wrap). */
+  get phase(): number {
+    const c = this.clips[this.clip];
+    const f = (this.time * c.fps) / c.frames;
+    return c.loop ? ((f % 1) + 1) % 1 : Math.min(1, f);
+  }
+
   /** The current one-shot has reached its end. */
   get done(): boolean {
     const c = this.clips[this.clip];

@@ -476,15 +476,6 @@ export class Audio {
   }
 
   /** Something new found: a quick rising arpeggio with a glassy shimmer on top. */
-  /** An animal comes to trust the wind: a soft rising pair of bells. */
-  friend(): void {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime + 0.03;
-    this.bell(74, t, 0.1);
-    this.bell(81, t + 0.13, 0.1);
-    this.glass(93, t + 0.13, 0.01, 1.6);
-  }
-
   /** A fox springing at the swallow in play: a quick falling pluck. */
   pounce(): void {
     if (!this.ctx) return;
@@ -756,6 +747,145 @@ export class Audio {
       lfo.start(t);
       o.stop(t + 0.13);
       lfo.stop(t + 0.13);
+    }
+  }
+
+  /**
+   * The animals, placed in the stereo field: "thump" (a hare drumming a hind foot), "rustle"
+   * (feet through the grass), "hoof" (a deer's galloping hoof), "bark" (a roe deer's hoarse
+   * alarm), "yip" (a fox), "quack" (a mallard), "buzz" (a dragonfly's wings).
+   */
+  animal(kind: string, pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const reach = { thump: 18, rustle: 16, hoof: 26, bark: 140, yip: 120, quack: 45, buzz: 6 }[kind] ?? 20;
+    const near = Math.max(0, Math.min(1, reach / Math.max(distance, 1)));
+    if (near < 0.04) return;
+    const out = ctx.createStereoPanner();
+    out.pan.value = Math.max(-1, Math.min(1, pan)) * 0.85;
+    out.connect(this.master);
+    out.connect(this.reverb);
+    const t0 = ctx.currentTime + 0.02;
+    const env = (g: GainNode, t: number, peak: number, attack: number, decay: number) => {
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(peak, t + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    };
+    const tone = (type: OscillatorType, f0: number, f1: number, t: number, len: number, peak: number, filter?: BiquadFilterNode) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + len);
+      const g = ctx.createGain();
+      env(g, t, peak, Math.min(0.02, len * 0.2), len);
+      o.connect(g).connect(filter ?? out);
+      o.start(t);
+      o.stop(t + len + 0.05);
+    };
+    const hiss = (t: number, len: number, peak: number, type: BiquadFilterType, freq: number, q: number) => {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer(1);
+      const f = ctx.createBiquadFilter();
+      f.type = type;
+      f.frequency.value = freq;
+      f.Q.value = q;
+      const g = ctx.createGain();
+      env(g, t, peak, Math.min(0.015, len * 0.3), len);
+      src.connect(f).connect(g).connect(out);
+      src.start(t, Math.random() * 0.5);
+      src.stop(t + len + 0.05);
+    };
+    switch (kind) {
+      case "thump": {
+        // Two or three soft low drums.
+        const n = 2 + Math.floor(Math.random() * 2);
+        for (let i = 0; i < n; i++) tone("sine", 95, 48, t0 + i * 0.11, 0.12, 0.09 * near);
+        break;
+      }
+      case "rustle":
+        hiss(t0, 0.09 + Math.random() * 0.06, 0.035 * near, "bandpass", 2600 + Math.random() * 1600, 0.9);
+        break;
+      case "hoof":
+        tone("sine", 120, 55, t0, 0.07, 0.07 * near);
+        hiss(t0, 0.05, 0.03 * near, "lowpass", 900, 0.7);
+        break;
+      case "bark": {
+        // Hoarse and abrupt: a noisy "boh", sometimes twice.
+        const n = Math.random() < 0.6 ? 2 : 1;
+        for (let i = 0; i < n; i++) {
+          const t = t0 + i * 0.7;
+          const bp = ctx.createBiquadFilter();
+          bp.type = "bandpass";
+          bp.frequency.value = 700;
+          bp.Q.value = 1.6;
+          bp.connect(out);
+          tone("sawtooth", 320, 190, t, 0.22, 0.06 * near, bp);
+          hiss(t, 0.2, 0.04 * near, "bandpass", 1100, 1.2);
+        }
+        break;
+      }
+      case "yip": {
+        // A fox's thin yelps, rising then falling.
+        const n = 2 + Math.floor(Math.random() * 2);
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = 1500;
+        bp.Q.value = 2;
+        bp.connect(out);
+        for (let i = 0; i < n; i++) {
+          const t = t0 + i * 0.32;
+          const o = ctx.createOscillator();
+          o.type = "sawtooth";
+          o.frequency.setValueAtTime(650, t);
+          o.frequency.linearRampToValueAtTime(1250, t + 0.08);
+          o.frequency.exponentialRampToValueAtTime(700, t + 0.24);
+          const g = ctx.createGain();
+          env(g, t, 0.035 * near, 0.03, 0.22);
+          o.connect(g).connect(bp);
+          o.start(t);
+          o.stop(t + 0.3);
+        }
+        break;
+      }
+      case "quack": {
+        // A run of nasal quacks, each a little lower and shorter.
+        const n = 2 + Math.floor(Math.random() * 3);
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = 1100;
+        bp.Q.value = 3.5;
+        bp.connect(out);
+        const f = 380 + Math.random() * 80;
+        for (let i = 0; i < n; i++) {
+          const t = t0 + i * 0.2;
+          tone("sawtooth", f * (1 - i * 0.05), f * 0.7 * (1 - i * 0.05), t, 0.13 - i * 0.012, 0.07 * near, bp);
+        }
+        break;
+      }
+      case "buzz": {
+        // A dry whirr of wings going by.
+        const src = ctx.createBufferSource();
+        src.buffer = this.noiseBuffer(1);
+        const f = ctx.createBiquadFilter();
+        f.type = "bandpass";
+        f.frequency.value = 160;
+        f.Q.value = 4;
+        const am = ctx.createGain();
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = 30;
+        const depth = ctx.createGain();
+        depth.gain.value = 0.5;
+        lfo.connect(depth).connect(am.gain);
+        am.gain.value = 0.5;
+        const g = ctx.createGain();
+        env(g, t0, 0.07 * near, 0.08, 0.5);
+        src.connect(f).connect(am).connect(g).connect(out);
+        src.start(t0);
+        lfo.start(t0);
+        src.stop(t0 + 0.65);
+        lfo.stop(t0 + 0.65);
+        break;
+      }
     }
   }
 

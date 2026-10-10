@@ -684,6 +684,12 @@ def finish(name, obs, rig, allowed, side_tol, paint, clips, extra, size, look=(0
     rig_ob = rig.build(wing_like)
     actions = author(rig_ob, clips, 1.0)
     mats, meta = bake(rig_ob, actions, rig.order)
+    # Head tracking (the game turns the head and neck toward what the animal watches): the
+    # bones, and the pivot at the base of the neck (game axes: x, z up, y).
+    if "neck" in rig.bones and "head" in rig.bones:
+        hp = rig.bones["neck"][0]
+        full = [i for i, b in enumerate(rig.order) if b.split(".")[0] in ("head", "ear", "throat")]
+        extra = {**extra, "look": {"full": full, "neck": rig.order.index("neck"), "pivot": [hp[0], hp[2], hp[1]]}}
     export(name, pos, nrm, idx, part, fs, fc, up, col, ao, gloss, b0, b1, w0, mats, meta, {"bones": rig.order, **extra})
     if BLEND:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(BLEND.replace(".blend", f"-{name}.blend")))

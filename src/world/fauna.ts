@@ -1,7 +1,10 @@
 import { storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import animalShader from "../shaders/animals.wgsl";
 import type { Vec3 } from "../engine/camera";
-import { BIRD_STRIDE as STRIDE, BirdAnimator, BirdSpecies } from "./bird-model";
+import { BirdAnimator, BirdSpecies } from "./bird-model";
+
+/** Floats per animal instance (see `Animal` in animals.wgsl). */
+const STRIDE = 16;
 import { ecology } from "./ecology";
 import { riverCenter, riverHalfWidth, riverInfo, riverUpper, riverWater, terrainHeightM as terrainHeight } from "./height";
 import { pathNear } from "./lantern-path";
@@ -32,11 +35,6 @@ function gentle(c: FaunaContext): boolean {
   return c.gust < 0.25 && c.speed < 13 && c.windAlt < 6;
 }
 
-/** The wind's heading on the ground (the way it is going), in the animals' yaw convention. */
-function windYaw(c: FaunaContext): number {
-  const hs = Math.hypot(c.windVel[0], c.windVel[2]);
-  return hs > 0.5 ? Math.atan2(c.windVel[0], c.windVel[2]) : Math.PI - c.heading;
-}
 
 function rand(a: number, b: number): number {
   return a + Math.random() * (b - a);
@@ -73,7 +71,11 @@ class Herd {
   ) {
     species.shader = animalShader;
     species.instanceKey = "animals";
-    const d = species.draws(globals, buffer, label, { constants: { KIND: kind, HALO_Y: halo[0], HALO_R: halo[1] }, alphaToCoverage: alpha });
+    const look = species.info.look as { full: number[]; neck: number; pivot: number[] } | undefined;
+    const lookConsts: Record<string, number> = look
+      ? { LOOK_MASK: look.full.reduce((m, b) => m | (1 << b), 0) >>> 0, NECK_BONE: look.neck, PIVOT_X: look.pivot[0], PIVOT_Y: look.pivot[1], PIVOT_Z: look.pivot[2] }
+      : {};
+    const d = species.draws(globals, buffer, label, { constants: { KIND: kind, HALO_Y: halo[0], HALO_R: halo[1], ...lookConsts }, alphaToCoverage: alpha });
     this.body = d.body;
     this.halo = d.halo;
     this.data = new Float32Array(max * STRIDE);
@@ -96,7 +98,7 @@ class Herd {
   }
 
   /** Adds an instance (position, heading, pitch, roll, size, glow, its animation, random). */
-  push(pos: Vec3, yaw: number, pitch: number, roll: number, size: number, glow: number, anim: BirdAnimator, seed: number): void {
+  push(pos: Vec3, yaw: number, pitch: number, roll: number, size: number, glow: number, anim: BirdAnimator, seed: number, look?: [number, number]): void {
     if (this.count >= this.max) return;
     const o = this.count * STRIDE;
     const d = this.data;
@@ -113,6 +115,8 @@ class Herd {
     this.lit = Math.max(this.lit, g);
     anim.write(d, o + 8);
     d[o + 11] = seed;
+    d[o + 12] = look ? look[0] : 0;
+    d[o + 13] = look ? look[1] : 0;
     this.count++;
   }
 
@@ -125,6 +129,27 @@ class Herd {
     pass.draw(this.body, { instances: this.count });
     if (this.lit > 0.02) pass.draw(this.halo, { instances: this.count });
   }
+}
+
+/**
+ * Where an animal looks: toward the wind while it watches it (alert, a friend, or simply
+ * near), eased; the head turns at most ~70 degrees from the body.
+ */
+function gaze(a: { pos: Vec3; yaw: number; look?: [number, number] }, c: FaunaContext, watching: boolean, headY: number): [number, number] {
+  const cur = a.look ?? [0, 0];
+  let want: [number, number] = [0, 0];
+  if (watching) {
+    const dx = c.wind[0] - a.pos[0];
+    const dz = c.wind[2] - a.pos[2];
+    const turn = angleTo(a.yaw, Math.atan2(dx, dz));
+    const nod = Math.atan2(c.wind[1] - (a.pos[1] + headY), Math.hypot(dx, dz));
+    want = [Math.max(-1.2, Math.min(1.2, turn)), Math.max(-0.5, Math.min(0.6, nod))];
+    // Too far round: it would turn its body instead.
+    if (Math.abs(turn) > 1.9) want = [0, 0];
+  }
+  const k = Math.min(1, c.dt * 4);
+  a.look = [cur[0] + (want[0] - cur[0]) * k, cur[1] + (want[1] - cur[1]) * k];
+  return a.look;
 }
 
 /** Ground pitch along a heading (positive dips the head, as the shader wants). */
@@ -145,6 +170,8 @@ type HareState = "graze" | "idle" | "alert" | "hop" | "run";
 
 interface Hare extends Bond {
   stepping?: boolean;
+  look?: [number, number];
+  lastPhase?: number;
   pos: Vec3;
   yaw: number;
   wantYaw: number;
@@ -219,19 +246,15 @@ class Hares {
       const low = c.windAlt < 7;
       const away = Math.atan2(dx, dz);
       h.timer -= dt;
-      const gaits: Gaits = { run: "run", move: "hop", rest: "idle", runAt: 4.5, moveAt: 0.5, max: 12, strides: this.strides, size: HARE_SIZE };
-      if (befriend(h, c, d, gaits, () => friendly?.("hare", h.pos))) {
-        h.anim.update(dt);
-        herd.push(h.pos, h.yaw, groundPitch(h.pos[0], h.pos[2], h.yaw, 0.6), 0, HARE_SIZE, FRIEND_GLOW, h.anim, h.seed);
-        continue;
-      }
+      meet(h, c, d, "hare");
       if (low && d < 14 && h.state !== "run" && !gentle(c) && h.calm <= 0) {
         // Bolting: away from the wind, jinking a little.
         this.set(h, "run", rand(2.5, 4.5));
         h.wantYaw = away + rand(-0.5, 0.5);
       } else if (low && d < 28 && (h.state === "graze" || h.state === "idle")) {
-        // Something is coming: sit up and watch it.
+        // Something is coming: sit up and watch it (and drum a warning).
         this.set(h, "alert", rand(2, 4));
+        if (Math.random() < 0.5) sound("thump", h.pos, 0.6);
         h.wantYaw = away + Math.PI + rand(-0.6, 0.6);
       } else if (h.timer <= 0) {
         if (h.state === "run") this.set(h, "hop", rand(1.5, 3));
@@ -259,7 +282,9 @@ class Hares {
       const stride = this.strides[h.stepping ? "hop" : h.state];
       h.anim.speed = stride ? Math.max(0.3, h.speed / (stride * HARE_SIZE)) : 1;
       h.anim.update(dt);
-      herd.push(h.pos, h.yaw, groundPitch(h.pos[0], h.pos[2], h.yaw, 0.6), 0, HARE_SIZE, FRIEND_GLOW * (h.friend > 0 ? 1 : 0), h.anim, h.seed);
+      if (h.state === "run") footfalls(h, [0.0, 0.68], "rustle");
+      const hw = (h.state === "alert" || h.state === "idle") && d < 35;
+      herd.push(h.pos, h.yaw, groundPitch(h.pos[0], h.pos[2], h.yaw, 0.6), 0, HARE_SIZE, 0, h.anim, h.seed, gaze(h, c, hw, 0.6));
     }
     herd.end();
   }
@@ -285,8 +310,8 @@ interface Butterfly {
   seed: number;
   /** Over a flower bed (it settles there). */
   bed: boolean;
-  /** Seconds left dancing around the wind. */
-  friend: number;
+  /** It has met the wind gently (for the discovery, once). */
+  met: boolean;
 }
 
 class Butterflies {
@@ -310,7 +335,7 @@ class Butterflies {
       // The shader picks the species from the random (6 of them): a bed keeps to a couple.
       seed: species === null ? Math.random() : ((species + (Math.random() < 0.3 ? 1 : 0)) % 6) / 6 + 0.08,
       bed,
-      friend: 0,
+      met: false,
     });
   }
 
@@ -354,44 +379,18 @@ class Butterflies {
     const windSpeed = Math.hypot(c.windVel[0], c.windVel[2]);
     for (let i = this.list.length - 1; i >= 0; i--) {
       const f = this.list[i];
-      if (f.friend <= 0 && Math.hypot(f.home[0] - c.wind[0], f.home[2] - c.wind[2]) > 170) {
+      if (Math.hypot(f.home[0] - c.wind[0], f.home[2] - c.wind[2]) > 170) {
         this.list.splice(i, 1);
         continue;
       }
       const g = terrainHeight(f.pos[0], f.pos[2]);
       const toWind = Math.hypot(f.pos[0] - c.wind[0], f.pos[1] - c.wind[1], f.pos[2] - c.wind[2]);
       const gusted = toWind < 4.5 && windSpeed > 3 && !gentle(c);
-      if (f.friend <= 0 && gentle(c) && toWind < 3.5) {
-        // Joining the wind: it dances along around the swallow for a while.
-        f.friend = rand(18, 26);
-        f.basking = 0;
-        f.anim.play("flap", 0.1, 7, true);
+      if (!f.met && gentle(c) && toWind < 3) {
+        f.met = true;
         friendly?.("butterflies", f.pos);
       }
-      if (f.friend > 0) {
-        f.friend -= dt;
-        f.phase += dt;
-        const k = f.seed * 40;
-        const target: Vec3 = [
-          c.wind[0] + Math.cos(c.t * 1.3 + k) * 1.6 - c.windVel[0] * 0.15,
-          c.wind[1] + 0.4 + Math.sin(c.t * 2.1 + k) * 0.6,
-          c.wind[2] + Math.sin(c.t * 1.3 + k) * 1.6 - c.windVel[2] * 0.15,
-        ];
-        for (let j = 0; j < 3; j++) {
-          f.vel[j] += ((target[j] - f.pos[j]) * 3 + c.windVel[j] - f.vel[j]) * Math.min(1, dt * 4);
-          f.pos[j] += f.vel[j] * dt;
-        }
-        f.pos[1] = Math.max(f.pos[1], g + 0.3);
-        f.yaw += angleTo(f.yaw, Math.atan2(f.vel[0], f.vel[2])) * Math.min(1, dt * 6);
-        f.anim.play("flap", 0.12, 7 + f.seed * 2);
-        if (f.friend <= 0) {
-          // It stays where the wind left it: a new home.
-          f.home = [f.pos[0], terrainHeight(f.pos[0], f.pos[2]), f.pos[2]];
-          f.range = 6;
-          f.bed = false;
-          f.target = [...f.pos];
-        }
-      } else if (f.basking > 0) {
+      if (f.basking > 0) {      } else if (f.basking > 0) {
         // Settled on a flower: bask, then lift off (at once if the wind brushes it).
         f.basking -= dt;
         if (gusted) f.basking = 0;
@@ -438,108 +437,74 @@ class Butterflies {
         }
       }
       f.anim.update(dt);
-      if (!hidden) herd.push(f.pos, f.yaw, f.basking > 0 ? 0 : -f.vel[1] * 0.08, 0, FLY_SIZE, FRIEND_GLOW * (f.friend > 0 ? 1 : 0), f.anim, f.seed);
+      if (!hidden) herd.push(f.pos, f.yaw, f.basking > 0 ? 0 : -f.vel[1] * 0.08, 0, FLY_SIZE, 0, f.anim, f.seed);
     }
     herd.end();
   }
 }
 
 // =======================================================================================
-// Playing with the animals. Rush at them (a gust, racing past) and they flee; come gently and
-// they watch you instead, and if you stay near a little while they trust you: a soft chime,
-// a glow, and they run with you for a while, keeping beside you in the meadow.
+// Meeting the animals. They live their own lives; the wind only changes how they take it.
+// Rush at them (a gust, racing past) and they flee. Come gently and linger, and they grow
+// easy with you: they go on grazing and wandering, lift their heads to watch you go by, and
+// for a while they no longer run from you.
 
-const FRIEND_GLOW = 0.35;
-/** How long a friend stays with you (s). */
-const FRIEND_TIME = 32;
-/** Seconds of gentle company before an animal trusts you. */
+/** Seconds of gentle company before an animal is easy with the wind. */
 const TRUST = 1.4;
+/** How long it stays easy afterwards (s). */
+const CALM_TIME = 40;
 
 interface Bond {
   /** Seconds of gentle company so far. */
   trust: number;
-  /** Seconds left running with the wind (0: not a friend). */
-  friend: number;
-  /** Its place beside the wind: alternating sides, further out each one. */
-  slot: number;
-  /** Seconds the wind has been out of reach (they give up after a while). */
-  away: number;
-  /** Seconds it will not flee from the wind (after a friendship). */
+  /** Seconds it will not flee from the wind. */
   calm: number;
+  /** It has met the wind gently before (for the discovery, once). */
+  met: boolean;
 }
-
-let nextSlot = 0;
-
-/** Called when an animal starts to trust the wind (species, where). */
-let friendly: ((kind: string, at: Vec3) => void) | null = null;
 
 /** A new bond (a stranger). */
 function stranger(): Bond {
-  return { trust: 0, friend: 0, slot: 0, away: 0, calm: 0 };
+  return { trust: 0, calm: 0, met: false };
 }
 
-interface Gaits {
-  run: string;
-  move: string;
-  rest: string;
-  /** Speeds (m/s) above which it runs, or moves at its slower gait. */
-  runAt: number;
-  moveAt: number;
-  max: number;
-  strides: Record<string, number>;
-  size: number;
+/** Sounds the animals make (kind, where): see Audio.animal. Repeats of a kind are spaced. */
+let sounding: ((kind: string, at: Vec3) => void) | null = null;
+const lastSound: Record<string, number> = {};
+let clock = 0;
+function sound(kind: string, at: Vec3, gap = 0.05): void {
+  if (clock - (lastSound[kind] ?? -1) < gap) return;
+  lastSound[kind] = clock;
+  sounding?.(kind, at);
 }
 
-/**
- * Friendship for ground animals. Builds trust from gentle company; while a friend, steers the
- * animal to its place beside the wind and picks its gait by speed. Returns true while it is
- * a friend (the caller skips its own behaviour).
- */
-function befriend(a: Walker & Bond, c: FaunaContext, dist: number, g: Gaits, onFriend: () => void): boolean {
-  const dt = c.dt;
-  a.calm = Math.max(0, a.calm - dt);
-  if (a.friend <= 0) {
-    if (gentle(c) && dist < 10) a.trust += dt;
-    else a.trust = Math.max(0, a.trust - dt * 0.5);
-    if (a.trust < TRUST) return false;
-    a.trust = 0;
-    a.friend = FRIEND_TIME;
-    a.slot = nextSlot++ % 6;
-    onFriend();
+/** Feet touching down: fires `kind` when the gait crosses one of its contact phases. */
+function footfalls(a: { anim: BirdAnimator; pos: Vec3; lastPhase?: number }, contacts: number[], kind: string): void {
+  const ph = a.anim.phase;
+  const prev = a.lastPhase ?? ph;
+  a.lastPhase = ph;
+  for (const c of contacts) {
+    const crossed = prev <= ph ? prev < c && ph >= c : prev < c || ph >= c;
+    if (crossed) sound(kind, a.pos, 0.04);
   }
-  a.friend -= dt;
-  a.away = dist > 45 || c.windAlt > 14 ? a.away + dt : 0;
-  if (a.friend <= 0 || a.away > 4) {
-    // Goodbye: it stops, watches the wind go, and stays easy about it for a while.
-    a.friend = 0;
-    a.calm = 25;
-    a.state = g.rest;
-    a.anim.play(g.rest, 0.4);
-    return false;
-  }
-  const yaw = windYaw(c);
-  const fx = Math.sin(yaw);
-  const fz = Math.cos(yaw);
-  const side = a.slot % 2 ? 1 : -1;
-  // A little ahead and to the side, where the chase camera sees it running with you.
-  const out = 2.2 + Math.floor(a.slot / 2) * 1.6;
-  const ahead = 2.5 + (a.slot % 3) * 0.8;
-  const tx = c.wind[0] - fz * side * out + fx * ahead;
-  const tz = c.wind[2] + fx * side * out + fz * ahead;
-  const ox = tx - a.pos[0];
-  const oz = tz - a.pos[2];
-  const off = Math.hypot(ox, oz);
-  const windSpeed = Math.hypot(c.windVel[0], c.windVel[2]);
-  let want = windSpeed * 0.9 + Math.max(0, off - 0.8) * 1.6;
-  want = Math.min(g.max, want < 0.35 ? 0 : want);
-  a.wantYaw = off > 1.2 ? Math.atan2(ox, oz) : yaw;
-  const gait = want > g.runAt ? g.run : want > g.moveAt ? g.move : g.rest;
-  a.state = gait;
-  a.anim.play(gait, 0.3);
-  moveOnGround(a, want, 4, dt);
-  const stride = g.strides[gait];
-  a.anim.speed = stride ? Math.max(0.3, a.speed / (stride * g.size)) : 1;
-  return true;
+}
+
+/** Called the first time an animal grows easy with the wind (species, where). */
+let friendly: ((kind: string, at: Vec3) => void) | null = null;
+
+/** Gentle company builds trust; trust makes the animal calm (it stops fleeing the wind). */
+function meet(a: Bond & { pos: Vec3 }, c: FaunaContext, dist: number, kind: string): void {
+  a.calm = Math.max(0, a.calm - c.dt);
+  if (gentle(c) && dist < 12) {
+    a.trust += c.dt;
+    if (a.trust >= TRUST) {
+      a.calm = CALM_TIME;
+      if (!a.met) {
+        a.met = true;
+        friendly?.(kind, a.pos);
+      }
+    }
+  } else a.trust = Math.max(0, a.trust - c.dt * 0.5);
 }
 
 // =======================================================================================
@@ -553,6 +518,8 @@ type DeerState = "graze" | "idle" | "alert" | "walk" | "run";
 
 interface Deer extends Bond {
   stepping?: boolean;
+  look?: [number, number];
+  lastPhase?: number;
   pos: Vec3;
   yaw: number;
   wantYaw: number;
@@ -667,14 +634,11 @@ class DeerHerds {
       const near = c.windAlt < 9;
       const away = Math.atan2(dx, dz);
       d.timer -= dt;
-      const gaits: Gaits = { run: "run", move: "walk", rest: "idle", runAt: 3.2, moveAt: 0.4, max: 12, strides: this.strides, size: DEER_SIZE };
-      if (befriend(d, c, dist, gaits, () => friendly?.("deer", d.pos))) {
-        d.anim.update(dt);
-        herd.push(d.pos, d.yaw, groundPitch(d.pos[0], d.pos[2], d.yaw, 1.0), 0, DEER_SIZE, FRIEND_GLOW, d.anim, d.seed);
-        continue;
-      }
+      meet(d, c, dist, "deer");
       if (near && dist < 22 && d.state !== "run" && !gentle(c) && d.calm <= 0) {
         this.set(d, "run", rand(3.5, 6));
+        // The alarm: a hoarse bark as the herd goes.
+        sound("bark", d.pos, 1.2);
         d.wantYaw = away + rand(-0.4, 0.4);
       } else if (near && dist < 45 && (d.state === "graze" || d.state === "idle" || d.state === "walk")) {
         this.set(d, "alert", rand(3, 6));
@@ -697,7 +661,10 @@ class DeerHerds {
       const stride = this.strides[d.stepping ? "walk" : d.state];
       d.anim.speed = stride ? Math.max(0.3, d.speed / (stride * DEER_SIZE)) : 1;
       d.anim.update(dt);
-      herd.push(d.pos, d.yaw, groundPitch(d.pos[0], d.pos[2], d.yaw, 1.0), 0, DEER_SIZE, FRIEND_GLOW * (d.friend > 0 ? 1 : 0), d.anim, d.seed);
+      if (d.state === "run") footfalls(d, [0.0, 0.62], "hoof");
+      else if (d.state === "walk" || d.stepping) footfalls(d, [0.0, 0.5], "rustle");
+      const dw = (d.state === "alert" || d.state === "idle" || d.state === "walk") && dist < 60;
+      herd.push(d.pos, d.yaw, groundPitch(d.pos[0], d.pos[2], d.yaw, 1.0), 0, DEER_SIZE, 0, d.anim, d.seed, gaze(d, c, dw, 1.3));
     }
     herd.end();
   }
@@ -714,6 +681,10 @@ type FoxState = "trot" | "idle" | "sniff" | "pounce" | "run";
 
 interface Fox extends Bond {
   stepping?: boolean;
+  look?: [number, number];
+  lastPhase?: number;
+  /** Seconds to its next call after dark. */
+  callIn?: number;
   /** Seconds before it plays at pouncing on the wind again. */
   playIn: number;
   pos: Vec3;
@@ -771,12 +742,7 @@ class Foxes {
       }
       f.timer -= dt;
       f.playIn -= dt;
-      const gaits: Gaits = { run: "run", move: "trot", rest: "idle", runAt: 3.5, moveAt: 0.4, max: 11, strides: this.strides, size: FOX_SIZE };
-      if (befriend(f, c, dist, gaits, () => friendly?.("fox", f.pos))) {
-        f.anim.update(dt);
-        herd.push(f.pos, f.yaw, groundPitch(f.pos[0], f.pos[2], f.yaw, 0.6), 0, FOX_SIZE, FRIEND_GLOW, f.anim, f.seed);
-        continue;
-      }
+      meet(f, c, dist, "fox");
       if (gentle(c) && c.windAlt < 3 && dist < 7 && dist > 2 && f.state !== "pounce" && f.playIn <= 0) {
         // Play: it crouches, wiggles and springs at the swallow skimming the grass.
         f.wantYaw = Math.atan2(c.wind[0] - f.pos[0], c.wind[2] - f.pos[2]);
@@ -791,6 +757,7 @@ class Foxes {
         if (f.anim.done) {
           this.set(f, "sniff", rand(1.5, 3));
           this.onPounce?.(f.pos);
+          sound("rustle", f.pos, 0.2);
         }
       } else if (f.timer <= 0) {
         const r = Math.random();
@@ -809,7 +776,15 @@ class Foxes {
       const stride = this.strides[f.stepping ? "trot" : f.state];
       f.anim.speed = stride ? Math.max(0.3, f.speed / (stride * FOX_SIZE)) : 1;
       f.anim.update(dt);
-      herd.push(f.pos, f.yaw, groundPitch(f.pos[0], f.pos[2], f.yaw, 0.6), 0, FOX_SIZE, FRIEND_GLOW * (f.friend > 0 ? 1 : 0), f.anim, f.seed);
+      if (f.state === "run") footfalls(f, [0.0, 0.62], "rustle");
+      // After dark a fox calls now and then: thin yelps across the fields.
+      f.callIn = (f.callIn ?? rand(8, 25)) - dt;
+      if (f.callIn <= 0) {
+        f.callIn = rand(18, 45);
+        if (c.night > 0.4) sound("yip", f.pos, 2);
+      }
+      const fw = (f.state === "idle" || f.state === "trot" || f.state === "sniff") && dist < 25;
+      herd.push(f.pos, f.yaw, groundPitch(f.pos[0], f.pos[2], f.yaw, 0.6), 0, FOX_SIZE, 0, f.anim, f.seed, gaze(f, c, fw, 0.7));
     }
     herd.end();
   }
@@ -823,8 +798,6 @@ const FROG_SIZE = 3.5;
 const FROGS = 10;
 
 interface Frog {
-  /** Calling to the resting swallow (glows while it sings). */
-  friend: number;
   pos: Vec3;
   yaw: number;
   state: "sit" | "croak" | "hop" | "gone";
@@ -855,7 +828,7 @@ class Frogs {
     const y = Math.max(terrainHeight(x, z), water - 0.02);
     // Facing the water, mostly.
     const yaw = Math.atan2(0, -side) + rand(-0.8, 0.8);
-    this.list.push({ pos: [x, y, z], yaw, state: "sit", timer: rand(2, 10), anim: new BirdAnimator(this.herd.species.clips, "sit", Math.random() * 3), seed: Math.random(), leap: null, friend: 0 });
+    this.list.push({ pos: [x, y, z], yaw, state: "sit", timer: rand(2, 10), anim: new BirdAnimator(this.herd.species.clips, "sit", Math.random() * 3), seed: Math.random(), leap: null });
   }
 
   update(c: FaunaContext): void {
@@ -894,17 +867,13 @@ class Frogs {
           f.timer = rand(1.6, 3.2);
           f.anim.play("croak", 0.2, 1, true);
           this.onCroak?.(f.pos);
-          if (c.perched && dist < 14) {
-            f.friend = f.timer;
-            friendly?.("frogs", f.pos);
-          }
+          if (c.perched && dist < 14) friendly?.("frogs", f.pos);
         } else f.timer = rand(3, 9);
       } else if (f.state === "croak" && f.timer <= 0) {
         f.state = "sit";
         f.timer = rand(dusk ? 2 : 6, dusk ? 7 : 16);
         f.anim.play("sit", 0.3);
       }
-      f.friend = Math.max(0, f.friend - dt);
       if (f.leap) {
         f.leap.t += dt;
         const u = Math.min(1, f.leap.t / 0.5);
@@ -916,7 +885,7 @@ class Frogs {
         }
       }
       f.anim.update(dt);
-      herd.push(f.pos, f.yaw, 0, 0, FROG_SIZE, FRIEND_GLOW * (f.friend > 0 ? 1 : 0), f.anim, f.seed);
+      herd.push(f.pos, f.yaw, 0, 0, FROG_SIZE, 0, f.anim, f.seed);
     }
     herd.end();
   }
@@ -930,8 +899,6 @@ const DRAGON_SIZE = 3.2;
 const DRAGONFLIES = 7;
 
 interface Dragonfly {
-  /** Seconds left hovering beside the wind. */
-  friend: number;
   pos: Vec3;
   yaw: number;
   target: Vec3;
@@ -956,7 +923,7 @@ class Dragonflies {
     const [rd, , rhw] = riverInfo(c.wind[0], c.wind[2]);
     if (rd < rhw + 70 && this.list.length < DRAGONFLIES && riverUpper(c.wind[0]) < 0.3) {
       const p = this.pick(c.wind[0] + rand(-35, 35));
-      this.list.push({ pos: p, yaw: rand(0, 6.28), target: [...p], hover: rand(0.5, 2), anim: new BirdAnimator(this.herd.species.clips, "buzz", Math.random()), seed: Math.random(), friend: 0 });
+      this.list.push({ pos: p, yaw: rand(0, 6.28), target: [...p], hover: rand(0.5, 2), anim: new BirdAnimator(this.herd.species.clips, "buzz", Math.random()), seed: Math.random() });
     }
     const herd = this.herd;
     herd.begin();
@@ -967,18 +934,8 @@ class Dragonflies {
         continue;
       }
       const near = Math.hypot(d.pos[0] - c.wind[0], d.pos[1] - c.wind[1], d.pos[2] - c.wind[2]);
-      if (d.friend <= 0 && gentle(c) && near < 4) {
-        d.friend = rand(14, 20);
-        friendly?.("dragonflies", d.pos);
-      }
-      if (d.friend > 0) {
-        // Escorting the swallow: it holds station just off its wing, darting to keep up.
-        d.friend -= dt;
-        const side = d.seed > 0.5 ? 1 : -1;
-        const yaw = windYaw(c);
-        d.target = [c.wind[0] - Math.cos(yaw) * side * 1.4, c.wind[1] + 0.2, c.wind[2] + Math.sin(yaw) * side * 1.4];
-        d.hover = 0.3;
-      }
+      if (near < 3 && Math.random() < dt * 0.7) sound("buzz", d.pos, 1.2);
+      if (near < 4 && gentle(c)) friendly?.("dragonflies", d.pos);
       const tx = d.target[0] - d.pos[0];
       const ty = d.target[1] - d.pos[1];
       const tz = d.target[2] - d.pos[2];
@@ -993,7 +950,7 @@ class Dragonflies {
         }
       } else {
         // Darting: fast, straight, easing in.
-        const step = Math.min(td, Math.max(1.5, td * (d.friend > 0 ? 8 : 4)) * dt);
+        const step = Math.min(td, Math.max(1.5, td * 4) * dt);
         d.pos[0] += (tx / td) * step;
         d.pos[1] += (ty / td) * step;
         d.pos[2] += (tz / td) * step;
@@ -1004,7 +961,7 @@ class Dragonflies {
       d.pos[1] += hb;
       d.anim.speed = 22 + d.seed * 6;
       d.anim.update(dt);
-      if (c.night < 0.5 && c.rain < 0.5) herd.push(d.pos, d.yaw, 0, 0, DRAGON_SIZE, FRIEND_GLOW * (d.friend > 0 ? 1 : 0), d.anim, d.seed);
+      if (c.night < 0.5 && c.rain < 0.5) herd.push(d.pos, d.yaw, 0, 0, DRAGON_SIZE, 0, d.anim, d.seed);
     }
     herd.end();
   }
@@ -1018,9 +975,6 @@ const DUCK_SIZE = 1.5;
 const DUCKS = 6;
 
 interface Duck {
-  /** Seconds left paddling in the wind's wake. */
-  friend: number;
-  slot: number;
   pos: Vec3;
   yaw: number;
   wantYaw: number;
@@ -1054,7 +1008,7 @@ class Mallards {
         const z = riverCenter(x) + rand(-0.3, 0.3) * riverHalfWidth(x);
         for (let k = 0; k < 2; k++) {
           const yaw = rand(0, 6.28);
-          this.list.push({ pos: [x + k * 1.2, riverWater(x), z + k * 0.6], yaw, wantYaw: yaw, speed: 0, state: "swim", timer: rand(3, 8), anim: new BirdAnimator(this.herd.species.clips, "swim", Math.random()), seed: k === 0 ? 0.75 : 0.2, friend: 0, slot: k });
+          this.list.push({ pos: [x + k * 1.2, riverWater(x), z + k * 0.6], yaw, wantYaw: yaw, speed: 0, state: "swim", timer: rand(3, 8), anim: new BirdAnimator(this.herd.species.clips, "swim", Math.random()), seed: k === 0 ? 0.75 : 0.2 });
         }
       }
     }
@@ -1070,26 +1024,12 @@ class Mallards {
         continue;
       }
       d.timer -= dt;
-      if (d.friend <= 0 && gentle(c) && dist < 8) {
-        d.friend = 30;
-        friendly?.("ducks", d.pos);
-      }
-      if (d.friend > 0) {
-        // Paddling after the wind in a little line, as far as ducks can keep up.
-        d.friend -= dt;
-        if (dist > 40) d.friend = 0;
-        const yaw = windYaw(c);
-        const back = 2.2 + d.slot * 1.6;
-        const tx = c.wind[0] - Math.sin(yaw) * back;
-        const tz = c.wind[2] - Math.cos(yaw) * back;
-        d.wantYaw = Math.atan2(tx - d.pos[0], tz - d.pos[2]);
-        const off = Math.hypot(tx - d.pos[0], tz - d.pos[2]);
-        if (d.state !== "swim") this.set(d, "swim", 5);
-        d.anim.speed = 1.5;
-        d.speed += (Math.min(3.2, off * 0.9) - d.speed) * Math.min(1, dt * 2);
-        d.timer = 5;
-      } else if (dist < 9 && c.windAlt < 6 && d.state !== "flee" && !gentle(c)) {
+      if (gentle(c) && dist < 8) friendly?.("ducks", d.pos);
+      // A quack now and then.
+      if (Math.random() < dt / 14) sound("quack", d.pos, 1.5);
+      if (dist < 9 && c.windAlt < 6 && d.state !== "flee" && !gentle(c)) {
         this.set(d, "flee", rand(3, 5));
+        sound("quack", d.pos, 0.5);
         // Along the river, away from the wind.
         d.wantYaw = dx > 0 ? Math.PI / 2 : -Math.PI / 2;
       } else if ((d.state === "dabble" || d.state === "preen") && d.anim.done) this.set(d, "swim", rand(3, 8));
@@ -1107,16 +1047,14 @@ class Mallards {
       const off = d.pos[2] - riverCenter(d.pos[0]);
       const ahead = off + Math.cos(d.wantYaw) * 2;
       if (Math.abs(ahead) > hw * 0.7) d.wantYaw = Math.atan2(Math.sin(d.wantYaw), -Math.sign(off) * Math.abs(Math.cos(d.wantYaw)));
-      d.yaw += angleTo(d.yaw, d.wantYaw) * Math.min(1, dt * (d.friend > 0 ? 2.5 : 1.2));
-      if (d.friend <= 0) {
-        const want = d.state === "flee" ? 2.2 : d.state === "swim" ? 0.45 : 0;
-        d.speed += (want - d.speed) * Math.min(1, dt * 1.5);
-      }
+      d.yaw += angleTo(d.yaw, d.wantYaw) * Math.min(1, dt * 1.2);
+      const want = d.state === "flee" ? 2.2 : d.state === "swim" ? 0.45 : 0;
+      d.speed += (want - d.speed) * Math.min(1, dt * 1.5);
       d.pos[0] += Math.sin(d.yaw) * d.speed * dt;
       d.pos[2] += Math.cos(d.yaw) * d.speed * dt;
       d.pos[1] = riverWater(d.pos[0]) + Math.sin(c.t * 1.3 + d.seed * 9) * 0.01;
       d.anim.update(dt);
-      herd.push(d.pos, d.yaw, 0, Math.sin(c.t * 0.9 + d.seed * 5) * 0.02, DUCK_SIZE, FRIEND_GLOW * (d.friend > 0 ? 1 : 0), d.anim, d.seed);
+      herd.push(d.pos, d.yaw, 0, Math.sin(c.t * 0.9 + d.seed * 5) * 0.02, DUCK_SIZE, 0, d.anim, d.seed);
     }
     herd.end();
   }
@@ -1137,26 +1075,6 @@ export class Fauna {
   /** An animal began to trust the wind ("hare", "deer", "fox", "fox-play", "butterflies", ...). */
   set onFriend(fn: ((kind: string, at: Vec3) => void) | null) {
     friendly = fn;
-  }
-
-  /** The kind of animal nearest the wind, if one is close enough to notice (for hints). */
-  nearKind(at: Vec3): string | null {
-    const near = (list: { pos: Vec3 }[], r: number) => list.some((a) => Math.hypot(a.pos[0] - at[0], a.pos[2] - at[2]) < r);
-    if (near(this.deer.list, 40)) return "deer";
-    if (near(this.foxes.list, 30)) return "fox";
-    if (near(this.hares.list, 30)) return "hare";
-    if (near(this.ducks.list, 25)) return "ducks";
-    if (near(this.butterflies.list, 10)) return "butterflies";
-    if (near(this.dragonflies.list, 8)) return "dragonflies";
-    if (near(this.frogs.list, 12)) return "frogs";
-    return null;
-  }
-
-  /** Animals running with the wind right now. */
-  get friends(): number {
-    let n = 0;
-    for (const l of [this.hares.list, this.deer.list, this.foxes.list, this.butterflies.list, this.ducks.list, this.dragonflies.list]) for (const a of l as { friend: number }[]) if (a.friend > 0) n++;
-    return n;
   }
 
   static async load(gpu: Gpu, globals: SharedUniforms): Promise<Fauna> {
@@ -1181,7 +1099,13 @@ export class Fauna {
   }
 
   /** `critters` (globals): the ground animals nearest the wind, for the grass to part around. */
+  /** Sounds the animals make (kind, where). */
+  set onSound(fn: ((kind: string, at: Vec3) => void) | null) {
+    sounding = fn;
+  }
+
   update(c: FaunaContext, critters: Float32Array): void {
+    clock += c.dt;
     // After dark each animal carries a soft light, like the swallow's, so they can be found.
     const glow = Math.min(1, Math.max(0, (c.night - 0.12) / 0.6)) * 0.9;
     for (const g of this.all) g.herd.glow = glow;

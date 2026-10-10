@@ -15,6 +15,8 @@ struct Animal {
   pose: vec4f,
   // x = frame, y = frame faded from, z = its weight, w = random per animal in [0, 1)
   anim: vec4f,
+  // Head tracking: x = turn (rad, + to its left), y = nod (rad, + up), zw unused.
+  look: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -23,6 +25,20 @@ struct Animal {
 
 override BONES: u32 = 14u;
 override KIND: u32 = 0u;
+// Head tracking: the bones that turn fully (bit mask: head, ears...), the neck (turns half),
+// and the pivot at the base of the neck (model space, rest pose).
+override LOOK_MASK: u32 = 0u;
+override NECK_BONE: u32 = 0u;
+override PIVOT_X: f32 = 0.0;
+override PIVOT_Y: f32 = 0.0;
+override PIVOT_Z: f32 = 0.0;
+
+fn lookWeight(bone: u32) -> f32 {
+  if (bone < 32u && ((LOOK_MASK >> bone) & 1u) == 1u) {
+    return 1.0;
+  }
+  return select(0.0, 0.5, bone == NECK_BONE);
+}
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -98,11 +114,27 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
     m = mixRows(bonePose(a.anim, j.y), m, w0);
   }
   var lp = apply(m, vec4f(p.xyz, 1.0));
+  var ln = apply(m, vec4f(n.xyz, 0.0));
+  // Watching something: the head (and half the neck) turns about the base of the neck.
+  if (LOOK_MASK != 0u && (a.look.x != 0.0 || a.look.y != 0.0)) {
+    let wl = lookWeight(j.x) * w0 + lookWeight(j.y) * (1.0 - w0);
+    if (wl > 0.0) {
+      let pv = apply(bonePose(a.anim, NECK_BONE), vec4f(PIVOT_X, PIVOT_Y, PIVOT_Z, 1.0));
+      let yaw = a.look.x * wl;
+      let nod = a.look.y * wl;
+      var q = lp - pv;
+      // Nod about the side axis, then turn about the vertical.
+      q = vec3f(q.x, q.y * cos(nod) + q.z * sin(nod), -q.y * sin(nod) + q.z * cos(nod));
+      q = vec3f(q.x * cos(yaw) + q.z * sin(yaw), q.y, -q.x * sin(yaw) + q.z * cos(yaw));
+      lp = pv + q;
+      ln = vec3f(ln.x, ln.y * cos(nod) + ln.z * sin(nod), -ln.y * sin(nod) + ln.z * cos(nod));
+      ln = vec3f(ln.x * cos(yaw) + ln.z * sin(yaw), ln.y, -ln.x * sin(yaw) + ln.z * cos(yaw));
+    }
+  }
   // Antlers on the bucks only (about two in five): the does' collapse to nothing.
   if (KIND == 0u && u32(p.w + 0.5) == 4u && fract(a.anim.w * 7.31) > 0.4) {
     lp = vec3f(0.0);
   }
-  let ln = apply(m, vec4f(n.xyz, 0.0));
   let world = a.pos.xyz + place(a, lp, false);
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);

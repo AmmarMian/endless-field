@@ -50,7 +50,7 @@ const titleEl = document.getElementById("title")!;
 const controlsEl = document.getElementById("controls")!;
 const petalsEl = document.getElementById("petals")!;
 const statsEl = document.getElementById("stats")!;
-const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>E</kbd> loop · <kbd>←</kbd><kbd>←</kbd> roll · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
+const WIND_HINT = "<kbd>WASD</kbd> steer · <kbd>Space</kbd> gust · <kbd>↑</kbd><kbd>↓</kbd> rise / dive · <kbd>E</kbd> loop · <kbd>←</kbd><kbd>←</kbd> roll · <kbd>B</kbd> rest · <kbd>M</kbd> free roam · <kbd>K</kbd> map · <kbd>O</kbd> menu";
 const EXPLORE_HINT = "<kbd>WASD</kbd> move · <kbd>←</kbd><kbd>→</kbd> look · <kbd>Shift</kbd> sprint · <kbd>V</kbd> fly · <kbd>Space</kbd><kbd>C</kbd> up / down · <kbd>M</kbd> wind";
 const TOUCH = matchMedia("(pointer: coarse)").matches;
 const TOUCH_HINT = "Drag to steer · hold <kbd>◎</kbd> to gust, double-tap to loop · tilt steering in Menu → System";
@@ -181,6 +181,7 @@ async function main(): Promise<void> {
   let skimTimer = 0;
   let wasPerched = false;
   let restAmt = 0;
+  let restNow = false;
   // Weather moments and sound: a rainbow after a daytime shower, frogs at night, rain plinks.
   let rainbowT = 0;
   let rainPeak = 0;
@@ -716,6 +717,11 @@ async function main(): Promise<void> {
 
     // A vertical loop.
     if (input.wasPressed("e") && !explore && playing) player.startLoop();
+    // Rest now: the swallow comes down to the nearest perch (the key itself is not a nudge).
+    if (input.wasPressed("b") && !explore && playing && current.avatar === "swallow" && !player.perched) {
+      input.poked = false;
+      restNow = true;
+    }
     // Barrel rolls: double-tap left or right.
     // ...and a roll near a flock invites it to fly along (a murmuration).
     const rollL = input.wasPressed("roll-left");
@@ -892,7 +898,7 @@ async function main(): Promise<void> {
       }
       const [wd, wy, whw] = riverInfo(player.pos[0], player.pos[2]);
       // Pause and look: left alone for a while, the swallow finds a perch and settles there.
-      if (playing && current.avatar === "swallow" && input.idle > debug.landAfter && !player.perched && !player.landing && !player.looping && !player.riding) {
+      if (playing && current.avatar === "swallow" && (input.idle > debug.landAfter || restNow) && !player.perched && !player.landing && !player.looping && !player.riding) {
         let perch: Vec3 | null = null;
         let best = 35;
         // At dusk and night, home: the nest under the torii beam, if it is within reach.
@@ -920,6 +926,7 @@ async function main(): Promise<void> {
           }
         }
         if (perch) player.landAt(perch);
+        restNow = false;
       }
       if (player.perched && !wasPerched) audio.rest();
       // Frogs along the river at night, from somewhere along its banks near you.

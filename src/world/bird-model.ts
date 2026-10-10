@@ -28,6 +28,10 @@ export const BIRD_STRIDE = 12;
  *   position xyz, heading | pitch, bank, size, glow | frame, faded-from frame, its weight, random
  */
 export class BirdSpecies {
+  /** The shader drawing this species, and the name it gives the instance buffer. */
+  shader: typeof birdShader = birdShader;
+  instanceKey = "birds";
+
   private constructor(
     private readonly gpu: Gpu,
     private readonly geo: ReturnType<typeof geometry>,
@@ -36,6 +40,8 @@ export class BirdSpecies {
     readonly clips: Record<string, Clip>,
     /** Body origin to the soles when perched (model meters: times the instance size). */
     readonly perchHeight: number,
+    /** Anything else the model's manifest carries (sizes, gait strides...). */
+    readonly info: Record<string, unknown> = {},
   ) {}
 
   static async load(gpu: Gpu, name: string, base = "assets/birds"): Promise<BirdSpecies> {
@@ -51,29 +57,35 @@ export class BirdSpecies {
     const off = m.vertexBytes + m.indexCount * 4;
     const skins = storage(gpu, m.matrixBytes, "read");
     skins.write(new Uint32Array(bin.slice(off, off + m.matrixBytes)));
-    return new BirdSpecies(gpu, geo, skins, m.bones.length, m.clips, m.perchHeight);
+    return new BirdSpecies(gpu, geo, skins, m.bones.length, m.clips, m.perchHeight, m as unknown as Record<string, unknown>);
   }
 
   /** A draw of this species' birds from `instances` (and their soft light, with `halo`). */
-  draws(globals: SharedUniforms, instances: StorageBuffer, label: string): { body: Draw; halo: Draw } {
-    const set = { G: globals, birds: instances, skins: this.skins };
+  draws(
+    globals: SharedUniforms,
+    instances: StorageBuffer,
+    label: string,
+    opts: { constants?: Record<string, number>; alphaToCoverage?: boolean } = {},
+  ): { body: Draw; halo: Draw } {
+    const set = { G: globals, [this.instanceKey]: instances, skins: this.skins };
     const body = draw(this.gpu, {
       label,
-      shader: birdShader,
+      shader: this.shader,
       geometry: this.geo,
       cull: "none",
       depth: { compare: "greater" },
-      constants: { BONES: this.bones },
+      constants: { BONES: this.bones, ...opts.constants },
+      ...(opts.alphaToCoverage ? { multisample: { alphaToCoverage: true } } : {}),
       set,
     });
     const halo = draw(this.gpu, {
       label: `${label}-light`,
-      shader: birdShader,
+      shader: this.shader,
       entry: { vertex: "vs_halo", fragment: "fs_halo" },
       vertices: 6,
       blend: "additive",
       depth: { compare: "greater", write: false },
-      constants: { BONES: this.bones },
+      constants: { BONES: this.bones, ...opts.constants },
       set,
     });
     return { body, halo };

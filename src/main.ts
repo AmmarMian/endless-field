@@ -33,6 +33,7 @@ import { setWorldSeed, mountainZone, riverCenter, riverInfo, riverHalfWidth, riv
 import { biome } from "./world/biome";
 import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
+import { Fauna } from "./world/fauna";
 import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
@@ -265,7 +266,7 @@ async function main(): Promise<void> {
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
-  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race, fish, swallow] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race, fish, swallow, fauna] = await Promise.all([
     track(Trees.load(gpu, globals.uniforms), "trees"),
     track(FlowerBeds.load(gpu, globals.uniforms, life.buffer), "flowerbeds"),
     track(Water.load(gpu, globals.uniforms), "water"),
@@ -278,6 +279,7 @@ async function main(): Promise<void> {
     track(RiverRace.load(gpu, globals.uniforms), "riverrace"),
     track(RiverFish.load(gpu, globals.uniforms), "fish"),
     track(PlayerBird.load(gpu, globals.uniforms), "swallow"),
+    track(Fauna.load(gpu, globals.uniforms), "animals"),
   ]);
   const nest = new Nest(gpu, globals.uniforms);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
@@ -413,7 +415,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...fauna.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -600,6 +602,7 @@ async function main(): Promise<void> {
     thermals,
     insects,
     swallow,
+    fauna,
     get panel() {
       return panel;
     },
@@ -1065,6 +1068,12 @@ async function main(): Promise<void> {
       }
       player.followScale += ((current.avatar === "swallow" ? 0.52 : 1) - player.followScale) * Math.min(1, dt * 2);
       birds.update(dt, player.pos, player.altitude, night, player.yaw);
+      {
+        const lead = explore ? freecam.pos : player.pos;
+        const f = player.forward;
+        const v = explore ? 0 : player.speed;
+        fauna.update({ dt, wind: lead, windVel: [f[0] * v, f[1] * v, f[2] * v], windAlt: explore ? 1 : player.altitude, heading: player.yaw, night, rain, t }, globals.critters);
+      }
       if (playing && !paused) {
         regionCheck -= dt;
         if (regionCheck <= 0) {
@@ -1238,6 +1247,7 @@ async function main(): Promise<void> {
       race.glow = darkGlow;
       swallow.encode(pass);
       birds.encode(pass);
+      fauna.encode(pass);
       secrets.encode(pass);
       race.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);

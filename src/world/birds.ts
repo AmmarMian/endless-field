@@ -1,5 +1,5 @@
-import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
-import birdShader from "../shaders/birds.wgsl";
+import { storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
+import { BIRD_STRIDE, BirdAnimator, BirdSpecies } from "./bird-model";
 import type { Vec3 } from "../engine/camera";
 import { ecology } from "./ecology";
 import { riverInfo, terrainHeightM as terrainHeight } from "./height";
@@ -31,7 +31,12 @@ interface Bird {
   goal: Vec3;
   /** Offset within the flock. */
   offset: [number, number];
+  anim: BirdAnimator;
 }
+
+/** Sparrows are drawn a little larger than life, so they read in the long grass. */
+const SPARROW_SIZE = 1.35;
+const HAWK_SIZE = 1.7;
 
 interface Flock {
   birds: Bird[];
@@ -63,22 +68,15 @@ function goodGround(x: number, z: number): boolean {
  * Flocks of small birds feeding in the meadow. They hop and peck until the wind passes through
  * them, then burst up together, wheel around and settle somewhere further off.
  */
-interface Manifest {
-  vertexBytes: number;
-  indexCount: number;
-  shoulder: number;
-  variants: { name: string; firstIndex: number; indexCount: number }[];
-}
-
 export class Birds {
-  /** Perched and flying poses. */
+  /** Sparrows, then hawks. */
   readonly draws: Draw[];
   private readonly flocks: Flock[] = [];
-  private readonly buffer: StorageBuffer;
-  private readonly data = new Float32Array((MAX + SOARERS) * 12);
-  /** Instances: perched birds first, then flying ones. */
-  private perched = 0;
-  private flying = 0;
+  private readonly data = new Float32Array((MAX + SOARERS) * BIRD_STRIDE);
+  private sparrows = 0;
+  private hawks = 0;
+  private readonly hawkAnims: BirdAnimator[] = [];
+  private readonly ground: number;
   /** Called with the flock's position when it takes off. */
   onTakeoff: ((at: Vec3, n: number) => void) | null = null;
   /**
@@ -89,34 +87,24 @@ export class Birds {
   /** A feeding flock chirping (so it can be found by ear). */
   onChirp: ((at: Vec3) => void) | null = null;
 
-  private constructor(draws: Draw[], buffer: StorageBuffer) {
-    this.draws = draws;
-    this.buffer = buffer;
+  private constructor(
+    private readonly sparrow: BirdSpecies,
+    private readonly hawk: BirdSpecies,
+    private readonly sparrowBuf: StorageBuffer,
+    private readonly hawkBuf: StorageBuffer,
+    private readonly sparrowDraw: Draw,
+    private readonly hawkDraw: Draw,
+  ) {
+    this.draws = [sparrowDraw, hawkDraw];
+    this.ground = sparrow.perchHeight * SPARROW_SIZE;
+    for (let i = 0; i < SOARERS; i++) this.hawkAnims.push(new BirdAnimator(hawk.clips, "glide", Math.random() * 3));
   }
 
-  static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/bird"): Promise<Birds> {
-    const [manifest, bin] = await Promise.all([
-      fetch(`${base}/bird.json`).then((r) => r.json() as Promise<Manifest>),
-      fetch(`${base}/bird.bin`).then((r) => r.arrayBuffer()),
-    ]);
-    const geo = geometry(gpu, {
-      label: "bird",
-      buffers: [{ data: new Uint8Array(bin, 0, manifest.vertexBytes), attributes: { p: "float16x4", n: "snorm8x4", t: "float16x2", e: "unorm8x4" } }],
-      indices: new Uint32Array(bin, manifest.vertexBytes, manifest.indexCount),
-    });
-    const buffer = storage(gpu, (MAX + SOARERS) * 48, "read");
-    const draws = manifest.variants.map((v) =>
-      draw(gpu, {
-        label: `bird-${v.name}`,
-        shader: birdShader,
-        geometry: geo.slice({ firstIndex: v.firstIndex, indexCount: v.indexCount }),
-        cull: "none",
-        depth: { compare: "greater" },
-        constants: { SHOULDER: manifest.shoulder },
-        set: { G: globals, birds: buffer },
-      }),
-    );
-    return new Birds(draws, buffer);
+  static async load(gpu: Gpu, globals: SharedUniforms): Promise<Birds> {
+    const [sparrow, hawk] = await Promise.all([BirdSpecies.load(gpu, "sparrow"), BirdSpecies.load(gpu, "hawk")]);
+    const sparrowBuf = storage(gpu, MAX * BIRD_STRIDE * 4, "read");
+    const hawkBuf = storage(gpu, SOARERS * BIRD_STRIDE * 4, "read");
+    return new Birds(sparrow, hawk, sparrowBuf, hawkBuf, sparrow.draws(globals, sparrowBuf, "sparrows").body, hawk.draws(globals, hawkBuf, "hawks").body);
   }
 
   /**
@@ -148,6 +136,7 @@ export class Birds {
       b.flap = 0;
       b.pitch = 0;
       b.timer = rand(0.2, 2);
+      b.anim.play("perch", 0, 1, true, Math.random() * 9);
     }
   }
 
@@ -169,6 +158,7 @@ export class Birds {
         seed: Math.random(),
         goal: [0, 0, 0],
         offset: [Math.cos(a) * r, Math.sin(a) * r],
+        anim: new BirdAnimator(this.sparrow.clips, "perch", Math.random() * 9),
       });
     }
     const flock: Flock = { birds, home, airborne: false, air: 0 };
@@ -241,8 +231,25 @@ export class Birds {
       }
     }
 
-    const perched: number[] = [];
-    const flying: number[] = [];
+    let n = 0;
+    const out = this.data;
+    const emit = (b: Bird, x: number, y: number, z: number, roll = 0): void => {
+      b.anim.update(dt);
+      const o = n * BIRD_STRIDE;
+      out.set([x, y, z, b.yaw, b.pitch, roll, SPARROW_SIZE, 0], o);
+      b.anim.write(out, o + 8);
+      out[o + 11] = b.seed;
+      n++;
+    };
+    /** Wingbeats or a glide, by what the bird is doing (with a short take-off first). */
+    const fly = (b: Bird, beating: boolean, rate: number): void => {
+      const a = b.anim;
+      if (a.clip === "takeoff" && !a.done) return;
+      if (a.clip === "land" && !a.done && b.state === 0) return;
+      if (a.clip === "perch" || a.clip === "peck" || a.clip === "hop") a.play("takeoff", 0.08, 1.6, true);
+      else if (beating) a.play("flap", 0.15, rate);
+      else a.play("glide", 0.3);
+    };
     for (const f of this.flocks) {
       const near = Math.hypot(f.home[0] - wind[0], f.home[2] - wind[2]);
       if (!f.airborne && near < STARTLE + 4 && windAlt < 6) {
@@ -292,8 +299,8 @@ export class Birds {
           b.yaw = Math.atan2(b.vel[0], b.vel[2]);
           b.pitch = -Math.atan2(b.vel[1], Math.hypot(b.vel[0], b.vel[2]) + 1e-3) * 0.6;
           b.phase += dt * 24;
-          b.flap = Math.sin(tNow * 1.7 + i) > 0.2 ? Math.sin(b.phase) * 0.85 + 0.1 : 0.12;
-          if (night < 0.95) flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed, 0, 0, 0, 0);
+          fly(b, Math.sin(tNow * 1.7 + i) > 0.2, 3.6);
+          if (night < 0.95) emit(b, b.pos[0], b.pos[1] + 0.06, b.pos[2]);
         });
         if (f.following! <= 0) {
           // Time to go: peel off and settle somewhere ahead.
@@ -332,24 +339,27 @@ export class Birds {
           b.pitch = -Math.atan2(b.vel[1], Math.hypot(b.vel[0], b.vel[2])) * 0.7;
           b.spread = 1;
           // Mostly gliding, banking round; a few wingbeats now and then.
-          b.flap = Math.sin(a * 2.3 + b.seed * 7) > 0.6 ? Math.sin(b.phase) * 0.8 + 0.1 : 0.12;
-          if (night < 0.95) {
-            flying.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed, 0, 0, 0, 0);
-          }
+          fly(b, Math.sin(a * 2.3 + b.seed * 7) > 0.6, 3.2);
+          // Banked into its circle.
+          if (night < 0.95) emit(b, b.pos[0], b.pos[1], b.pos[2], -0.4);
           continue;
         }
         if (b.state === 0) {
           // Feeding: peck, turn, and the odd little hop.
           if (b.timer <= 0) {
             b.timer = rand(0.4, 2.5);
-            if (Math.random() < 0.35) {
-              // Mostly small hops; now and then a lookout flutters up above the grass.
-              const lookout = Math.random() < 0.3;
-              b.vel[1] = lookout ? 4.2 : 1.6;
+            const r = Math.random();
+            if (r < 0.3) {
+              // Mostly small hops; now and then one flutters up above the grass to look.
+              const lookout = Math.random() < 0.25;
+              b.vel[1] = lookout ? 4.2 : 1.9;
               const a = b.yaw + rand(-1, 1);
-              b.vel[0] = Math.sin(a) * (lookout ? 1.2 : 0.6);
-              b.vel[2] = Math.cos(a) * (lookout ? 1.2 : 0.6);
-            } else b.yaw += rand(-1.2, 1.2);
+              b.vel[0] = Math.sin(a) * (lookout ? 1.2 : 0.7);
+              b.vel[2] = Math.cos(a) * (lookout ? 1.2 : 0.7);
+              b.yaw = a;
+              b.anim.play(lookout ? "takeoff" : "hop", 0.06, lookout ? 1.4 : 1, true);
+            } else if (r < 0.75) b.anim.play("peck", 0.1, rand(0.8, 1.2), true);
+            else b.yaw += rand(-1.2, 1.2);
           }
           b.vel[1] -= 9.8 * dt;
           for (let j = 0; j < 3; j++) b.pos[j] += b.vel[j] * dt;
@@ -358,10 +368,15 @@ export class Birds {
             b.pos[1] = g;
             b.vel.splice(0, 3, 0, 0, 0);
           }
-          // Peck: a quick dip of the head.
-          b.pitch = Math.max(0, Math.sin(b.timer * 9)) * 0.5;
+          b.pitch = 0;
           b.spread = Math.max(0, b.spread - dt * 4);
           b.flap = 0;
+          const a = b.anim;
+          if (b.vel[1] !== 0 || b.pos[1] > g + 0.02) {
+            // In the air from a hop: a lookout flutters, a hop just falls back.
+            if (a.clip === "takeoff" && a.done) a.play("flap", 0.1, 4);
+          } else if (a.clip === "flap" || a.clip === "takeoff") a.play("land", 0.1, 1.4, true, 0.85);
+          else if (a.clip !== "perch" && a.done) a.play("perch", 0.25, 1, true, Math.random() * 9);
         } else if (b.timer <= 0) {
           const g = terrainHeight(b.pos[0], b.pos[2]);
           const tx = b.goal[0] + b.offset[0];
@@ -387,7 +402,9 @@ export class Birds {
           const climbing = b.vel[1] > 0.5 || f.air < 1.5;
           b.phase += dt * (climbing ? 26 : 20);
           const glide = !climbing && Math.sin(f.air * 1.7 + b.seed * 9) > 0.3;
-          b.flap = glide ? 0.12 : Math.sin(b.phase) * 0.85 + 0.1;
+          fly(b, !glide, climbing ? 4.2 : 3.4);
+          // Coming down to the goal: flare and reach for the ground.
+          if (dist < 3 && f.air > 2 && b.anim.clip !== "land") b.anim.play("land", 0.2, 1.3, true, 0.3);
           if (dist < 0.6 && b.pos[1] - g < 0.4 && f.air > 2) {
             b.state = 0;
             b.timer = rand(0.5, 2);
@@ -396,17 +413,8 @@ export class Birds {
           }
         }
         if (b.state === 0) landed++;
-        // Birds roost at night (fade out by shrinking into the ground).
-        const show = 1 - night;
-        if (show > 0.05) {
-          // Perched models stand on their feet; flying ones are centred on the body.
-          const hopping = b.state === 0 && b.pos[1] - terrainHeight(b.pos[0], b.pos[2]) > 0.15;
-          if (hopping) {
-            b.phase += dt * 28;
-            flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, Math.sin(b.phase) * 0.9 + 0.1, 1, -0.2, b.seed, 0, 0, 0, 0);
-          } else if (b.state === 0) perched.push(b.pos[0], b.pos[1], b.pos[2], b.yaw, 0, 0, b.pitch, b.seed, 0, 0, 0, 0);
-          else flying.push(b.pos[0], b.pos[1] + 0.06, b.pos[2], b.yaw, b.flap, b.spread, b.pitch, b.seed, 0, 0, 0, 0);
-        }
+        // Birds roost at night. On the ground the body rides its legs (feet at `pos`).
+        if (night < 0.95) emit(b, b.pos[0], b.pos[1] + (b.state === 0 || b.timer > 0 ? this.ground : 0.06), b.pos[2]);
       }
       if (f.airborne && landed >= f.birds.length - 2 && f.air > 2) {
         f.airborne = false;
@@ -415,11 +423,14 @@ export class Birds {
       // Give up circling after a while and settle wherever the goal is.
       if (f.airborne && f.air > 80) this.settle(f, f.birds[0].goal);
     }
+    this.sparrows = n;
+    if (n) this.sparrowBuf.write(out.subarray(0, n * BIRD_STRIDE));
     // Hawks soaring in the thermals: wide slow circles near the top, wings held still and
-    // banked into the turn; big enough to spot from far away.
+    // banked into the turn, now and then a few deep beats; big enough to spot from far away.
+    let h = 0;
     if (night < 0.5) {
       this.soar.forEach((c, ci) => {
-        for (let k = 0; k < 2; k++) {
+        for (let k = 0; k < 2 && h < SOARERS; k++) {
           const w = tNow * (0.32 + k * 0.05) + ci * 2 + k * Math.PI;
           const r = c.radius * (1.6 + k * 0.5);
           const y = c.top - 4 - k * 3 + Math.sin(tNow * 0.3 + ci) * 1.5;
@@ -427,21 +438,23 @@ export class Birds {
           const z = c.z + Math.sin(w) * r;
           // Heading along the circle (tangent), banked inward.
           const yaw = Math.atan2(-Math.sin(w), Math.cos(w));
-          const flap = Math.sin(tNow * 0.9 + k + ci) > 0.93 ? Math.sin(tNow * 14) * 0.5 : 0.08;
-          flying.push(x, y, z, yaw, flap, 1, 0, 0.1, -0.35, 4.2, 0, 0);
+          const a = this.hawkAnims[h];
+          a.play(Math.sin(tNow * 0.9 + k + ci) > 0.93 ? "flap" : "glide", 0.5, 1.1);
+          a.update(dt);
+          const o = h * BIRD_STRIDE;
+          out.set([x, y, z, yaw, 0, -0.35, HAWK_SIZE, 0], o);
+          a.write(out, o + 8);
+          out[o + 11] = 0.3 + k * 0.4;
+          h++;
         }
       });
     }
-    this.perched = perched.length / 12;
-    this.flying = flying.length / 12;
-    this.data.set(perched, 0);
-    this.data.set(flying, perched.length);
-    const n = perched.length + flying.length;
-    if (n) this.buffer.write(this.data.subarray(0, n));
+    this.hawks = h;
+    if (h) this.hawkBuf.write(out.subarray(0, h * BIRD_STRIDE));
   }
 
   encode(pass: FramePass): void {
-    if (this.perched) pass.draw(this.draws[0], { instances: this.perched });
-    if (this.flying) pass.draw(this.draws[1], { instances: this.flying, firstInstance: this.perched });
+    if (this.sparrows) pass.draw(this.sparrowDraw, { instances: this.sparrows });
+    if (this.hawks) pass.draw(this.hawkDraw, { instances: this.hawks });
   }
 }

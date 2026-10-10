@@ -28,7 +28,9 @@ page.on("pageerror", (e) => logs.push(`[pageerror] ${e.message}`));
 page.on("response", (r) => {
   if (r.status() >= 400) logs.push(`[http ${r.status()}] ${r.url()}`);
 });
-await page.goto(url);
+// Web fonts are optional: never let a slow font host hold up the capture.
+await page.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+await page.goto(url, { waitUntil: "domcontentloaded" });
 const t0 = Date.now();
 await page.waitForFunction(() => window.__ef || !document.getElementById("error")?.hidden, null, { timeout: 60000 });
 console.log(`ready in ${Date.now() - t0} ms`);

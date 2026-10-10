@@ -1,23 +1,25 @@
-// Meadow birds (model: tools/blender/model_bird.py): painted plumage from vertex colours.
-// Wings flap about the shoulder; the outer hand bends further than the arm.
+// Birds (models, rigs and animation: tools/blender/model_birds.py). Each species is skinned on
+// the GPU from animation baked in Blender: per clip frame and bone, a skinning matrix (3 rows,
+// float16). An instance plays two frames of its clips at once and blends them (a crossfade
+// from the clip it left to the one it plays), between baked frames as well.
 import { Globals } from "./lib/globals.wgsl";
 import { SkyParams, applyFog, ambientSky } from "./lib/atmosphere.wgsl";
 
 struct Bird {
-  // xyz = position, w = heading (yaw)
+  // xyz = position (the body's centre), w = heading (yaw)
   pos: vec4f,
-  // x = flap angle, y = wing spread, z = pitch, w = seed (in [0, 1); 1 + k: glowing with k)
+  // x = pitch (+ dips the head), y = bank (roll), z = size (times life size), w = glow (0..1)
   pose: vec4f,
-  // x = bank (roll, rad), y = size multiplier (0 = 1), z = elbow (span m; 0 = sparrow),
-  // w = wing sweep (0 spread .. 1 swept back on the upstroke)
-  extra: vec4f,
+  // x = frame now (absolute, fractional), y = frame of the clip faded from, z = its weight,
+  // w = a per-bird random in [0, 1)
+  anim: vec4f,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
 @group(0) @binding(1) var<storage, read> birds: array<Bird>;
+@group(0) @binding(2) var<storage, read> skins: array<u32>;
 
-override SHOULDER: f32 = 0.022;
-const SCALE = 1.35;
+override BONES: u32 = 14u;
 
 struct VOut {
   @builtin(position) pos: vec4f,
@@ -28,95 +30,87 @@ struct VOut {
   @location(4) @interpolate(flat) part: u32,
   @location(5) @interpolate(flat) glow: f32,
   @location(6) gloss: f32,
-  // Feathers: x = along (0 root .. 1 tip), y = across (-1 .. 1, 0 on the shaft); z = 1 on
-  // a feather. Body: the model-space position, for plumage texture.
+  // Wing: span 0..1, chord 0..1; tail: across -1..1, along 0..1; z = 1 on an upper surface.
   @location(7) feather: vec3f,
   @location(8) local: vec3f,
 }
 
-fn rotZ(v: vec2f, a: f32) -> vec2f {
-  let c = cos(a);
-  let s = sin(a);
-  return vec2f(v.x * c - v.y * s, v.x * s + v.y * c);
+struct Rows {
+  r0: vec4f,
+  r1: vec4f,
+  r2: vec4f,
+}
+
+fn rowsAt(frame: u32, bone: u32) -> Rows {
+  let b = (frame * BONES + bone) * 6u;
+  return Rows(
+    vec4f(unpack2x16float(skins[b]), unpack2x16float(skins[b + 1u])),
+    vec4f(unpack2x16float(skins[b + 2u]), unpack2x16float(skins[b + 3u])),
+    vec4f(unpack2x16float(skins[b + 4u]), unpack2x16float(skins[b + 5u])),
+  );
+}
+
+fn mixRows(a: Rows, b: Rows, t: f32) -> Rows {
+  return Rows(mix(a.r0, b.r0, t), mix(a.r1, b.r1, t), mix(a.r2, b.r2, t));
+}
+
+/** A bone's matrix at a fractional frame (the next baked frame is always in the same clip). */
+fn boneAt(frame: f32, bone: u32) -> Rows {
+  let f0 = floor(frame);
+  let i = u32(max(f0, 0.0));
+  return mixRows(rowsAt(i, bone), rowsAt(i + 1u, bone), frame - f0);
+}
+
+fn bonePose(anim: vec4f, bone: u32) -> Rows {
+  var m = boneAt(anim.x, bone);
+  if (anim.z > 0.001) {
+    m = mixRows(m, boneAt(anim.y, bone), anim.z);
+  }
+  return m;
+}
+
+fn apply(m: Rows, v: vec4f) -> vec3f {
+  return vec3f(dot(m.r0, v), dot(m.r1, v), dot(m.r2, v));
+}
+
+/** Model space -> world: size, bank about the body's long axis, pitch, then heading. */
+fn place(b: Bird, v: vec3f, isDir: bool) -> vec3f {
+  var lp = v * select(b.pose.z, 1.0, isDir);
+  let cr = cos(b.pose.y);
+  let sr = sin(b.pose.y);
+  lp = vec3f(lp.x * cr - lp.y * sr, lp.x * sr + lp.y * cr, lp.z);
+  let cp = cos(-b.pose.x);
+  let sp = sin(-b.pose.x);
+  lp = vec3f(lp.x, lp.y * cp + lp.z * sp, -lp.y * sp + lp.z * cp);
+  let cy = cos(b.pos.w);
+  let sy = sin(b.pos.w);
+  return vec3f(lp.x * cy + lp.z * sy, lp.y, -lp.x * sy + lp.z * cy);
 }
 
 @vertex
-fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, @location(3) e: vec4f, @builtin(instance_index) ii: u32) -> VOut {
+fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, @location(3) e: vec4f, @location(4) j: vec4u, @builtin(instance_index) ii: u32) -> VOut {
   let b = birds[ii];
-  // p.w: the part, plus (feathers) how far along the feather in the fraction.
-  let part = u32(floor(p.w + 0.01));
-  let along = fract(p.w + 0.01) / 0.9;
-  var lp = p.xyz;
-  let modelPos = p.xyz;
-  var ln = n.xyz;
-  if (part == 3u && t.x != 0.0) {
-    // Wing: rotate about the shoulder (an axis along the body); the hand bends further.
-    let side = sign(t.x);
-    let d = abs(t.x);
-    let elbow = select(0.035, b.extra.z, b.extra.z > 0.0);
-    // The hand: a further bend at the wrist. The sparrows bend it with the arm; the swallow
-    // (elbow given) keyframes it on its own (pose.y), lagging the arm through the stroke.
-    let hand = select(b.pose.x * 0.6, b.pose.y, b.extra.z > 0.0);
-    // The swallow's wing body grows out of the flank: its root stays in the body and the arm's
-    // turn eases in over the first 3 cm (a smooth shoulder, no kink); the hand bends on top.
-    let armW = select(smoothstep(0.0, 0.012, d), smoothstep(0.0, 0.03, d), b.extra.z > 0.0);
-    let a = (b.pose.x * armW + hand * smoothstep(elbow, elbow * 2.1, d)) * side;
-    // On the upstroke the hand sweeps back (the wing half folds), about the elbow.
-    let sweep = min(b.extra.w, 1.0) * smoothstep(elbow * 0.6, elbow * 1.4, d) * 0.9;
-    if (sweep > 0.0) {
-      let ex = side * (SHOULDER + elbow);
-      let rel = vec2f(lp.x - ex, lp.z);
-      // Back (toward -z) on either side.
-      let cs = cos(-sweep * side);
-      let sn = sin(-sweep * side);
-      let r2 = vec2f(rel.x * cs - rel.y * sn, rel.x * sn + rel.y * cs);
-      lp = vec3f(r2.x + ex, lp.y, r2.y);
-    }
-    // Perched (extra.w above 1): the whole wing folds back about the shoulder to lie along
-    // the body, slightly raised over the back.
-    let foldAll = clamp(b.extra.w - 1.0, 0.0, 1.0);
-    if (foldAll > 0.0) {
-      let fa = foldAll * 1.45;
-      let rel = vec2f(lp.x - side * SHOULDER, lp.z);
-      let c = cos(fa);
-      let sn = sin(fa);
-      let r = vec2f(rel.x * c + side * rel.y * sn, -side * rel.x * sn + rel.y * c);
-      lp = vec3f(r.x * 0.7 + side * SHOULDER, lp.y + 0.005 * foldAll, r.y);
-    }
-    let pivot = vec2f(side * SHOULDER, 0.008);
-    let r = rotZ(lp.xy - pivot, a) + pivot;
-    lp = vec3f(r, lp.z);
-    ln = vec3f(rotZ(ln.xy, a), ln.z);
+  let w0 = f32(j.z) / 255.0;
+  var m = bonePose(b.anim, j.x);
+  if (w0 < 0.999) {
+    m = mixRows(bonePose(b.anim, j.y), m, w0);
   }
-  lp *= SCALE * select(1.0, b.extra.y, b.extra.y > 0.0);
-  // Bank about the body's long axis, then pitch about x (positive dips the head), then heading.
-  let cr = cos(b.extra.x);
-  let sr = sin(b.extra.x);
-  lp = vec3f(lp.x * cr - lp.y * sr, lp.x * sr + lp.y * cr, lp.z);
-  ln = vec3f(ln.x * cr - ln.y * sr, ln.x * sr + ln.y * cr, ln.z);
-  let cp = cos(-b.pose.z);
-  let sp = sin(-b.pose.z);
-  lp = vec3f(lp.x, lp.y * cp + lp.z * sp, -lp.y * sp + lp.z * cp);
-  ln = vec3f(ln.x, ln.y * cp + ln.z * sp, -ln.y * sp + ln.z * cp);
-  let cy = cos(b.pos.w);
-  let sy = sin(b.pos.w);
-  lp = vec3f(lp.x * cy + lp.z * sy, lp.y, -lp.x * sy + lp.z * cy);
-  ln = vec3f(ln.x * cy + ln.z * sy, ln.y, -ln.x * sy + ln.z * cy);
-  let world = b.pos.xyz + lp;
+  let lp = apply(m, vec4f(p.xyz, 1.0));
+  let ln = apply(m, vec4f(n.xyz, 0.0));
+  let world = b.pos.xyz + place(b, lp, false);
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
   out.world = world;
-  out.normal = ln;
+  out.normal = place(b, ln, true);
   // Painted colours are sRGB; a little per-bird variation in warmth.
-  let warm = 0.92 + 0.16 * fract(b.pose.w * 7.3);
+  let warm = 0.94 + 0.12 * b.anim.w;
   out.albedo = pow(e.rgb, vec3f(2.2)) * vec3f(warm, 1.0, 2.0 - warm);
   out.ao = e.a;
-  out.part = part;
-  out.glow = max(b.pose.w - 1.0, 0.0);
-  out.gloss = t.y;
-  // z: 1 on the swallow's wing and tail feathers, 2 on its body, 0 for other birds.
-  out.feather = vec3f(along, n.w, select(0.0, select(2.0, 1.0, part == 3u || part == 4u), b.extra.z > 0.0));
-  out.local = modelPos;
+  out.part = u32(p.w + 0.5);
+  out.glow = b.pose.w;
+  out.gloss = f32(j.w) / 255.0;
+  out.feather = vec3f(t, n.w);
+  out.local = p.xyz;
   return out;
 }
 
@@ -134,54 +128,64 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let thin = select(0.0, 0.5, frag.part == 3u || frag.part == 4u);
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 4.0) * thin;
   var albedo = frag.albedo;
+  // Feathers drawn from the wing's and tail's own coordinates: (along, across) a feather.
+  var fe = vec2f(0.0, 0.5);
+  var feathered = false;
+  if (frag.part == 3u) {
+    let c = frag.feather.y;
+    if (c > 0.42) {
+      // Flight feathers: one per 1/18 of the span, running back to the trailing edge.
+      fe = vec2f((c - 0.42) / 0.58, fract(frag.feather.x * 18.0) * 2.0 - 1.0);
+    } else {
+      // Coverts: overlapping rows toward the leading edge.
+      fe = vec2f(fract(c / 0.42 * 3.0), fract(frag.feather.x * 30.0 + floor(c / 0.42 * 3.0) * 0.5) * 2.0 - 1.0);
+    }
+    feathered = true;
+  } else if (frag.part == 4u) {
+    fe = vec2f(frag.feather.y, fract((frag.feather.x * 0.5 + 0.5) * 6.0) * 2.0 - 1.0);
+    feathered = true;
+  }
   // Pattern frequencies on screen (derivatives in uniform control flow, before branching).
-  let fineF = 1.0 - smoothstep(0.3, 1.0, length(fwidth(vec2f(frag.feather.x * 60.0, abs(frag.feather.y) * 14.0))));
+  let fineF = 1.0 - smoothstep(0.3, 1.0, length(fwidth(frag.feather.xy * vec2f(18.0, 6.0))));
   let q = frag.local.xz * vec2f(320.0, 240.0) + vec2f(0.0, frag.local.y * 200.0);
   let fineB = 1.0 - smoothstep(0.3, 1.0, length(fwidth(q)));
-  if (frag.feather.z > 0.5 && frag.feather.z < 1.5) {
+  if (feathered) {
     // A feather: darker toward the shaft with a fine pale shaft line, barbs as faint slanting
-    // stripes, slightly lighter worn edges and a soft grey-brown fringe at the tip.
-    let u = frag.feather.x;
-    let a = abs(frag.feather.y);
-    let fine = fineF;
-    albedo *= 0.82 + 0.18 * smoothstep(0.0, 0.7, a);
-    let shaft = (1.0 - smoothstep(0.03, 0.1, a)) * smoothstep(0.02, 0.1, u) * (1.0 - smoothstep(0.85, 1.0, u));
-    albedo = mix(albedo, albedo * 1.5 + vec3f(0.025), shaft * 0.6 * fine);
-    albedo *= 1.0 + 0.07 * sin(u * 60.0 + a * 14.0) * fine;
-    albedo += vec3f(0.02, 0.02, 0.022) * smoothstep(0.8, 1.0, a);
-    albedo = mix(albedo, vec3f(0.16, 0.15, 0.14), smoothstep(0.88, 1.0, u) * 0.35);
-  } else if (frag.feather.z > 1.5) {
+    // stripes, slightly lighter worn edges.
+    let u = fe.x;
+    let a = abs(fe.y);
+    albedo *= 0.84 + 0.16 * smoothstep(0.0, 0.7, a) * fineF + 0.16 * (1.0 - fineF);
+    let shaft = (1.0 - smoothstep(0.03, 0.12, a)) * smoothstep(0.02, 0.1, u) * (1.0 - smoothstep(0.85, 1.0, u));
+    albedo = mix(albedo, albedo * 1.4 + vec3f(0.02), shaft * 0.5 * fineF);
+    albedo *= 1.0 + 0.06 * sin(u * 50.0 + a * 12.0) * fineF;
+    albedo *= 1.0 - 0.18 * smoothstep(0.85, 1.0, a) * fineF;
+  } else if (frag.part == 0u) {
     // Body plumage: small overlapping feathers, crescent-edged, fading out at a distance.
     let cell = fract(q) - vec2f(0.5, 0.15);
     let crescent = smoothstep(0.32, 0.46, length(cell));
-    let fine = fineB;
-    albedo *= 1.0 - 0.12 * crescent * fine;
+    albedo *= 1.0 - 0.12 * crescent * fineB;
   }
   var col = albedo * (ambientSky(n, s) * 0.75 * frag.ao + G.sunColor * (wrap * 0.85 + back));
-  if (frag.part == 2u) {
-    // Eyes: a bright wet glint.
+  if (frag.part == 2u || frag.part == 1u) {
+    // Eyes (and a little on the bill): a bright wet glint.
     let h = normalize(l + v);
-    col += G.sunColor * pow(max(dot(n, h), 0.0), 80.0) * 2.0;
+    col += G.sunColor * pow(max(dot(n, h), 0.0), select(30.0, 80.0, frag.part == 2u)) * select(0.2, 2.0, frag.part == 2u);
   }
-  if (frag.feather.z > 0.5) {
-    // Structural colour of the swallow's dark plumage: not a gloss, a hue that shifts with
-    // the angle (steel-blue facing you, violet to green-blue toward the edges), only on the
-    // dark upper feathers.
+  if (frag.gloss > 0.01) {
+    // Structural colour of glossy plumage: not a gloss, a hue that shifts with the angle
+    // (steel-blue facing you, violet to green-blue toward the edges), only on dark feathers.
     let edge = 1.0 - abs(dot(n, v));
-    let dark = 1.0 - smoothstep(0.08, 0.25, dot(albedo, vec3f(0.33)));
+    let dark = 1.0 - smoothstep(0.08, 0.3, dot(albedo, vec3f(0.33)));
     let hue = mix(vec3f(0.12, 0.28, 0.75), mix(vec3f(0.42, 0.2, 0.7), vec3f(0.1, 0.5, 0.55), smoothstep(0.5, 0.9, edge)), smoothstep(0.2, 0.7, edge));
-    col += hue * dark * (ambientSky(n, s) * 0.1 + G.sunColor * wrap * 0.035);
-    // Feathered and matte: soft sky fill (dark plumage still reads), a faint velvet rim.
-    col += albedo * ambientSky(n, s) * 0.35;
-    col += albedo * (G.zenithColor * 0.4 + G.sunColor * 0.12) * pow(1.0 - abs(dot(n, v)), 3.0);
+    col += hue * dark * frag.gloss * (ambientSky(n, s) * 0.1 + G.sunColor * wrap * 0.035);
   }
+  // Feathered and matte: soft sky fill (dark plumage still reads), a faint velvet rim.
+  col += albedo * ambientSky(n, s) * 0.2;
+  col += albedo * (G.zenithColor * 0.4 + G.sunColor * 0.12) * pow(1.0 - abs(dot(n, v)), 3.0);
   if (frag.glow > 0.0) {
-    // A spirit bird: lit from within, with a bright turquoise rim.
+    // A spirit bird: lit from within, with a warm rim.
     let rim = pow(1.0 - abs(dot(n, v)), 2.0);
-    // A glowing bird's own light is a hint, warm (its glow shows mostly around it).
-    let rimCol = vec3f(1.0, 0.85, 0.6);
-    let k = 0.45;
-    col += albedo * frag.glow * 0.5 * k + rimCol * rim * frag.glow * 0.4 * k;
+    col += (albedo * 0.5 + vec3f(1.0, 0.85, 0.6) * rim * 0.4) * frag.glow * 0.45;
   }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, s, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, 1.0);
@@ -193,7 +197,6 @@ struct HOut {
   @builtin(position) pos: vec4f,
   @location(0) uv: vec2f,
   @location(1) k: f32,
-  @location(2) @interpolate(flat) warm: f32,
 }
 
 @vertex
@@ -209,12 +212,10 @@ fn vs_halo(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   // Grows a little with distance, so the light still reads from far off.
   let size = (0.7 + d * 0.008) * 0.75;
   var out: HOut;
-  out.pos = G.viewProj * vec4f(b.pos.xyz + vec3f(0.0, 0.05, 0.0) + (right * c.x + up * c.y) * size, 1.0);
+  out.pos = G.viewProj * vec4f(b.pos.xyz + (right * c.x + up * c.y) * size, 1.0);
   out.uv = c;
-  out.k = max(b.pose.w - 1.0, 0.0) * (0.85 + 0.15 * sin(G.time * 3.0));
-  out.warm = select(0.0, 1.0, b.extra.z > 0.0);
-  // The swallow's halo is faint: a soft presence, not a lamp.
-  out.k *= 0.4;
+  // A faint, warm presence, not a lamp.
+  out.k = b.pose.w * (0.85 + 0.15 * sin(G.time * 3.0)) * 0.4;
   return out;
 }
 
@@ -222,8 +223,6 @@ fn vs_halo(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
 fn fs_halo(frag: HOut) -> @location(0) vec4f {
   let r2 = dot(frag.uv, frag.uv);
   let light = exp(-r2 * 5.0) * 0.9 + exp(-r2 * 28.0) * 1.6;
-  // The swallow (elbow given) glows warm; the kingfisher keeps its turquoise heart.
-  let core = vec3f(1.0, 0.86, 0.6);
-  let col = mix(vec3f(1.0, 0.75, 0.35), core, exp(-r2 * 6.0));
+  let col = mix(vec3f(1.0, 0.75, 0.35), vec3f(1.0, 0.86, 0.6), exp(-r2 * 6.0));
   return vec4f(col * light * frag.k * mix(0.35, 0.5, G.night), 0.0);
 }

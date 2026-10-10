@@ -235,6 +235,7 @@ export class Globals {
       playerGlow: 0,
       dip: 0,
       rainbow: 0,
+      rest: 0,
       frustum: vec4Views(new Float32Array(24)),
       trail: this.trailViews,
       lamps: this.lampViews,

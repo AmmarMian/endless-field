@@ -787,6 +787,8 @@ export class Audio {
   update(speed: number, altitude: number): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
+    // Resting or slow flight can report below 0: keep the filter in its range.
+    speed = Math.min(1, Math.max(0, speed));
     const level = 0.08 + speed * 0.32 - Math.min(altitude / 120, 0.06);
     this.windGain.gain.setTargetAtTime(Math.max(0.02, level), t, 0.3);
     this.windFilter.frequency.setTargetAtTime(380 + speed * 1300, t, 0.4);

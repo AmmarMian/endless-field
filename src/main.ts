@@ -180,6 +180,7 @@ async function main(): Promise<void> {
   let lastCatch = -10;
   let skimTimer = 0;
   let wasPerched = false;
+  let restAmt = 0;
   // Weather moments and sound: a rainbow after a daytime shower, frogs at night, rain plinks.
   let rainbowT = 0;
   let rainPeak = 0;
@@ -531,6 +532,8 @@ async function main(): Promise<void> {
   const debug = {
     fixedCamera: null as null | { pos: Vec3; target: Vec3 },
     fixedTime: null as null | number,
+    /** Seconds left alone before the swallow comes down to rest. */
+    landAfter: 40,
     hide: { fireflies: false, grass: false, terrain: false, trees: false, water: false, beds: false, sunflowers: false },
     start,
     player,
@@ -889,7 +892,7 @@ async function main(): Promise<void> {
       }
       const [wd, wy, whw] = riverInfo(player.pos[0], player.pos[2]);
       // Pause and look: left alone for a while, the swallow finds a perch and settles there.
-      if (playing && current.avatar === "swallow" && input.idle > 6 && !player.perched && !player.landing && !player.looping && !player.riding) {
+      if (playing && current.avatar === "swallow" && input.idle > debug.landAfter && !player.perched && !player.landing && !player.looping && !player.riding) {
         let perch: Vec3 | null = null;
         let best = 35;
         // At dusk and night, home: the nest under the torii beam, if it is within reach.
@@ -901,16 +904,22 @@ async function main(): Promise<void> {
           const d = Math.hypot(lp[0] - player.pos[0], lp[2] - player.pos[2]);
           if (d < best) {
             best = d;
-            perch = [lp[0], lp[1] + 1.52, lp[2]];
+            perch = [lp[0], lp[1] + 1.45 + swallow.perchLift, lp[2]];
           }
         }
         if (!perch) {
-          // A tall grass stem a little ahead.
-          const ax = player.pos[0] + Math.sin(player.yaw) * 9;
-          const az = player.pos[2] - Math.cos(player.yaw) * 9;
-          perch = [ax, terrainHeight(ax, az) + 0.95, az];
+          // Down on open ground a little ahead (not in the river): the grass parts around it.
+          for (const ahead of [14, 20, 28, 8]) {
+            const ax = player.pos[0] + Math.sin(player.yaw) * ahead;
+            const az = player.pos[2] - Math.cos(player.yaw) * ahead;
+            const [rd, , rhw] = riverInfo(ax, az);
+            if (rd > rhw + 1.5) {
+              perch = [ax, terrainHeight(ax, az) + swallow.perchLift, az];
+              break;
+            }
+          }
         }
-        player.landAt(perch);
+        if (perch) player.landAt(perch);
       }
       if (player.perched && !wasPerched) audio.rest();
       // Frogs along the river at night, from somewhere along its banks near you.
@@ -941,6 +950,12 @@ async function main(): Promise<void> {
       // Resting in the nest at night: the night passes quickly (to dawn), then flows again.
       restingHome = player.perched && Math.hypot(player.pos[0] - nest.perch[0], player.pos[2] - nest.perch[2]) < 0.5 && (night > 0.05 || dayPhase > 0.5);
       wasPerched = player.perched;
+      // Resting on the ground (or about to): the grass there lies down so the bird shows.
+      const lp = player.landing;
+      const groundRest =
+        current.avatar === "swallow" &&
+        ((player.perched && player.altitude < 0.5) || (lp !== null && player.landingLeft < 1.2 && lp[1] - terrainHeight(lp[0], lp[2]) < 0.5));
+      restAmt += ((groundRest ? 1 : 0) - restAmt) * Math.min(1, dt * (groundRest ? 2 : 1.2));
       swallow.update(dt, player, current.avatar === "swallow" && wd < whw * 0.9 ? wy : null);
       if (playing) {
         const a = prevWind;
@@ -1079,6 +1094,7 @@ async function main(): Promise<void> {
       rainbow: Math.min(1, rainbowT / 10) * Math.min(1, (90 - rainbowT) / 6),
       playerGlow: swallow.glow,
       dip: swallow.visible ? swallow.dip : 0,
+      rest: explore ? 0 : restAmt,
       night: night * night * (3 - 2 * night),
       mist,
       mistBase,

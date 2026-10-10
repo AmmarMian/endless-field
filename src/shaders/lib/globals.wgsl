@@ -39,6 +39,8 @@ export struct Globals {
   dip: f32,
   // A rainbow after a shower (0..1).
   rainbow: f32,
+  // The swallow resting on the ground at playerPos (0..1, eased): the grass lies down there.
+  rest: f32,
   frustum: array<vec4f, 6>,
   // xyz = trail sample position, w = push strength (fades with age).
   trail: array<vec4f, 24>,

@@ -1,21 +1,16 @@
-import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
-import birdShader from "../shaders/birds.wgsl";
+import { storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
+import { BIRD_STRIDE, BirdAnimator, BirdSpecies } from "../world/bird-model";
 import type { Player } from "./player";
-
-interface Manifest {
-  vertexBytes: number;
-  indexCount: number;
-  shoulder: number;
-  elbow: number;
-}
 
 /** Times life size: big enough to read from the chase camera, still a swallow. */
 const SIZE = 2.8;
 
 /**
- * Playing as a bird: a barn swallow (tools/blender/model_swallow.py) flies where the wind
- * goes. It banks into turns, beats hard when gusting or climbing, and otherwise flies as
- * swallows do: a burst of wingbeats, then a glide on swept wings.
+ * Playing as a bird: a barn swallow (tools/blender/model_birds.py) flies where the wind goes.
+ * Its motion is the clips animated in Blender: bursts of wingbeats and long glides, beating
+ * hard when gusting or climbing, wings tucked in a stoop. Left alone it comes in to land (a
+ * flare with braking beats, feet forward, touchdown, wings folding), then rests: breathing,
+ * looking about, now and then preening. Touched, it springs back into the air.
  */
 export class PlayerBird {
   readonly draw: Draw;
@@ -27,66 +22,36 @@ export class PlayerBird {
   private dipSide = 1;
   /** Where the lowered wingtip touches the water (valid while dipping). */
   readonly tip: [number, number, number] = [0, 0, 0];
+  /** From the soles to the body's centre when perched (m): perches are given at the feet. */
+  readonly perchLift: number;
   private readonly buffer: StorageBuffer;
-  private readonly data = new Float32Array(12);
-  private phase = 0;
-  private flapAmp = 0;
-  private sweep = 0;
+  private readonly data = new Float32Array(BIRD_STRIDE);
+  private readonly anim: BirdAnimator;
   private roll = 0;
   private lastYaw: number | null = null;
   private yawRate = 0;
   private cycle = 0;
-  private freq = 2.8;
-  private fold = 0;
+  private wasPerched = false;
+  private wasLanding = false;
+  private restTimer = 6;
+  private lift = 0;
   visible = false;
 
-  private constructor(d: Draw, halo: Draw, buffer: StorageBuffer, private readonly elbow: number) {
+  private constructor(d: Draw, halo: Draw, buffer: StorageBuffer, species: BirdSpecies) {
     this.draw = d;
     this.haloDraw = halo;
     this.buffer = buffer;
+    this.anim = new BirdAnimator(species.clips, "glide");
+    this.perchLift = species.perchHeight * SIZE;
   }
 
-  static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/swallow"): Promise<PlayerBird> {
-    const [manifest, bin] = await Promise.all([
-      fetch(`${base}/swallow.json`).then((r) => r.json() as Promise<Manifest>),
-      fetch(`${base}/swallow.bin`).then((r) => r.arrayBuffer()),
-    ]);
-    const geo = geometry(gpu, {
-      label: "swallow",
-      buffers: [{ data: new Uint8Array(bin, 0, manifest.vertexBytes), attributes: { p: "float16x4", n: "snorm8x4", t: "float16x2", e: "unorm8x4" } }],
-      indices: new Uint32Array(bin, manifest.vertexBytes, manifest.indexCount),
-    });
-    const buffer = storage(gpu, 48, "read");
-    const d = draw(gpu, {
-      label: "swallow",
-      shader: birdShader,
-      geometry: geo,
-      cull: "none",
-      depth: { compare: "greater" },
-      constants: { SHOULDER: manifest.shoulder },
-      set: { G: globals, birds: buffer },
-    });
-    const halo = draw(gpu, {
-      label: "swallow-light",
-      shader: birdShader,
-      entry: { vertex: "vs_halo", fragment: "fs_halo" },
-      vertices: 6,
-      blend: "additive",
-      depth: { compare: "greater", write: false },
-      constants: { SHOULDER: manifest.shoulder },
-      set: { G: globals, birds: buffer },
-    });
-    return new PlayerBird(d, halo, buffer, manifest.elbow);
+  static async load(gpu: Gpu, globals: SharedUniforms): Promise<PlayerBird> {
+    const species = await BirdSpecies.load(gpu, "swallow");
+    const buffer = storage(gpu, BIRD_STRIDE * 4, "read");
+    const { body, halo } = species.draws(globals, buffer, "swallow");
+    return new PlayerBird(body, halo, buffer, species);
   }
 
-  /**
-   * The flight cycle, keyframed on a phase (0 at the top of the stroke):
-   *   downstroke (first half)  the extended wing sweeps down, the hand lagging the arm then
-   *                            flicking through at the bottom
-   *   upstroke (second half)   the wing flexes: the hand folds back toward the body and the
-   *                            arm lifts it, short and quick
-   * Beats come in a few at a time with long glides between; everything eases (no jumps).
-   */
   /** `water`: the river's surface under the bird when over it, else null. */
   update(dt: number, player: Player, water: number | null = null): void {
     // Turn rate -> bank: lean into the turn, eased.
@@ -97,61 +62,57 @@ export class PlayerBird {
     }
     this.lastYaw = player.yaw;
     const looping = player.looping;
+    const perched = player.perched;
+    const landing = player.landing !== null;
     // Low over the river: roll onto its side and slice the water with a wingtip, held as
     // long as it stays low over the water (toward the way it is turning).
-    const skimming = water !== null && player.pos[1] - water < 2.1 && !looping && !player.riding;
+    const skimming = water !== null && !perched && !landing && player.pos[1] - water < 2.1 && !looping && !player.riding;
     this.dip += ((skimming ? 1 : 0) - this.dip) * Math.min(1, dt * (skimming ? 2.5 : 4));
     if (Math.abs(this.yawRate) > 0.25) this.dipSide = this.yawRate > 0 ? 1 : -1;
     const turnRoll = Math.max(-0.85, Math.min(0.85, this.yawRate * 0.5));
-    const wantRoll = looping ? 0 : turnRoll + (this.dipSide * 1.2 - turnRoll) * this.dip;
+    const wantRoll = looping || perched || landing ? 0 : turnRoll + (this.dipSide * 1.2 - turnRoll) * this.dip;
     this.roll += (wantRoll - this.roll) * Math.min(1, dt * 3);
 
-    // Beating or gliding: hard work when gusting, climbing or pulling a loop; otherwise
-    // three easy beats then a long glide.
-    const soaring = player.thermal > 0.25;
-    const working = (player.gust > 0.25 || player.pitch > 0.12 || (looping && player.pitch < 1.4)) && player.stoop < 0.5 && !soaring;
-    this.cycle = (this.cycle + dt) % 4.6;
-    // Soaring in a thermal: wings held wide and still.
-    const beating = working || (this.cycle < 2.3 && !soaring);
-    const wantAmp = (working ? 1 : beating ? 0.8 : 0) * (1 - this.dip);
-    this.flapAmp += (wantAmp - this.flapAmp) * Math.min(1, dt * 1.6);
-    const wantFreq = working ? 1.9 : 1.35;
-    this.freq += (wantFreq - this.freq) * Math.min(1, dt * 1.2);
-    // Keep the cycle turning slowly while gliding so beats resume from where they paused.
-    this.phase += dt * 2 * Math.PI * this.freq * (0.25 + 0.75 * Math.min(1, this.flapAmp * 3));
-    const ph = this.phase;
-    const k = this.flapAmp;
-    // Arm: from +0.75 rad at the top to -0.6 at the bottom (the downstroke is the longer,
-    // powered half: warp the phase so it takes ~58% of the cycle).
-    const warped = ph % (2 * Math.PI);
-    const down = warped < Math.PI * 1.16;
-    const t = down ? warped / (Math.PI * 1.16) : (warped - Math.PI * 1.16) / (Math.PI * 0.84);
-    const ease = (x: number) => x * x * (3 - 2 * x);
-    const armTop = 0.72;
-    const armBottom = -0.58;
-    const arm = down ? armTop + (armBottom - armTop) * ease(t) : armBottom + (armTop - armBottom) * ease(t);
-    // Hand: lags the arm (still raised early in the downstroke, flicking through at the end);
-    // on the upstroke it trails down and folds back.
-    const hand = down ? 0.25 * (1 - ease(Math.min(1, t * 1.6))) - 0.3 * Math.max(0, t - 0.6) / 0.4 : -0.35 * Math.sin(Math.PI * t);
-    const fold = down ? 0 : Math.sin(Math.PI * t) ** 1.3 * 0.95;
-    // Glide pose: wings held level with a slight lift, hands swept back as speed rises.
-    const glideArm = 0.06;
-    const glideHand = -0.04;
-    const glideSweep = Math.min(0.6, 0.15 + Math.max(0, (player.speed - 8) / 18));
-    let armA = glideArm + (arm - glideArm) * k;
-    let handA = glideHand + (hand - glideHand) * k;
-    let sweep = glideSweep + (fold - glideSweep) * k;
-    // Stoop: wings tucked back along the body, like an arrow.
-    const st = player.stoop;
-    armA = armA + (0.18 - armA) * st;
-    handA = handA + (-0.15 - handA) * st;
-    sweep = sweep + (1.0 - sweep) * st;
-    this.sweep += (sweep - this.sweep) * Math.min(1, dt * 12);
-    // Perched (or settling): wings folded along the body, the arm still.
-    const resting = player.perched || (player.landing !== null && Math.hypot(player.landing[0] - player.pos[0], player.landing[2] - player.pos[2]) < 1.2);
-    this.fold += ((resting ? 1 : 0) - this.fold) * Math.min(1, dt * (resting ? 5 : 8));
-    armA *= 1 - this.fold;
-    handA *= 1 - this.fold;
+    const a = this.anim;
+    if (perched) {
+      // Resting: breathe and look about; preen now and then.
+      if (!this.wasPerched && a.clip !== "land") a.play("perch", 0.3);
+      if (a.clip === "land" && a.done) a.play("perch", 0.35);
+      this.restTimer -= dt;
+      if (a.clip === "perch" && this.restTimer <= 0) {
+        a.play("preen", 0.3);
+        this.restTimer = 12 + Math.random() * 14;
+      }
+      if (a.clip === "preen" && a.done) a.play("perch", 0.4, 1, true, Math.random() * a.duration("perch"));
+    } else if (landing) {
+      // Coming in: glide, then the landing clip timed so its touchdown meets the perch.
+      const touchdown = 0.9;
+      if (a.clip !== "land" && player.landingLeft <= touchdown) a.play("land", 0.2, 1, true, Math.max(0, touchdown - player.landingLeft));
+      else if (a.clip !== "land") a.play("glide", 0.5);
+    } else if (this.wasPerched) {
+      // Springing up into the air.
+      a.play("takeoff", 0.12, 1.2, true);
+      this.cycle = 0;
+    } else if (this.wasLanding && a.clip === "land") {
+      // Waved off before touching down: beat back up.
+      a.play("flap", 0.3, 2.4);
+    } else if (a.clip === "takeoff" && !a.done) {
+      // Let the take-off finish.
+    } else {
+      // Beating or gliding: hard work when gusting, climbing or pulling a loop; otherwise
+      // a few easy beats then a long glide. Wings tucked in a stoop, still in a thermal.
+      const soaring = player.thermal > 0.25 || player.riding !== null;
+      const working = (player.gust > 0.25 || player.pitch > 0.12 || (looping && player.pitch < 1.4)) && player.stoop < 0.5 && !soaring;
+      this.cycle = (this.cycle + dt) % 4.6;
+      const beating = working || (this.cycle < 2.0 && !soaring);
+      if (player.stoop > 0.5) a.play("tuck", 0.25);
+      else if (this.dip > 0.3) a.play("glide", 0.4);
+      else if (beating) a.play("flap", a.clip === "takeoff" ? 0.15 : 0.3, working ? 2.4 : 1.7);
+      else a.play("glide", 0.45);
+    }
+    this.wasPerched = perched;
+    this.wasLanding = landing;
+    a.update(dt);
 
     const p = player.pos;
     // Dipping: hold the body just high enough that the lowered tip cuts the surface.
@@ -161,12 +122,14 @@ export class PlayerBird {
     this.tip[0] = p[0] + this.dipSide * Math.cos(player.yaw) * halfSpan * Math.cos(1.2);
     this.tip[1] = water ?? bodyY;
     this.tip[2] = p[2] + this.dipSide * Math.sin(player.yaw) * halfSpan * Math.cos(1.2);
-    // A little body rise and fall with each stroke (the body answers the wings).
-    // Gliding while it slices the water (no wingbeats through the surface).
-    const bob = -Math.sin(ph) * 0.012 * SIZE * k * (1 - this.dip);
-    const pitch = looping ? -player.pitch : -player.pitch * 0.85;
+    // The landing and perching clips pitch the body themselves; in flight it follows the climb.
+    const settled = perched || landing;
+    this.lift += ((settled ? 0 : 1) - this.lift) * Math.min(1, dt * 4);
+    const pitch = (looping ? -player.pitch : -player.pitch * 0.85) * this.lift;
     // The shader's heading maps +Z to (sin, cos); the player's forward is (sin yaw, -cos yaw).
-    this.data.set([p[0], bodyY + bob, p[2], Math.PI - player.yaw, armA, handA, pitch * (1 - this.fold) - 0.12 * this.fold, 1 + this.glow * 0.6, (this.roll + player.rollAngle) * (1 - this.fold), SIZE, this.elbow, this.sweep * (1 - this.fold) + this.fold * 2]);
+    this.data.set([p[0], bodyY, p[2], Math.PI - player.yaw, pitch, this.roll + player.rollAngle * this.lift, SIZE, this.glow * 0.6]);
+    a.write(this.data, 8);
+    this.data[11] = 0.5;
     this.buffer.write(this.data);
   }
 

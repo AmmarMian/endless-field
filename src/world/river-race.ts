@@ -1,6 +1,6 @@
 import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import gateShader from "../shaders/river-gate.wgsl";
-import birdShader from "../shaders/birds.wgsl";
+import { BIRD_STRIDE, BirdAnimator, BirdSpecies } from "./bird-model";
 import type { Vec3 } from "../engine/camera";
 import { riverCenter, riverHalfWidth, riverWater } from "./height";
 import { RACE } from "./layout";
@@ -15,6 +15,8 @@ interface Manifest {
 }
 
 const GATES = 11;
+/** The kingfisher is drawn a little larger than life. */
+const KF_SIZE = 1.35;
 /** After a win, the kingfisher flies with the wind this long (s), then goes home. */
 const COMPANION_SECONDS = 180;
 const SPACING = 36;
@@ -43,9 +45,12 @@ export class RiverRace {
   private readonly gateBuf: StorageBuffer;
   private readonly gateData: Float32Array<ArrayBuffer>;
   private readonly birdBuf: StorageBuffer;
-  private readonly birdData = new Float32Array(12);
+  private readonly birdData = new Float32Array(BIRD_STRIDE);
   private readonly gateDraw: Draw;
-  private readonly birdDraws: Draw[];
+  private readonly birdDraw: Draw;
+  private readonly anim: BirdAnimator;
+  /** Feet to the body's centre when perched (m). */
+  private readonly lift: number;
   /** Kingfisher route: perch, every gate's centre, then the last gate's pole. */
   private readonly route: Vec3[];
   private phase: Phase = "waiting";
@@ -54,7 +59,6 @@ export class RiverRace {
   private prevSide = 0;
   private bird: Vec3;
   private birdVel: Vec3 = [0, 0, 0];
-  private flapPhase = 0;
   private readonly perch: Vec3;
   private readonly perchEnd: Vec3;
   private readonly radius: number;
@@ -68,10 +72,12 @@ export class RiverRace {
 
   private readonly haloDraw: Draw;
 
-  private constructor(gateDraw: Draw, haloDraw: Draw, birdDraws: Draw[], gateBuf: StorageBuffer, birdBuf: StorageBuffer, gates: Gate[], ringY: number, radius: number) {
+  private constructor(gateDraw: Draw, haloDraw: Draw, birdDraw: Draw, species: BirdSpecies, gateBuf: StorageBuffer, birdBuf: StorageBuffer, gates: Gate[], ringY: number, radius: number) {
     this.gateDraw = gateDraw;
-    this.birdDraws = birdDraws;
-    this.draws = [gateDraw, ...birdDraws];
+    this.birdDraw = birdDraw;
+    this.anim = new BirdAnimator(species.clips, "perch");
+    this.lift = species.perchHeight * KF_SIZE;
+    this.draws = [gateDraw, birdDraw];
     this.haloDraw = haloDraw;
     this.draws.push(haloDraw);
     this.gateBuf = gateBuf;
@@ -97,7 +103,7 @@ export class RiverRace {
   static async load(gpu: Gpu, globals: SharedUniforms): Promise<RiverRace> {
     const get = (base: string, name: string) =>
       Promise.all([fetch(`${base}/${name}.json`).then((r) => r.json() as Promise<Manifest>), fetch(`${base}/${name}.bin`).then((r) => r.arrayBuffer())]);
-    const [[gm, gbin], [bm, bbin]] = await Promise.all([get("assets/gate", "gate"), get("assets/bird", "bird")]);
+    const [[gm, gbin], species] = await Promise.all([get("assets/gate", "gate"), BirdSpecies.load(gpu, "kingfisher")]);
     const ringY = gm.ringY ?? 2.3;
     const radius = gm.radius ?? 1.5;
     // Course: gates down the river, weaving a little across it, each turned along the flow.
@@ -119,35 +125,9 @@ export class RiverRace {
     });
     const gateBuf = storage(gpu, GATES * 32, "read");
     const gateDraw = draw(gpu, { label: "river-gates", shader: gateShader, geometry: gateGeo, cull: "none", depth: { compare: "greater" }, set: { G: globals, gates: gateBuf } });
-    const birdGeo = geometry(gpu, {
-      label: "kingfisher",
-      buffers: [{ data: new Uint8Array(bbin, 0, bm.vertexBytes), attributes: { p: "float16x4", n: "snorm8x4", t: "float16x2", e: "unorm8x4" } }],
-      indices: new Uint32Array(bbin, bm.vertexBytes, bm.indexCount),
-    });
-    const birdBuf = storage(gpu, 48, "read");
-    const kf = (bm.variants ?? []).filter((v) => v.name.startsWith("kingfisher"));
-    const birdDraws = kf.map((v) =>
-      draw(gpu, {
-        label: v.name,
-        shader: birdShader,
-        geometry: birdGeo.slice({ firstIndex: v.firstIndex, indexCount: v.indexCount }),
-        cull: "none",
-        depth: { compare: "greater" },
-        constants: { SHOULDER: bm.shoulder ?? 0.022 },
-        set: { G: globals, birds: birdBuf },
-      }),
-    );
-    const haloDraw = draw(gpu, {
-      label: "kingfisher-light",
-      shader: birdShader,
-      entry: { vertex: "vs_halo", fragment: "fs_halo" },
-      vertices: 6,
-      blend: "additive",
-      depth: { compare: "greater", write: false },
-      constants: { SHOULDER: bm.shoulder ?? 0.022 },
-      set: { G: globals, birds: birdBuf },
-    });
-    return new RiverRace(gateDraw, haloDraw, birdDraws, gateBuf, birdBuf, gates, ringY, radius);
+    const birdBuf = storage(gpu, BIRD_STRIDE * 4, "read");
+    const { body, halo } = species.draws(globals, birdBuf, "kingfisher");
+    return new RiverRace(gateDraw, halo, body, species, gateBuf, birdBuf, gates, ringY, radius);
   }
 
   /** Where the race begins (for the birds to lead the wind to). */
@@ -304,11 +284,20 @@ export class RiverRace {
       this.bird = [this.bird[0] + dx * k, this.bird[1] + dy * k, this.bird[2] + dz * k];
     } else this.birdVel = [0, 0, 0];
     const flying = !perched;
-    this.flapPhase += dt * 32;
+    // Fast whirring wingbeats in flight; on the ring it bobs, looks about, preens.
+    const an = this.anim;
+    if (flying) {
+      if (an.clip === "perch" || an.clip === "preen") an.play("takeoff", 0.08, 1.6, true);
+      else if (an.clip !== "takeoff" || an.done) an.play(dist < 1.2 && this.phase !== "racing" && this.phase !== "companion" ? "land" : "flap", 0.12, an.clip === "land" ? 1 : 5, false, 0.7);
+    } else if (an.clip === "flap" || an.clip === "takeoff") an.play("land", 0.1, 1.2, true, 0.85);
+    else if (an.clip === "land" && an.done) an.play("perch", 0.3);
+    an.update(dt);
     const yaw = flying && Math.hypot(this.birdVel[0], this.birdVel[2]) > 0.1 ? Math.atan2(this.birdVel[0], this.birdVel[2]) : this.gates[0].yaw;
     const pitch = flying ? -Math.atan2(this.birdVel[1], Math.hypot(this.birdVel[0], this.birdVel[2]) + 1e-3) * 0.6 : Math.max(0, Math.sin(performance.now() / 700)) * 0.25;
     // It carries the same soft light as the player's swallow (stronger as it gets dark).
-    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : 0), this.bird[2], yaw, flying ? Math.sin(this.flapPhase) * 0.9 + 0.1 : 0, flying ? 1 : 0, pitch, 1 + this.glow * 0.6, 0, 0, 0, 0]);
+    this.birdData.set([this.bird[0], this.bird[1] + (flying ? 0.06 : this.lift), this.bird[2], yaw, flying ? pitch : 0, 0, KF_SIZE, this.glow * 0.6]);
+    an.write(this.birdData, 8);
+    this.birdData[11] = 0.5;
     this.birdBuf.write(this.birdData);
     this.flying = flying;
     // Gates.
@@ -337,8 +326,7 @@ export class RiverRace {
 
   encode(pass: FramePass): void {
     pass.draw(this.gateDraw, { instances: this.gates.length });
-    const d = this.birdDraws[this.flying ? 1 : 0];
-    if (d) pass.draw(d);
+    pass.draw(this.birdDraw);
     pass.draw(this.haloDraw);
   }
 }

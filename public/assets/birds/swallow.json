@@ -1,0 +1,68 @@
+{
+ "vertexBytes": 64536,
+ "indexCount": 15636,
+ "matrixBytes": 129696,
+ "bones": [
+  "body",
+  "neck",
+  "head",
+  "tail",
+  "upperarm.R",
+  "forearm.R",
+  "hand.R",
+  "upperarm.L",
+  "forearm.L",
+  "hand.L",
+  "leg.R",
+  "foot.R",
+  "leg.L",
+  "foot.L"
+ ],
+ "clips": {
+  "flap": {
+   "start": 0,
+   "frames": 16,
+   "fps": 16,
+   "loop": true
+  },
+  "glide": {
+   "start": 17,
+   "frames": 60,
+   "fps": 20,
+   "loop": true
+  },
+  "tuck": {
+   "start": 78,
+   "frames": 2,
+   "fps": 10,
+   "loop": true
+  },
+  "land": {
+   "start": 81,
+   "frames": 51,
+   "fps": 30,
+   "loop": false
+  },
+  "takeoff": {
+   "start": 133,
+   "frames": 14,
+   "fps": 30,
+   "loop": false
+  },
+  "perch": {
+   "start": 148,
+   "frames": 180,
+   "fps": 20,
+   "loop": true
+  },
+  "preen": {
+   "start": 329,
+   "frames": 56,
+   "fps": 20,
+   "loop": false
+  }
+ },
+ "perchHeight": 0.0355,
+ "length": 0.12,
+ "credit": "Modeled, rigged and animated in Blender (tools/blender/model_birds.py)"
+}

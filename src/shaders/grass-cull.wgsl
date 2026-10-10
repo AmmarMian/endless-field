@@ -223,6 +223,11 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
 
   // The petal stream parts the grass as it passes.
   let toPlayer = distance(xz, G.playerPos.xz);
+  // A resting bird: the grass under and around it lies pressed down, a little form in the
+  // meadow it can be seen in.
+  if (G.rest > 0.0) {
+    height = height * mix(1.0, mix(0.16, 1.0, smoothstep(0.4, 3.2, toPlayer)), G.rest);
+  }
   if (toPlayer < 40.0) {
     var push = vec2f(0.0);
     for (var i = 0u; i < TRAIL_LEN; i = i + 1u) {
@@ -230,6 +235,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
       if (tp.w <= 0.001) {
         continue;
       }
+      let w = tp.w;
       let d = xz - tp.xz;
       let d2 = dot(d, d);
       let radius = 2.6 + G.gust * 1.5;
@@ -237,7 +243,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
       let above = tp.y - y;
       let vert = 1.0 - smoothstep(1.2, 5.5, above);
       let dirAway = d / max(sqrt(d2), 0.05);
-      push = push + dirAway * fall * vert * tp.w;
+      push = push + dirAway * fall * vert * w;
     }
     bend = bend + push * 1.6;
   }

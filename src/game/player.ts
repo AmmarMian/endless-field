@@ -52,14 +52,40 @@ export class Player {
     this.rollT = 0;
     this.rollDir = dir;
   }
-  /** Perched (resting on a stem, a lantern, the nest), and where it is gliding down to. */
+  /** Perched (resting on the ground, a lantern, the nest), and where it is gliding down to. */
   perched = false;
   landing: Vec3 | null = null;
+  /** The approach: a curve from where it started to the perch, flown in `T` seconds. */
+  private approach: { p0: Vec3; m0: Vec3; m1: Vec3; t: number; T: number } | null = null;
   private orbit = 0;
-  /** Glide down and settle on `at` (a perch). */
+  /** Seconds left before touching down (while landing). */
+  get landingLeft(): number {
+    return this.approach ? this.approach.T - this.approach.t : 0;
+  }
+  /**
+   * Glide down and settle on `at` (the body's resting point): a smooth curve from the current
+   * heading and speed, arriving slow and level from the way it was flying.
+   */
   landAt(at: Vec3): void {
     if (this.perched || this.looping || this.riding) return;
+    const f = this.forward;
+    const dx = at[0] - this.pos[0];
+    const dz = at[2] - this.pos[2];
+    const flat = Math.hypot(dx, dz);
+    const dist = Math.hypot(flat, at[1] - this.pos[1]);
+    const T = Math.max(2.2, Math.min(7, dist / 4.5));
+    const v0 = Math.max(this.speed, 4);
+    // Arrive along the line from where it is, slowing to a hover-like 1.2 m/s.
+    const ax = flat > 0.01 ? dx / flat : f[0];
+    const az = flat > 0.01 ? dz / flat : f[2];
     this.landing = [at[0], at[1], at[2]];
+    this.approach = {
+      p0: [this.pos[0], this.pos[1], this.pos[2]],
+      m0: [f[0] * v0 * T * 0.5, f[1] * v0 * T * 0.5, f[2] * v0 * T * 0.5],
+      m1: [ax * 1.2 * T, -0.4 * T, az * 1.2 * T],
+      t: 0,
+      T,
+    };
   }
 
   /** Riding a thermal: carried up in a spiral to its top. */
@@ -162,28 +188,42 @@ export class Player {
         return;
       }
     }
-    // Gliding in to a perch: aim for it, slow down, settle.
-    if (this.landing) {
-      if (input.poked) this.landing = null;
-      else {
+    // Gliding in to a perch along the approach curve; touched, it flies on.
+    if (this.landing && this.approach) {
+      if (input.poked) {
+        this.landing = null;
+        this.approach = null;
+      } else {
+        const ap = this.approach;
+        ap.t = Math.min(ap.T, ap.t + dt);
+        const u = ap.t / ap.T;
         const t = this.landing;
-        const dx = t[0] - this.pos[0];
-        const dy = t[1] - this.pos[1];
-        const dz = t[2] - this.pos[2];
-        const flat = Math.hypot(dx, dz);
-        const dist = Math.hypot(flat, dy);
-        let dyaw = Math.atan2(dx, -dz) - this.yaw;
-        dyaw = Math.atan2(Math.sin(dyaw), Math.cos(dyaw));
-        this.yaw += dyaw * Math.min(1, dt * 3);
-        this.pitch = damp(this.pitch, Math.atan2(dy, Math.max(flat, 0.5)), 3, dt);
-        this.speed = damp(this.speed, Math.min(7.5, 1.2 + dist * 0.9), 2, dt);
+        // Cubic Hermite: position and its derivative (per unit of u).
+        const h00 = 2 * u ** 3 - 3 * u * u + 1;
+        const h10 = u ** 3 - 2 * u * u + u;
+        const h01 = -2 * u ** 3 + 3 * u * u;
+        const h11 = u ** 3 - u * u;
+        const d00 = 6 * u * u - 6 * u;
+        const d10 = 3 * u * u - 4 * u + 1;
+        const d01 = -6 * u * u + 6 * u;
+        const d11 = 3 * u * u - 2 * u;
+        const vel: Vec3 = [0, 0, 0];
+        for (let j = 0; j < 3; j++) {
+          this.pos[j] = h00 * ap.p0[j] + h10 * ap.m0[j] + h01 * t[j] + h11 * ap.m1[j];
+          vel[j] = (d00 * ap.p0[j] + d10 * ap.m0[j] + d01 * t[j] + d11 * ap.m1[j]) / ap.T;
+        }
+        // Clear of the grass until the last moments.
+        if (u < 0.92) this.pos[1] = Math.max(this.pos[1], terrainHeight(this.pos[0], this.pos[2]) + Math.max(0.15, 1.1 * (1 - u)));
+        const hs = Math.hypot(vel[0], vel[2]);
+        if (hs > 0.2) this.yaw = Math.atan2(vel[0], -vel[2]);
+        this.speed = Math.hypot(hs, vel[1]);
+        this.pitch = damp(this.pitch, Math.atan2(vel[1], Math.max(hs, 0.5)) * 0.5, 3, dt);
         this.gust = damp(this.gust, 0, 3, dt);
-        const step = Math.min(dist, this.speed * dt);
-        if (dist > 1e-4) for (let j = 0; j < 3; j++) this.pos[j] += ([dx, dy, dz][j] / dist) * step;
-        if (dist < 0.08) {
+        if (ap.t >= ap.T) {
           this.pos.splice(0, 3, t[0], t[1], t[2]);
           this.perched = true;
           this.landing = null;
+          this.approach = null;
           this.pitch = 0;
           this.orbit = this.yaw + Math.PI * 0.6;
         }
@@ -337,8 +377,8 @@ export class Player {
     if (this.perched) {
       // Resting: the camera drifts slowly round the bird, a little above it.
       this.orbit += dt * 0.12;
-      const desired: Vec3 = [this.pos[0] + Math.sin(this.orbit) * 2.8, this.pos[1] + 0.7, this.pos[2] - Math.cos(this.orbit) * 2.8];
-      const g = smoothGround(desired[0], desired[2]) + 0.4;
+      const desired: Vec3 = [this.pos[0] + Math.sin(this.orbit) * 2.1, this.pos[1] + 0.85, this.pos[2] - Math.cos(this.orbit) * 2.1];
+      const g = smoothGround(desired[0], desired[2]) + 0.9;
       desired[1] = Math.max(desired[1], g);
       for (let i = 0; i < 3; i++) this.camPos[i] = damp(this.camPos[i], desired[i], 1.2, dt);
       camera.position.splice(0, 3, ...this.camPos);

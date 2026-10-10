@@ -110,7 +110,7 @@ export fn bladeVertex(b: Blade, vi: u32, NSEG: u32, G: GrassEnv) -> GrassOut {
   let meadow = fract(packed);
   let hue = (hueQ - 7.0) / 7.0;
   var width = b.shape.z * (1.0 - pow(t, 1.4)) * (1.0 + 0.25 * (1.0 - t));
-  if (isSeed && NSEG >= 5u) {
+  if (isSeed) {
     // Thin stalk ending in a slender spindle-shaped seed head.
     let head = sin(3.14159 * clamp((t - 0.58) / 0.42, 0.0, 1.0));
     width = b.shape.z * (0.55 * (1.0 - t * 0.4) + head * 0.75);

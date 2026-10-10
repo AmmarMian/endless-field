@@ -151,6 +151,9 @@ fn vs_main(@location(0) a: vec4f, @builtin(instance_index) ii: u32) -> VOut {
   }
 
   var out: VOut;
+  // Far flowers grow in before the edge of the loaded area (cells load in whole rows).
+  let grow = 1.0 - smoothstep(220.0, 300.0, distance(root.xz, G.camPos.xz));
+  pos = root + (pos - root) * grow;
   out.pos = G.viewProj * vec4f(pos, 1.0);
   out.world = pos;
   out.normal = n;

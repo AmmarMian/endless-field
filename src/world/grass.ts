@@ -30,6 +30,7 @@ export interface GrassLodConfig {
   widthScale: number;
   widthNext: number;
   heightScale: number;
+  heightNext: number;
 }
 
 export type GrassQuality = "low" | "medium" | "high" | "ultra";
@@ -51,6 +52,7 @@ export function grassLods(quality: GrassQuality): GrassLodConfig[] {
   }[quality];
   // Each ring keeps 1 blade in 9, so widths grow ~3x per ring to keep the field closed.
   const widths = [1, 2.6, 7.6, 22, 62];
+  const hs = [1, 1, 1.05, 1.15, 1.3];
   return radii.map((rOuter, i) => {
     const last = i === radii.length - 1;
     return {
@@ -61,12 +63,14 @@ export function grassLods(quality: GrassQuality): GrassLodConfig[] {
       kNext: last ? 0 : 3 ** (i + 1),
       rInner: i === 0 ? 0 : radii[i - 1],
       rOuter,
-      // Wide crossfades: the blades that do not continue thin out gradually over the outer
-      // 40% of the ring (a narrow band reads as a line where the density steps).
+      // Continuous LOD: the blades that do not continue thin out across the whole ring (the
+      // near ring: its outer 70%), so density falls smoothly with distance and each blade
+      // changes slowly as you fly, instead of a band where they all shrink at once.
       fade: last ? rOuter * 0.35 : (rOuter - (i === 0 ? 0 : radii[i - 1])) * (i >= 3 ? 0.35 : 0.4),
       widthScale: widths[i],
       widthNext: last ? widths[i] : widths[i + 1],
-      heightScale: [1, 1, 1.05, 1.15, 1.3][i],
+      heightScale: hs[i],
+      heightNext: last ? hs[i] : hs[i + 1],
     };
   });
 }
@@ -158,6 +162,8 @@ export class Grass {
             k: config.k,
             kNext: config.kNext,
             widthNext: config.widthNext,
+            heightNext: config.heightNext,
+            lodShift: [0, 0],
           },
           blades,
           args,
@@ -199,6 +205,8 @@ export class Grass {
                 k: config.k,
                 kNext: config.kNext,
                 widthNext: config.widthNext,
+                heightNext: config.heightNext,
+                lodShift: [0, 0],
               },
               life,
               mtnTex: mountains.texture,
@@ -214,15 +222,20 @@ export class Grass {
     return this.lods.map((l) => l.direct ?? l.render);
   }
 
+  /** Debug: shifts the rings' centre away from the camera (to see LOD changes alone). */
+  lodShift: [number, number] = [0, 0];
+
   update(camX: number, camZ: number): void {
+    camX += this.lodShift[0];
+    camZ += this.lodShift[1];
     for (const lod of this.lods) {
       if (lod.direct) {
-        lod.direct.set({ P: { centerCell: [Math.round(camX / (lod.config.baseSpacing * lod.config.k)), Math.round(camZ / (lod.config.baseSpacing * lod.config.k))] } });
+        lod.direct.set({ P: { lodShift: this.lodShift, centerCell: [Math.round(camX / (lod.config.baseSpacing * lod.config.k)), Math.round(camZ / (lod.config.baseSpacing * lod.config.k))] } });
         continue;
       }
       lod.args.write(lod.reset);
       lod.cull.set({
-        P: { centerCell: [Math.round(camX / (lod.config.baseSpacing * lod.config.k)), Math.round(camZ / (lod.config.baseSpacing * lod.config.k))] },
+        P: { lodShift: this.lodShift, centerCell: [Math.round(camX / (lod.config.baseSpacing * lod.config.k)), Math.round(camZ / (lod.config.baseSpacing * lod.config.k))] },
       });
       const groups = Math.ceil(lod.gridSize / 16);
       lod.cull.dispatch(groups, groups);

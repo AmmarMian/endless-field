@@ -624,6 +624,7 @@ async function main(): Promise<void> {
     biome,
     river: { center: riverCenter, water: riverWater, halfWidth: riverHalfWidth },
     grassCounts: () => grass.counts(),
+    grass,
     bloom: (x: number, z: number, r: number) => life.bloom(x, z, r, 0.01),
     /** HDR scene texels at normalized (u, v), for debugging tone and exposure. */
     sceneAt: async (u: number, v: number) => {

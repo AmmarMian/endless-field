@@ -33,6 +33,9 @@ struct CullParams {
   k: i32,
   kNext: i32,
   widthNext: f32,
+  heightNext: f32,
+  // Debug: moves the point the rings are measured from (0 in play).
+  lodShift: vec2f,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -90,7 +93,7 @@ fn makeBlade(id: vec2u) -> Blade {
   let jitter = vec2f(unitFloat(h.x), unitFloat(h.y));
   let xz = (vec2f(cellN) + jitter) * P.baseSpacing;
 
-  let dist = length(xz - G.camPos.xz);
+  let dist = length(xz - (G.camPos.xz + P.lodShift));
   // Inside rInner the finer ring owns every one of this ring's blades; past rOuter the
   // coarser ring takes over the ones that continue.
   if (dist > P.rOuter || dist < P.rInner) {
@@ -107,8 +110,12 @@ fn makeBlade(id: vec2u) -> Blade {
   if (dither > presence) {
     return none;
   }
-  let fade = select(smoothstep(dither * 0.75, dither * 0.75 + 0.25, presence), 1.0, continues);
+  // A leaving blade shrinks all the way to nothing exactly where it is dropped (presence =
+  // dither), so no blade ever vanishes at height.
+  let fade = select(smoothstep(dither, min(dither + 0.3, 1.0), presence), 1.0, continues);
   let widthMul = select(1.0, mix(1.0, P.widthNext / P.widthScale, edge), continues);
+  // Continuing blades also ease toward the next ring's height scale.
+  let heightMul = select(1.0, mix(1.0, P.heightNext / P.heightScale, edge), continues);
   let keep = 1.0;
 
   // Meadow structure: large patches of tall grass and shorter lawns.
@@ -122,7 +129,7 @@ fn makeBlade(id: vec2u) -> Blade {
   let kind = fieldKind(xz, kindN + bio.y * 0.35 - bio.x * 0.3 - bio.z * 0.6, hueN + bio.x * 0.35 + bio.z * 0.5);
   var height = mix(0.45, 1.15, patchN) * mix(0.7, 1.2, r1) * mix(0.85, 1.1, detail);
   height = height * mix(1.0, 1.75, kind.x) * mix(1.0, 0.4, kind.y) * mix(1.0, 0.7, bio.z);
-  height = height * P.heightScale * fade;
+  height = height * P.heightScale * heightMul * fade;
   // Winter snow presses the grass down; spring grass is young and shorter.
   let sw = seasonWeights(G.season);
   height = height * (1.0 - 0.32 * sw.z - 0.15 * sw.w) * (1.0 - 0.14 * G.wet);

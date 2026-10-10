@@ -2,6 +2,7 @@ import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type Shar
 import lanternShader from "../shaders/lantern.wgsl";
 import { terrainHeightM as terrainHeight, worldConstants } from "./height";
 import { lanternAt, lanternCount } from "./lantern-path";
+import { loadBin } from "../engine/assets";
 
 interface Manifest {
   vertexBytes: number;
@@ -36,7 +37,7 @@ export class Lanterns {
   static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/lantern"): Promise<Lanterns> {
     const [manifest, bin] = await Promise.all([
       fetch(`${base}/lantern.json`).then((r) => r.json() as Promise<Manifest>),
-      fetch(`${base}/lantern.bin`).then((r) => r.arrayBuffer()),
+      loadBin(`${base}/lantern.bin`),
     ]);
     const geo = geometry(gpu, {
       label: "lantern",

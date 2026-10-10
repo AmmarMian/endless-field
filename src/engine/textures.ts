@@ -1,4 +1,5 @@
 import { texture, type Gpu, type Texture } from "vgpu";
+import { imageUrl } from "./assets";
 
 export interface TextureLoadOptions {
   srgb: boolean;
@@ -51,7 +52,7 @@ export function loadTexture(gpu: Gpu, url: string, opts: TextureLoadOptions): Pr
 
 async function decodeTexture(gpu: Gpu, url: string, opts: TextureLoadOptions): Promise<Texture> {
   const src = small?.has(url) ? url.replace(/(\.\w+)$/, ".m$1") : url;
-  const blob = await (await fetch(src)).blob();
+  const blob = await (await fetch(imageUrl(src))).blob();
   const bitmapOpts: ImageBitmapOptions = {
     colorSpaceConversion: "none",
     premultiplyAlpha: "none",

@@ -5,6 +5,7 @@ import { loadTexture } from "../engine/textures";
 import { terrainBase, terrainHeightM as terrainHeight, worldConstants } from "./height";
 
 import { SUNFLOWERS, sunflowerField } from "./sunflower-field";
+import { loadBin } from "../engine/assets";
 
 export { SUNFLOWERS, sunflowerField, sunflowerNear } from "./sunflower-field";
 
@@ -98,7 +99,7 @@ export class Sunflowers {
   static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/sunflower"): Promise<Sunflowers> {
     const [manifest, bin, albedoTex] = await Promise.all([
       fetch(`${base}/sunflower.json`).then((r) => r.json() as Promise<Manifest>),
-      fetch(`${base}/sunflower.bin`).then((r) => r.arrayBuffer()),
+      loadBin(`${base}/sunflower.bin`),
       loadTexture(gpu, `${base}/albedo.png`, { srgb: true }),
     ]);
     const geo = geometry(gpu, {

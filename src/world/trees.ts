@@ -18,6 +18,7 @@ import { ecology, treeDensity, treeSuitability, type Eco } from "./ecology";
 import { biome, canopyLight } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
 import { avenueTrees, pathDistance } from "./lantern-path";
+import { loadBin } from "../engine/assets";
 
 interface LodInfo {
   file: string;
@@ -155,7 +156,7 @@ export class Trees {
           loadTexture(gpu, `${dir}/impostor_normal.png`, { srgb: false }),
           // Lite (phones): the near trees use the lighter mesh too; the dense one is not loaded.
           ...lods.map((l) => {
-            if (!bins.has(l.file)) bins.set(l.file, fetch(`${dir}/${l.file}`).then((r) => r.arrayBuffer()));
+            if (!bins.has(l.file)) bins.set(l.file, loadBin(`${dir}/${l.file}`));
             return bins.get(l.file)!;
           }),
         ]);

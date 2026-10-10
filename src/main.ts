@@ -7,6 +7,7 @@ import { Camera, type Vec3 } from "./engine/camera";
 import { GOLDEN_HOUR, Globals, dayAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";
 import { Renderer } from "./engine/renderer";
 import { loadTexture, setTextureMaxSize, usePhoneTextures } from "./engine/textures";
+import { loadAssetIndex } from "./engine/assets";
 import { Audio } from "./game/audio";
 import { Input } from "./game/input";
 import { Motes } from "./game/motes";
@@ -165,10 +166,12 @@ async function main(): Promise<void> {
     const left = [...pending].map((p) => p.split("#")[0]);
     loadStage.textContent = `still waiting on ${left.length} of ${loadTotal}: ${left.slice(0, 6).join(", ")}${left.length > 6 ? "…" : ""}`;
   }, 30000);
+  const assetIndex = loadAssetIndex();
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
   const canTime = adapter?.features.has("timestamp-query") ?? false;
   const gpu = await init({ requiredFeatures: canTime ? ["timestamp-query"] : [] });
   const settings: Settings = loadSettings();
+  await assetIndex;
   // Phones: small textures decoded a few at a time, lighter near trees and a sparser
   // sunflower field, to fit their memory. After a start that never finished (the page was
   // killed while loading), lighter still.

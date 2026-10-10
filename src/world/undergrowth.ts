@@ -6,6 +6,7 @@ import { biome, canopyLight } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
 import { pathNear } from "./lantern-path";
 import { riverBed, riverInfo, riverUpper, terrainHeightM, worldConstants } from "./height";
+import { loadBin } from "../engine/assets";
 
 /** Per-species shading: dry tint before restoration, and night glow of non-leaf texels. */
 interface SpeciesDef {
@@ -97,7 +98,7 @@ export class Undergrowth {
         const dir = `${base}/${def.name}`;
         const [manifest, bin, albedoTex] = await Promise.all([
           fetch(`${dir}/plants.json`).then((r) => r.json()),
-          fetch(`${dir}/plants.bin`).then((r) => r.arrayBuffer()),
+          loadBin(`${dir}/plants.bin`),
           loadTexture(gpu, `${dir}/albedo.png`, { srgb: true }),
         ]);
         const geo = geometry(gpu, {

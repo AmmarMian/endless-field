@@ -15,7 +15,9 @@ npm run build      # typecheck + production build
 
 Needs a WebGPU browser (recent Chrome / Edge / Safari; on iPhone, iOS 26).
 
-On phones the game loads small texture copies (`tools/phone-textures.py`, regenerate after
+Assets are delivered compressed: images as WebP and meshes as gzip (`tools/web-assets.py`
+makes the copies and `public/assets/web.json`; run it after changing any asset), about
+27 MB instead of 69. On phones the game loads small texture copies (`tools/phone-textures.py`, regenerate after
 changing a texture) a couple at a time and draws near trees with their lighter mesh. A start
 that never finished (a phone killed the page while loading) makes the next one start lighter
 still; `?lite=0|1|2` picks a level for one visit.

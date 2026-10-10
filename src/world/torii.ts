@@ -3,6 +3,7 @@ import toriiShader from "../shaders/torii.wgsl";
 import { loadTexture } from "../engine/textures";
 import { terrainHeightM as terrainHeight, worldConstants } from "./height";
 import { PATH, pathNormal, pathZ } from "./lantern-path";
+import { loadBin } from "../engine/assets";
 
 interface Manifest {
   vertexBytes: number;
@@ -32,7 +33,7 @@ export class Torii {
     const tex = (name: string, srgb: boolean) => loadTexture(gpu, `${base}/tex/${name}_2k.jpg`, { srgb });
     const [manifest, bin, woodDiff, woodNor, rockDiff, rockNor] = await Promise.all([
       fetch(`${base}/torii.json`).then((r) => r.json() as Promise<Manifest>),
-      fetch(`${base}/torii.bin`).then((r) => r.arrayBuffer()),
+      loadBin(`${base}/torii.bin`),
       tex("hinoki_planks_diff", true),
       tex("hinoki_planks_nor_gl", false),
       tex("rock_surface_diff", true),

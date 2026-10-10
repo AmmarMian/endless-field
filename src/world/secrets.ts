@@ -5,6 +5,7 @@ import { ecology } from "./ecology";
 import { riverInfo, terrainHeightM as terrainHeight } from "./height";
 import { pathNear } from "./lantern-path";
 import { sunflowerNear } from "./sunflower-field";
+import { loadBin } from "../engine/assets";
 
 interface Manifest {
   vertexBytes: number;
@@ -131,7 +132,7 @@ export class Secrets {
   static async load(gpu: Gpu, globals: SharedUniforms, seed: number, windDir: [number, number], base = "assets/secrets"): Promise<Secrets> {
     const [manifest, bin] = await Promise.all([
       fetch(`${base}/secrets.json`).then((r) => r.json() as Promise<Manifest>),
-      fetch(`${base}/secrets.bin`).then((r) => r.arrayBuffer()),
+      loadBin(`${base}/secrets.bin`),
     ]);
     const geo = geometry(gpu, {
       label: "secrets",

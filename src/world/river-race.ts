@@ -4,6 +4,7 @@ import { BIRD_STRIDE, BirdAnimator, BirdSpecies } from "./bird-model";
 import type { Vec3 } from "../engine/camera";
 import { riverCenter, riverHalfWidth, riverWater } from "./height";
 import { RACE } from "./layout";
+import { loadBin } from "../engine/assets";
 
 interface Manifest {
   vertexBytes: number;
@@ -102,7 +103,7 @@ export class RiverRace {
 
   static async load(gpu: Gpu, globals: SharedUniforms): Promise<RiverRace> {
     const get = (base: string, name: string) =>
-      Promise.all([fetch(`${base}/${name}.json`).then((r) => r.json() as Promise<Manifest>), fetch(`${base}/${name}.bin`).then((r) => r.arrayBuffer())]);
+      Promise.all([fetch(`${base}/${name}.json`).then((r) => r.json() as Promise<Manifest>), loadBin(`${base}/${name}.bin`)]);
     const [[gm, gbin], species] = await Promise.all([get("assets/gate", "gate"), BirdSpecies.load(gpu, "kingfisher")]);
     const ringY = gm.ringY ?? 2.3;
     const radius = gm.radius ?? 1.5;

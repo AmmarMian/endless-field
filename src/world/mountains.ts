@@ -1,5 +1,6 @@
 import { sampler, texture, type Gpu, type Texture } from "vgpu";
 import { setMountains } from "./height";
+import { loadBin } from "../engine/assets";
 
 export interface MountainSet {
   texture: Texture;
@@ -54,7 +55,7 @@ function halfToFloat(h: number): number {
 export async function loadMountains(gpu: Gpu, base = "assets/mountains"): Promise<MountainSet> {
   const meta = (await (await fetch(`${base}/mountains.json`)).json()) as { size: number; massifs: string[] };
   const n = meta.size;
-  const raw = await Promise.all(meta.massifs.map(async (f) => new Uint16Array(await (await fetch(`${base}/${f}`)).arrayBuffer())));
+  const raw = await Promise.all(meta.massifs.map(async (f) => new Uint16Array(await loadBin(`${base}/${f}`))));
   const levels = Math.log2(n) + 1;
   const tex = texture(gpu, {
     kind: "2d-array",

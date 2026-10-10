@@ -1,5 +1,6 @@
 import { draw, geometry, storage, type Draw, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import birdShader from "../shaders/birds.wgsl";
+import { loadBin } from "../engine/assets";
 
 /** One baked animation clip: `frames` intervals from `start` (start + frames is its last sample). */
 export interface Clip {
@@ -47,7 +48,7 @@ export class BirdSpecies {
   static async load(gpu: Gpu, name: string, base = "assets/birds"): Promise<BirdSpecies> {
     const [m, bin] = await Promise.all([
       fetch(`${base}/${name}.json`).then((r) => r.json() as Promise<Manifest>),
-      fetch(`${base}/${name}.bin`).then((r) => r.arrayBuffer()),
+      loadBin(`${base}/${name}.bin`),
     ]);
     const geo = geometry(gpu, {
       label: name,

@@ -2,6 +2,7 @@ import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type Shar
 import shader from "../shaders/fish.wgsl";
 import type { Vec3 } from "../engine/camera";
 import { riverCenter, riverHalfWidth, riverInfo, riverWater, terrainHeightM as terrainHeight } from "./height";
+import { loadBin } from "../engine/assets";
 
 const COUNT = 16;
 /** Fish live within this distance (along the river) of the camera; others swim in. */
@@ -48,7 +49,7 @@ export class RiverFish {
   static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/fish"): Promise<RiverFish> {
     const [manifest, bin] = await Promise.all([
       fetch(`${base}/fish.json`).then((r) => r.json() as Promise<{ vertexBytes: number; indexCount: number }>),
-      fetch(`${base}/fish.bin`).then((r) => r.arrayBuffer()),
+      loadBin(`${base}/fish.bin`),
     ]);
     const geo = geometry(gpu, {
       label: "fish",

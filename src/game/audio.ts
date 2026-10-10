@@ -476,23 +476,6 @@ export class Audio {
   }
 
   /** Something new found: a quick rising arpeggio with a glassy shimmer on top. */
-  /** An animal comes to trust the wind: a soft rising pair of bells. */
-  friend(): void {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime + 0.03;
-    this.bell(74, t, 0.1);
-    this.bell(81, t + 0.13, 0.1);
-    this.glass(93, t + 0.13, 0.01, 1.6);
-  }
-
-  /** A fox springing at the swallow in play: a quick falling pluck. */
-  pounce(): void {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime + 0.02;
-    this.bell(86, t, 0.06);
-    this.bell(81, t + 0.07, 0.05);
-  }
-
   discovery(): void {
     if (!this.ctx) return;
     const t = this.ctx.currentTime + 0.05;

@@ -194,9 +194,6 @@ export function vec4Views(flat: Float32Array): Float32Array[] {
 export class Globals {
   readonly uniforms: SharedUniforms;
   readonly trail = new Float32Array(24 * 4);
-  /** Animals on the ground near the camera (x, y, z, radius; radius 0 = none): the grass parts. */
-  readonly critters = new Float32Array(16 * 4);
-  private readonly critterViews = vec4Views(this.critters);
   sunDir: [number, number, number] = [0, 1, 0];
   private readonly trailViews = vec4Views(this.trail);
   /** Lantern brightness by index (see Lanterns). */
@@ -241,7 +238,6 @@ export class Globals {
       rest: 0,
       frustum: vec4Views(new Float32Array(24)),
       trail: this.trailViews,
-      critters: this.critterViews,
       lamps: this.lampViews,
       lampPos: this.lampPosViews,
     });
@@ -268,7 +264,6 @@ export class Globals {
       time,
       viewport,
       trail: this.trailViews,
-      critters: this.critterViews,
       lamps: this.lampViews,
       lampPos: this.lampPosViews,
       ...extra,

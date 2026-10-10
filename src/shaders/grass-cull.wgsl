@@ -228,22 +228,6 @@ fn makeBlade(id: vec2u) -> Blade {
 
   // The petal stream parts the grass as it passes.
   let toPlayer = distance(xz, G.playerPos.xz);
-  // Animals in the grass: blades lean away from them and lie lower around them (hares,
-  // deer, foxes stay in sight, and the grass parts as they run).
-  if (distance(xz, G.camPos.xz) < 90.0) {
-    for (var i = 0u; i < 16u; i = i + 1u) {
-      let c = G.critters[i];
-      if (c.w <= 0.0) {
-        continue;
-      }
-      let d = xz - c.xz;
-      let dl = length(d);
-      if (dl < c.w * 2.6) {
-        height = height * mix(0.3, 1.0, smoothstep(c.w * 0.5, c.w * 2.6, dl));
-        bend = bend + d / max(dl, 0.05) * (1.0 - smoothstep(c.w * 0.8, c.w * 2.6, dl)) * 0.9;
-      }
-    }
-  }
   // A resting bird: the grass under and around it lies pressed down, a little form in the
   // meadow it can be seen in.
   if (G.rest > 0.0) {

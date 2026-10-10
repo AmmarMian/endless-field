@@ -49,14 +49,6 @@ still; `?lite=0|1|2` picks a level for one visit.
   thermals are modeled, rigged and animated in Blender (flap, glide, stoop, landing flare,
   take-off, perched idle, preening, hops and pecks), baked to skinning matrices and blended on
   the GPU.
-- **Animals**: brown hares, roe deer and a red fox in the meadows; butterflies (six species)
-  over the flower beds; frogs, dragonflies and mallards at the river. Modeled, rigged and
-  animated in Blender (`tools/blender/model_animals.py`: grazing, alert, walking and galloping
-  gaits, a fox's mousing pounce, a frog's call, a duck up-ending), they react to the wind
-  and the grass parts around them. Rush at them and they flee; come gently (no gust, low)
-  and linger, and they trust you: hares, deer and the fox run beside you, butterflies dance
-  around you, ducks paddle in your wake, a dragonfly flies at your wingtip, the fox springs at
-  you in play, and frogs sing when you rest by the river. At night they carry a soft light.
 - **Night**: moon and stars, swarming fireflies, glowing flowers and bioluminescent grass.
 - **Rendering**: HDR + 4x MSAA, reversed-Z, bloom, ACES tone mapping, GPU timers, frame cap
   and dynamic resolution.
@@ -76,8 +68,6 @@ blender -b --factory-startup --python tools/blender/build_plants.py -- tools/pla
 - Birds: `blender -b --factory-startup --python tools/blender/model_birds.py -- public/assets/birds
   [--preview <dir>] [--blend <file.blend>]` builds every species; `--blend` saves the rigged
   scenes with their actions for editing, `--preview` renders frames of each clip.
-- Animals: `blender -b --factory-startup --python tools/blender/model_animals.py -- public/assets/animals
-  [--species hare,deer,...] [--preview <dir>] [--clips a,b]`.
 - Plants: variants are re-centered, simplified, and their diffuse + alpha merged with color
   bleeding for clean mips.
 

@@ -33,14 +33,13 @@ import { setWorldSeed, mountainZone, riverCenter, riverInfo, riverHalfWidth, riv
 import { biome } from "./world/biome";
 import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
-import { Fauna } from "./world/fauna";
 import { loadMountains } from "./world/mountains";
 import { FlowerBeds } from "./world/beds";
 import { Undergrowth } from "./world/undergrowth";
 import { SUNFLOWERS, Sunflowers, gradeSunflowerField, sunflowerField } from "./world/sunflowers";
 import { Lanterns } from "./world/lanterns";
 import { Torii, toriiGates } from "./world/torii";
-import { Discoveries, NOTES } from "./game/discoveries";
+import { Discoveries } from "./game/discoveries";
 import { Kind } from "./game/motes";
 import { Rain } from "./world/rain";
 import { PATH, pathNear, pathZ } from "./world/lantern-path";
@@ -267,7 +266,7 @@ async function main(): Promise<void> {
   const input = new Input(canvas);
   const audio = new Audio();
   stage("planting trees and flowers…");
-  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race, fish, swallow, fauna] = await Promise.all([
+  const [trees, beds, water, undergrowth, sunflowers, lanterns, torii, birds, secrets, race, fish, swallow] = await Promise.all([
     track(Trees.load(gpu, globals.uniforms), "trees"),
     track(FlowerBeds.load(gpu, globals.uniforms, life.buffer), "flowerbeds"),
     track(Water.load(gpu, globals.uniforms), "water"),
@@ -280,7 +279,6 @@ async function main(): Promise<void> {
     track(RiverRace.load(gpu, globals.uniforms), "riverrace"),
     track(RiverFish.load(gpu, globals.uniforms), "fish"),
     track(PlayerBird.load(gpu, globals.uniforms), "swallow"),
-    track(Fauna.load(gpu, globals.uniforms), "animals"),
   ]);
   const nest = new Nest(gpu, globals.uniforms);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
@@ -291,21 +289,7 @@ async function main(): Promise<void> {
     const dz = at[2] - camera.position[2];
     const d = Math.hypot(dx, dz) || 1;
     return [(dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1)), d];
-  };  // The animals' little sounds and splashes.
-  fauna.frogs.onSplash = (at) => {
-    motes.splash([at[0], at[1], at[2]], 0.05);
-    audio.plink(0.6);
   };
-  fauna.frogs.onCroak = (at) => audio.frog(...heard(at));
-  fauna.onFriend = (kind) => {
-    if (kind === "fox-play") {
-      audio.pounce();
-      return;
-    }
-    audio.friend();
-    discoveries.find(kind);
-  };
-
   birds.onTakeoff = (at, n) => {
     const [pan, d] = heard(at);
     audio.birds(n, pan, d);
@@ -423,13 +407,6 @@ async function main(): Promise<void> {
   // The first shower comes within a minute or so; then every few minutes.
   let weatherTimer = 40 + Math.random() * 40;
   const precipitation = new Rain(gpu, globals.uniforms);
-  // Animal hints (once each) and friendships.
-  const friendEl = document.createElement("div");
-  friendEl.id = "friend";
-  (document.getElementById("hud") ?? document.body).append(friendEl);
-  let friendTimer = 0;
-  const hinted = new Set<string>();
-  let animalHintIn = 8;
   const seasonEl = document.createElement("div");
   seasonEl.id = "season";
   (document.getElementById("hud") ?? document.body).append(seasonEl);
@@ -437,7 +414,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...fauna.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -624,7 +601,6 @@ async function main(): Promise<void> {
     thermals,
     insects,
     swallow,
-    fauna,
     get panel() {
       return panel;
     },
@@ -1110,32 +1086,6 @@ async function main(): Promise<void> {
       }
       player.followScale += ((current.avatar === "swallow" ? 0.52 : 1) - player.followScale) * Math.min(1, dt * 2);
       birds.update(dt, player.pos, player.altitude, night, player.yaw);
-      {
-        const lead = explore ? freecam.pos : player.pos;
-        const f = player.forward;
-        const v = explore ? 0 : player.speed;
-        // On foot (free roam) you walk up to them slowly: always gentle.
-        fauna.update(
-          { dt, wind: lead, windVel: [f[0] * v, f[1] * v, f[2] * v], windAlt: explore ? 1 : player.altitude, heading: player.yaw, night, rain, t, gust: explore ? 0 : player.gust, speed: explore ? 2 : player.speed, perched: !explore && player.perched },
-          globals.critters,
-        );
-        // The first time each kind of animal is near, a word on how to play with it.
-        if (playing) {
-          animalHintIn -= dt;
-          const kind = animalHintIn <= 0 ? fauna.nearKind(lead) : null;
-          if (kind && !hinted.has(kind) && !discoveries.has(kind)) {
-            hinted.add(kind);
-            animalHintIn = 20;
-            const note = NOTES.find((n) => n.id === kind);
-            if (note) {
-              friendEl.innerHTML = `<b>${note.name}</b><span>${note.text}</span>`;
-              friendEl.classList.add("show");
-              window.clearTimeout(friendTimer);
-              friendTimer = window.setTimeout(() => friendEl.classList.remove("show"), 7000);
-            }
-          }
-        }
-      }
       if (playing && !paused) {
         regionCheck -= dt;
         if (regionCheck <= 0) {
@@ -1309,7 +1259,6 @@ async function main(): Promise<void> {
       race.glow = darkGlow;
       swallow.encode(pass);
       birds.encode(pass);
-      fauna.encode(pass);
       secrets.encode(pass);
       race.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);

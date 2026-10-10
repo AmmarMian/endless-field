@@ -133,7 +133,8 @@ async function main(): Promise<void> {
     );
     return;
   }
-  const tier = bootTier();
+  // Crash-safe tiers are for phones (a desktop reload while loading is not a crash).
+  const tier = TOUCH || params.has("lite") ? bootTier() : 0;
   // GPU timings for the frame counter when the adapter supports timestamp queries.
   // Loading screen: progress follows real work (each texture, model and pipeline).
   const loadingEl = document.getElementById("loading");

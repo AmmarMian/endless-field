@@ -82,7 +82,14 @@ export fn bladeVertex(b: Blade, vi: u32, NSEG: u32, G: GrassEnv) -> GrassOut {
 
   let root = b.root.xyz;
   let h = b.root.w;
-  let facing = vec3f(b.shape.x, 0.0, b.shape.y);
+  // Far blades turn broadside to the camera: seen edge-on a distant blade covers nothing, and
+  // the coarse rings (few, wide blades) would read as thin, flat carpet instead of a field.
+  let randomFacing = vec3f(b.shape.x, 0.0, b.shape.y);
+  let toCamH = G.camPos.xz - b.root.xz;
+  let camD = length(toCamH);
+  var broad = vec3f(-toCamH.y, 0.0, toCamH.x) / max(camD, 1e-3);
+  broad = select(broad, -broad, dot(broad, randomFacing) < 0.0);
+  let facing = normalize(mix(randomFacing, broad, smoothstep(25.0, 90.0, camD) * 0.92));
   let rnd = b.bend.z;
 
   // Natural lean along the blade's own facing normal, plus wind/interaction bend.

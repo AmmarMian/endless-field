@@ -143,7 +143,9 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // Tall meadows read lighter from afar (seed heads), lawns darker and greener.
   let tField = mix(0.62, 0.75, kind.x) - 0.15 * kind.y;
   let field = seasonGrass(fieldColor(meadow, lifeV, tField, kind.z), sw, tField) * mix(0.9, 1.08, grain);
-  let farMix = smoothstep(60.0, 140.0, dist);
+  // From 25 m the ground takes the canopy look: the gaps between the coarser rings' blades
+  // must show grass, not soil.
+  let farMix = smoothstep(25.0, 80.0, dist);
   // From afar a field is the average of lit tips and shadowed stems: darker and richer than
   // the tip color, matching the blades of the coarse rings so they merge into it.
   let fieldLum = dot(field, vec3f(0.3, 0.59, 0.11));
@@ -234,7 +236,12 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let ao = mix(0.45, 1.0, farMix);
 
   let l = G.sunDir;
-  let diff = wrapDiffuse(n, l, 0.4);
+  // Far away the ground stands in for the grass canopy, which is lit like the blades are: its
+  // normal leans up (blades stand up on slopes) and it never goes as dark as bare soil on a
+  // slope turned from the sun.
+  let grassyLight = farMix * (1.0 - smoothstep(0.15, 0.6, frag.misc.w)) * (1.0 - smoothstep(1.0, 20.0, frag.mtn));
+  let nC = normalize(mix(n, vec3f(0.0, 1.0, 0.0), 0.55 * grassyLight));
+  let diff = mix(wrapDiffuse(n, l, 0.4), wrapDiffuse(nC, l, 0.6), grassyLight);
   let shade = canopyLight(xz.x, frag.misc.w);
   // Rain: wet ground darkens (water fills the pores) and turns a little glossy. (Snow does
   // not wet: winter keeps its cover.)

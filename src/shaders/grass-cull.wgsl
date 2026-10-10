@@ -190,8 +190,11 @@ fn makeBlade(id: vec2u) -> Blade {
   // curtains on valley walls; the ground shading carries those areas instead.
   // Far away, blades on steep ground or high mountain turf shrink away gradually with distance
   // (the ground shading carries those areas) - the same in every ring, so nothing pops.
-  let steepFar = select(1.0, 1.0 - smoothstep(22.0, 45.0, dist), groundN.y < 0.82);
-  let mtnFar = select(1.0, 1.0 - smoothstep(90.0, 140.0, dist), mtn > 15.0);
+  // Only truly steep faces (cliffs, banks) lose their far grass, and only far off; ordinary
+  // hillsides keep it to the horizon (they are what the eye sees of distant land).
+  let steepK = 1.0 - smoothstep(0.55, 0.72, groundN.y);
+  let steepFar = 1.0 - steepK * smoothstep(120.0, 260.0, dist);
+  let mtnFar = select(1.0, 1.0 - smoothstep(350.0, 600.0, dist), mtn > 60.0);
   let farFade = steepFar * mtnFar;
   if (farFade <= 0.01) {
     return none;

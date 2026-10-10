@@ -41,28 +41,32 @@ export type GrassQuality = "low" | "medium" | "high" | "ultra";
  */
 export function grassLods(quality: GrassQuality): GrassLodConfig[] {
   const base = { low: 0.15, medium: 0.115, high: 0.09, ultra: 0.075 }[quality];
+  // The last ring is very sparse and wide-bladed: it carries the grass's texture and its fuzz
+  // on the ridges out toward the horizon, so far hills read as grassland, not bare ground.
   const radii = {
-    low: [24, 70, 140],
-    medium: [32, 85, 160, 380],
-    high: [42, 100, 180, 480],
-    ultra: [55, 120, 200, 560],
+    low: [24, 70, 140, 420],
+    medium: [32, 85, 160, 380, 850],
+    high: [42, 100, 180, 480, 1100],
+    ultra: [55, 120, 200, 560, 1300],
   }[quality];
   // Each ring keeps 1 blade in 9, so widths grow ~3x per ring to keep the field closed.
-  const widths = [1, 2.6, 7.6, 22];
+  const widths = [1, 2.6, 7.6, 22, 62];
   return radii.map((rOuter, i) => {
     const last = i === radii.length - 1;
     return {
-      label: ["grass-near", "grass-mid", "grass-far", "grass-horizon"][i],
+      label: ["grass-near", "grass-mid", "grass-far", "grass-horizon", "grass-distant"][i],
       segments: i === 0 ? 7 : i === 1 ? 3 : 2,
       baseSpacing: base,
       k: 3 ** i,
       kNext: last ? 0 : 3 ** (i + 1),
       rInner: i === 0 ? 0 : radii[i - 1],
       rOuter,
-      fade: last ? rOuter * 0.35 : Math.min(10, (rOuter - (i === 0 ? 0 : radii[i - 1])) * 0.3),
+      // Wide crossfades: the blades that do not continue thin out gradually over the outer
+      // 40% of the ring (a narrow band reads as a line where the density steps).
+      fade: last ? rOuter * 0.35 : (rOuter - (i === 0 ? 0 : radii[i - 1])) * (i >= 3 ? 0.35 : 0.4),
       widthScale: widths[i],
       widthNext: last ? widths[i] : widths[i + 1],
-      heightScale: i === 3 ? 1.1 : 1,
+      heightScale: [1, 1, 1.05, 1.15, 1.3][i],
     };
   });
 }

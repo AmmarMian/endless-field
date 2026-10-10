@@ -73,15 +73,23 @@ interface Lod {
   verts: number;
   cull: Compute;
   render: Draw;
+  /** The same blades without compute (direct mode). */
+  direct: Draw | null;
   args: StorageBuffer;
   blades: StorageBuffer;
   reset: Uint32Array<ArrayBuffer>;
 }
 
-/** GPU-driven grass: compute places/culls/animates blades, indirect draws render them. */
+/**
+ * GPU-driven grass: compute places/culls/animates blades, indirect draws render them. Some
+ * phones draw nothing that way; in direct mode the same blades come from a plain instanced
+ * draw (each vertex places its blade itself), on a sparser grid to keep it affordable.
+ */
 export class Grass {
   private lods: Lod[] = [];
   quality: GrassQuality;
+  /** Direct mode (no compute): set by `useDirect`. */
+  direct = false;
 
   constructor(
     private readonly gpu: Gpu,
@@ -104,12 +112,25 @@ export class Grass {
     this.build(quality);
   }
 
+  /** Switches to direct mode (for devices whose compute grass draws nothing). */
+  useDirect(): void {
+    if (this.direct) return;
+    this.direct = true;
+    for (const lod of this.lods) {
+      for (const b of [lod.blades, lod.args]) (b as unknown as { destroy?: () => void }).destroy?.();
+    }
+    this.build(this.quality);
+  }
+
   private build(quality: GrassQuality): void {
     const { gpu, globals, life, mountains } = this;
-    this.lods = grassLods(quality).map((config) => {
+    // Direct mode: a sparser, wider-bladed field (every vertex places its own blade).
+    const sparse = this.direct ? 1.7 : 1;
+    this.lods = grassLods(quality).map((base) => {
+      const config = { ...base, baseSpacing: base.baseSpacing * sparse, widthScale: base.widthScale * sparse, widthNext: base.widthNext * sparse };
       const spacing = config.baseSpacing * config.k;
       const gridSize = Math.ceil((config.rOuter * 2) / spacing) + 2;
-      const blades = storage(gpu, gridSize * gridSize * BLADE_BYTES, "read-write");
+      const blades = storage(gpu, this.direct ? BLADE_BYTES : gridSize * gridSize * BLADE_BYTES, "read-write");
       const args = storage(gpu, 16, { indirect: true });
       const verts = (2 * (config.segments - 1) + 1) * 3;
       const cull = compute(gpu, cullShader, {
@@ -148,16 +169,53 @@ export class Grass {
         depth: { compare: "greater" },
         set: { G: globals, blades },
       });
-      return { config, gridSize, verts, cull, render, args, blades, reset: new Uint32Array([verts, 0, 0, 0]) };
+      const direct = this.direct
+        ? draw(gpu, {
+            label: `${config.label}-direct`,
+            shader: cullShader,
+            entry: { vertex: "vs_direct", fragment: "fs_direct" },
+            vertices: verts,
+            constants: { ...worldConstants(cullShader), NSEG: config.segments },
+            depth: { compare: "greater" },
+            set: {
+              G: globals,
+              P: {
+                centerCell: [0, 0],
+                gridSize,
+                spacing,
+                rInner: config.rInner,
+                rOuter: config.rOuter,
+                fade: config.fade,
+                widthScale: config.widthScale,
+                heightScale: config.heightScale,
+                thinStart: 0,
+                thinEnd: 1,
+                thinMin: 1,
+                baseSpacing: config.baseSpacing,
+                k: config.k,
+                kNext: config.kNext,
+                widthNext: config.widthNext,
+              },
+              life,
+              mtnTex: mountains.texture,
+              mtnSamp: mountains.sampler,
+            },
+          })
+        : null;
+      return { config, gridSize, verts, cull, render, direct, args, blades, reset: new Uint32Array([verts, 0, 0, 0]) };
     });
   }
 
   get draws(): Draw[] {
-    return this.lods.map((l) => l.render);
+    return this.lods.map((l) => l.direct ?? l.render);
   }
 
   update(camX: number, camZ: number): void {
     for (const lod of this.lods) {
+      if (lod.direct) {
+        lod.direct.set({ P: { centerCell: [Math.round(camX / (lod.config.baseSpacing * lod.config.k)), Math.round(camZ / (lod.config.baseSpacing * lod.config.k))] } });
+        continue;
+      }
       lod.args.write(lod.reset);
       lod.cull.set({
         P: { centerCell: [Math.round(camX / (lod.config.baseSpacing * lod.config.k)), Math.round(camZ / (lod.config.baseSpacing * lod.config.k))] },
@@ -168,7 +226,10 @@ export class Grass {
   }
 
   encode(pass: FramePass): void {
-    for (const lod of this.lods) pass.draw(lod.render, { indirect: lod.args });
+    for (const lod of this.lods) {
+      if (lod.direct) pass.draw(lod.direct, { instances: lod.gridSize * lod.gridSize });
+      else pass.draw(lod.render, { indirect: lod.args });
+    }
   }
 
   /** Reads back how many blades each LOD drew last frame (diagnostics only). */

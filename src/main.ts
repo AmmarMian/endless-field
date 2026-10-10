@@ -217,6 +217,7 @@ async function main(): Promise<void> {
   ]);
   const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree, forestFloor);
   const grass = new Grass(gpu, globals.uniforms, life.buffer, mountains, settings.grass);
+  if (params.get("grass") === "direct") grass.useDirect();
   const flowers = new Flowers(gpu, globals.uniforms);
   const fireflies = new Fireflies(gpu, globals.uniforms, mountains);
   const motes = new Motes(gpu, globals.uniforms);
@@ -709,6 +710,9 @@ async function main(): Promise<void> {
   let paused = false;
   let simTime = 0;
   let bootOk = false;
+  let grassChecks = 0;
+  let grassZero = 0;
+  let grassChecking = false;
   const pauseEl = document.createElement("div");
   pauseEl.id = "pause";
   pauseEl.hidden = true;
@@ -753,6 +757,23 @@ async function main(): Promise<void> {
     if (input.wasPressed("p") && playing) setPaused(!paused);
     const rawDt = paused ? 0 : Math.min(time.deltaTime, 1 / 15);
     simTime += rawDt;
+    // Grass check: some phones run the compute grass yet draw no blade. Ask the GPU how many
+    // it drew, twice; if none, draw the grass the simple way.
+    if (!grass.direct && grassChecks < 2 && simTime > 3 + grassChecks * 3 && !grassChecking) {
+      grassChecking = true;
+      grass
+        .counts()
+        .then((n) => {
+          grassChecks++;
+          grassZero += n.reduce((a, b) => a + b, 0) === 0 ? 1 : 0;
+          if (grassZero >= 2) {
+            grass.useDirect();
+            notice("Grass is drawn the simple way on this device.");
+          }
+        })
+        .catch(() => (grassChecks = 2))
+        .finally(() => (grassChecking = false));
+    }
     // Running for 8 s: this start worked.
     if (!bootOk && simTime > 8) {
       bootOk = true;

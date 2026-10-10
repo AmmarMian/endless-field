@@ -8,8 +8,9 @@ import { pcg2d, unitFloat } from "@vgpu/wgsl-std/hash";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 import { biome } from "./lib/biome.wgsl";
 import { sunflowerField } from "./lib/sunflowers.wgsl";
-import { PATH_WIDTH, pathDistance } from "./lib/path.wgsl";
 import { seasonWeights } from "./lib/season.wgsl";
+import { GrassEnv, GrassOut, bladeVertex, shadeBlade } from "./lib/grass-blade.wgsl";
+import { LANTERN_COLOR, PATH_WIDTH, lanternFirst, lanternTerm, pathDistance } from "./lib/path.wgsl";
 
 struct CullParams {
   // Integer cell of the grid center (camera snapped to the cell size).
@@ -64,13 +65,17 @@ fn inFrustum(c: vec3f, r: f32) -> bool {
   return true;
 }
 
-@compute @workgroup_size(16, 16)
-fn cs_main(@builtin(global_invocation_id) id: vec3u) {
+/** The blade at grid cell `id` (placed, shaped, bent), or one with root.w < 0 when there is
+ * none (outside the ring, culled, under water...). Shared by the compute pass and the direct
+ * (no-compute) fallback below. */
+fn makeBlade(id: vec2u) -> Blade {
+  var none: Blade;
+  none.root = vec4f(0.0, 0.0, 0.0, -1.0);
   if (id.x >= P.gridSize || id.y >= P.gridSize) {
-    return;
+    return none;
   }
   let half = i32(P.gridSize / 2u);
-  let cell = P.centerCell + vec2i(id.xy) - vec2i(half);
+  let cell = P.centerCell + vec2i(id) - vec2i(half);
   // Identity on the finest grid: the same blade has the same position, height and rotation in
   // every ring, so moving between rings never swaps one set of blades for another. A coarse
   // cell is represented by a randomly chosen fine blade (picked level by level), so coarse
@@ -89,7 +94,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   // Inside rInner the finer ring owns every one of this ring's blades; past rOuter the
   // coarser ring takes over the ones that continue.
   if (dist > P.rOuter || dist < P.rInner) {
-    return;
+    return none;
   }
   // This blade continues into the next ring if it is its parent cell's chosen representative.
   let parent = vec2i(floor(vec2f(cell) / 3.0));
@@ -100,7 +105,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   // its own threshold); the ones that continue stay and widen toward the next ring's width.
   let presence = select(1.0 - edge, 1.0, continues);
   if (dither > presence) {
-    return;
+    return none;
   }
   let fade = select(smoothstep(dither * 0.75, dither * 0.75 + 0.25, presence), 1.0, continues);
   let widthMul = select(1.0, mix(1.0, P.widthNext / P.widthScale, edge), continues);
@@ -127,7 +132,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let onPath = 1.0 - smoothstep(PATH_WIDTH - 0.2, PATH_WIDTH + 0.4, pd);
     // Bare in the middle (at ~120 blades/m^2 even a few percent would show), thinning at the edges.
     if (onPath > 0.98 || unitFloat(h.y ^ 0x2545F491u) < onPath) {
-      return;
+      return none;
     }
     height = height * mix(0.45, 1.0, smoothstep(PATH_WIDTH, PATH_WIDTH + 1.6, pd));
   }
@@ -135,7 +140,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let sf = sunflowerField(xz);
   if (sf > 0.01) {
     if (unitFloat(h.x ^ 0x68E31DA4u) < sf * 0.8) {
-      return;
+      return none;
     }
     height = height * mix(1.0, 0.45, sf);
   }
@@ -144,7 +149,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let river = riverInfo(xz);
   let hwR = river.z;
   if (river.x < hwR * 0.78) {
-    return;
+    return none;
   }
   let edgeJitter = simplex2d(xz * 0.3 + vec2f(5.0, 2.0)) * hwR * 0.25;
   let clump = smoothstep(0.1, 0.5, simplex2d(xz * 0.16 + vec2f(31.0, -4.0)));
@@ -152,20 +157,20 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let isReed = reed >= 0.4;
   let shoreKeep = smoothstep(hwR * 1.15, hwR * 2.0, river.x + edgeJitter);
   if (reed < 0.4 && unitFloat(h.x ^ 0x68e31da4u) > shoreKeep) {
-    return;
+    return none;
   }
   height = select(height * mix(0.55, 1.0, shoreKeep), height * 1.6, reed >= 0.4);
 
   // Shade under the forest canopy: only sparse, shorter tufts survive.
   if (bio.z > 0.05 && unitFloat(h.y ^ 0x9e3779b9u) < bio.z * 1.2) {
-    return;
+    return none;
   }
   height = height * mix(1.0, 0.6, bio.z);
 
   // Flower beds: the grass thins and shortens so wildflowers grow up through it.
   let bed = bedMask(xz).x;
   if (bed > 0.0 && unitFloat(h2.y ^ 0x27d4eb2du) < bed * 0.5) {
-    return;
+    return none;
   }
   height = height * mix(1.0, 0.55, bed);
   let seedKind = ((kind.x > 0.3 && unitFloat(h.y ^ 0x5bd1e995u) < 0.35 * kind.x) || (reed >= 0.4 && unitFloat(h.y ^ 0x1b873593u) < 0.25));
@@ -177,7 +182,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let root = vec3f(xz.x, y, xz.y);
   // Bent blades can lean up to ~1.6x their height sideways: cull with a sphere that covers it.
   if (!inFrustum(root + vec3f(0.0, height * 0.5, 0.0), height * 1.7 + 0.8)) {
-    return;
+    return none;
   }
   // Alpine ecology: turf shortens with altitude; rock and snow leave only sparse tufts.
   let groundN = terrainNormalM(xz, y, 1.5, river.w, mtnTex, mtnSamp);
@@ -189,7 +194,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   let mtnFar = select(1.0, 1.0 - smoothstep(90.0, 140.0, dist), mtn > 15.0);
   let farFade = steepFar * mtnFar;
   if (farFade <= 0.01) {
-    return;
+    return none;
   }
   height = height * farFade;
   var alpine = 0.0;
@@ -199,7 +204,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let snow = smoothstep(190.0, 230.0, mtn + simplex2d(xz * 0.004) * 35.0) * smoothstep(0.45, 0.75, groundN.y);
     let bare = max(smoothstep(0.45, 0.8, steep), snow);
     if (unitFloat(h2.x ^ 0x2545f491u) < bare * 0.97) {
-      return;
+      return none;
     }
     height = height * mix(1.0, 0.32, alpine);
   }
@@ -274,15 +279,65 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
   // Waterside plants stay green even before the land is restored.
   let lifeV = max(max(sampleLife(xz), select(0.0, 0.4, isReed)), alpineGreen);
 
-  let idx = atomicAdd(&args[1], 1u);
-  if (idx >= arrayLength(&blades)) {
-    return;
-  }
   var b: Blade;
   b.root = vec4f(root, height);
   b.shape = vec4f(cos(angle), sin(angle), width, lifeV);
   let packedKind = min(patchN, 0.999) + select(0.0, 2.0, isSeed) + 4.0 * hueQ;
   b.bend = vec4f(bend * select(1.0, 1.25, isSeed), r1, packedKind);
   b.ground = vec4f(groundN, 0.0);
+  return b;
+}
+
+@compute @workgroup_size(16, 16)
+fn cs_main(@builtin(global_invocation_id) id: vec3u) {
+  let b = makeBlade(id.xy);
+  if (b.root.w < 0.0) {
+    return;
+  }
+  let idx = atomicAdd(&args[1], 1u);
+  if (idx >= arrayLength(&blades)) {
+    return;
+  }
   blades[idx] = b;
+}
+
+// ---- Direct fallback: devices whose compute grass draws nothing get the same blades from a
+// plain instanced draw (one instance per grid cell, cells without a blade collapse to nothing).
+
+override NSEG: u32 = 5u;
+
+fn grassEnv() -> GrassEnv {
+  return GrassEnv(G.viewProj, G.camPos, G.time, G.sunDir, G.windStrength, G.sunColor, G.fogDensity, G.horizonColor, G.night, G.zenithColor, G.season, G.playerPos, G.playerGlow, G.viewport, G.mist, G.mistBase, G.canopy, G.wet, G.underwater);
+}
+
+// Warm light from the lit path lanterns at night (see lib/path.wgsl).
+fn lampLight(p: vec3f) -> vec3f {
+  let k0 = lanternFirst(p, G.lampPos[1].w, G.lampPos[2].w, G.night);
+  if (k0 < -50) {
+    return vec3f(0.0);
+  }
+  let count = i32(G.lampPos[0].w);
+  var sum = 0.0;
+  for (var k = max(k0, 0); k < min(k0 + 5, count); k = k + 1) {
+    sum = sum + lanternTerm(p, G.lampPos[k].xyz, G.lamps[u32(k) / 4u][u32(k) % 4u], f32(k), G.time);
+  }
+  return LANTERN_COLOR * sum * G.night;
+}
+
+@vertex
+fn vs_direct(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> GrassOut {
+  let b = makeBlade(vec2u(ii % P.gridSize, ii / P.gridSize));
+  if (b.root.w < 0.0) {
+    var out: GrassOut;
+    out.pos = vec4f(0.0, 0.0, -2.0, 1.0);
+    return out;
+  }
+  var out = bladeVertex(b, vi, NSEG, grassEnv());
+  out.lamp = lampLight(out.world);
+  return out;
+}
+
+@fragment
+fn fs_direct(frag: GrassOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
+  return shadeBlade(frag, grassEnv());
 }

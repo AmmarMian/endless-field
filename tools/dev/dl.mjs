@@ -1,0 +1,15 @@
+import { chromium } from "playwright";
+const url = process.argv[2] ?? "http://localhost:5199/";
+const b = await chromium.launch({ channel: "chromium", args: ["--enable-unsafe-webgpu", "--use-angle=metal", "--ignore-gpu-blocklist"] });
+const p = await b.newPage({ viewport: { width: 1280, height: 720 } });
+await p.route(/fonts\.(googleapis|gstatic)\.com/, (r) => r.abort());
+const byType = {};
+p.on("response", async (r) => { try { const n = (await r.body()).length; if (process.env.LOG && /\.(bin|gz|webp|png|jpg)/.test(r.url())) console.log(r.url().replace(/.*assets\//,""), n, r.headers()["content-encoding"]||""); const ext = (r.url().split("?")[0].match(/\.(\w+)$/) || [, "other"])[1]; byType[ext] = (byType[ext] || 0) + n; } catch {} });
+const t0 = Date.now();
+await p.goto(url, { waitUntil: "domcontentloaded" });
+await p.waitForFunction(() => window.__ef, null, { timeout: 120000 });
+console.log("ready ms", Date.now() - t0);
+await p.waitForTimeout(1500);
+const tot = Object.values(byType).reduce((a, b) => a + b, 0);
+console.log("MB", (tot / 1e6).toFixed(1), Object.entries(byType).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k}:${(v / 1e6).toFixed(1)}`).join(" "));
+await b.close();

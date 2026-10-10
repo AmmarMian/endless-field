@@ -785,7 +785,414 @@ def hare():
     finish("hare", obs, rig, allowed, 0.02, paint, clips, {"stride": {"hop": 0.45, "run": 1.4}, "standHeight": 0.0}, 0.35, look=(0, 0.05, 0.2), views=("side", "front"))
 
 
-SPECIES = {"butterfly": butterfly, "hare": hare}
+
+# =======================================================================================
+# Quadrupeds (roe deer, red fox): one builder. A spec gives the torso, neck, head and the
+# leg joints (right side; hind: hip, stifle, hock, toe; front: shoulder, elbow, carpus, toe);
+# gaits are sampled from leg cycles with each foot's phase.
+
+
+def leg_cycle(p, duty, amp, lift, front):
+    """One leg at phase p: stance sweeps the foot back flat on the ground; swing lifts and
+    folds it forward. Returns (upper, middle, lower) rotations (degrees)."""
+    p %= 1.0
+    if p < duty:
+        u = p / duty
+        swing, flex = amp * (1 - 2 * u), 0.0
+    else:
+        u = (p - duty) / (1 - duty)
+        e = u * u * (3 - 2 * u)
+        swing, flex = amp * (-1 + 2 * e), math.sin(math.pi * u)
+    if front:
+        return (swing * 0.9, flex * lift * 0.5, -flex * lift * 1.5)
+    return (swing, -flex * lift * 0.9, flex * lift * 1.6)
+
+
+def gait(q, ph, offsets, duty, amp, lift, bob, rock, head_k=1.0, extra=None):
+    """A pose for the gait at phase ph. offsets: phase of (hind R, hind L, front R, front L)."""
+    names = (("thigh", "shin", "hcannon", "R", False), ("thigh", "shin", "hcannon", "L", False), ("upper", "fore", "fcannon", "R", True), ("upper", "fore", "fcannon", "L", True))
+    p = {}
+    for (a, b, c, side, front), off in zip(names, offsets):
+        r = leg_cycle(ph + off, duty, amp, lift, front)
+        p[f"{a}.{side}"] = (r[0], 0, 0)
+        p[f"{b}.{side}"] = (r[1], 0, 0)
+        p[f"{c}.{side}"] = (r[2], 0, 0)
+    w = 2 * math.pi * ph
+    p["loc"] = (0, 0, bob * (0.5 - 0.5 * math.cos(2 * w)) if rock == 0 else bob * max(0, math.sin(w)))
+    p["body"] = (rock * math.sin(w), 0, 0)
+    p["chest"] = (-rock * 0.5 * math.sin(w), 0, 0)
+    p["neck"] = (-rock * 0.6 * math.sin(w) * head_k, 0, 0)
+    p["head"] = (rock * 0.4 * math.sin(w) * head_k, 0, 0)
+    if extra:
+        for k, v in extra(ph).items():
+            p[k] = v
+    return p
+
+
+def quadruped(name, q):
+    reset()
+    sk = Skin(q["res"])
+    for co, r, size in q["balls"]:
+        sk.ball(co, r, size)
+    for s_ in (-1, 1):
+        m = lambda pt: (s_ * pt[0], pt[1], pt[2])
+        sk.limb([m(pt) for pt in q["hind"]], q["hind_r"])
+        sk.limb([m(pt) for pt in q["front"]], q["front_r"])
+    for path, radii in q.get("chains", []):
+        sk.limb(path, radii)
+    skin = sk.build(q["voxel"], q["ratio"])
+    obs = [skin, eyes(skin, q["eye"], q["eye_r"], sink=0.35)]
+    nose, _ = surface(skin, q["nose"])
+    obs.append(sphere(nose + V((0, -q["nose_r"] * 0.3, 0)), q["nose_r"], 1, (1.2, 0.8, 0.85)))
+    for s_ in (-1, 1):
+        e = q["ear"]
+        obs.append(leaf(V((s_ * e["base"][0], e["base"][1], e["base"][2])), V((s_ * e["dir"][0], e["dir"][1], e["dir"][2])), V((s_ * 0.7, 1.0, 0.1)), e["len"], e["width"], e["cup"], 0, thick=e["len"] * 0.04, name="ear", tip_round=e.get("round", 0.8)))
+        obs[-1]["bone"] = "ear"
+        # Hooves / paws.
+        toe = q["hind"][-1], q["front"][-1]
+        for t in toe:
+            obs.append(sphere((s_ * t[0], t[1] + q["hoof"][1], t[2] + q["hoof"][0]), q["hoof"][0], 1, q["hoof"][2]))
+            obs[-1]["bone"] = "hcannon" if t is toe[0] else "fcannon"
+    for path, radii in q.get("antlers", []):
+        for s_ in (-1, 1):
+            obs.append(tube([(s_ * x, y, z) for x, y, z in path], radii, 4, segs=6, name="antler"))
+            obs[-1]["bone"] = "head"
+    rig = Rig()
+    b = q["bones"]
+    rig.bone("body", b["body"][0], b["body"][1], None, b["body"][2])
+    rig.bone("chest", b["chest"][0], b["chest"][1], "body", b["chest"][2])
+    rig.bone("neck", b["neck"][0], b["neck"][1], "chest", b["neck"][2])
+    rig.bone("head", b["head"][0], b["head"][1], "neck", b["head"][2])
+    e = q["ear"]
+    rig.bone("ear.R", e["base"], tuple(V(e["base"]) + V(e["dir"]).normalized() * e["len"]), "head", e["width"] * 0.6)
+    prev = "body"
+    for i, (h, t, r) in enumerate(b["tail"]):
+        rig.bone(f"tail{i}", h, t, prev, r)
+        prev = f"tail{i}"
+    H, F = q["hind"], q["front"]
+    rig.bone("thigh.R", H[0], H[1], "body", q["hind_r"][0])
+    rig.bone("shin.R", H[1], H[2], "thigh.R", q["hind_r"][1])
+    rig.bone("hcannon.R", H[2], H[3], "shin.R", q["hind_r"][2] * 1.2)
+    rig.bone("upper.R", F[0], F[1], "chest", q["front_r"][0])
+    rig.bone("fore.R", F[1], F[2], "upper.R", q["front_r"][1])
+    rig.bone("fcannon.R", F[2], F[3], "fore.R", q["front_r"][2] * 1.2)
+    allowed = {0: None, 1: None, 2: ["head"], 4: ["head"]}
+    clips = q["clips"]()
+    finish(name, obs, rig, allowed, q["side_tol"], q["paint"], clips, {"stride": q["stride"]}, q["view"], look=q["look"], views=("side", "front"))
+
+
+def roe_deer():
+    def paint(pos, nrm, part, fs, fc, up):
+        x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
+        fine = fine_noise(pos, 25)
+        coat = np.array((0.56, 0.3, 0.14))
+        belly = np.array((0.78, 0.62, 0.45))
+        upn = np.clip((nrm[:, 2] + 0.4) * 1.4, 0, 1)
+        col = belly * (1 - upn[:, None]) + coat * upn[:, None]
+        col *= (0.95 + 0.1 * fine)[:, None]
+        rump = (y < -0.36) & (z > 0.45) & (np.abs(x) < 0.16)
+        col = np.where(rump[:, None], np.array((0.95, 0.93, 0.88)), col)
+        legs = z < 0.3
+        col = np.where(legs[:, None], col * 0.8 + np.array((0.03, 0.02, 0.0)), col)
+        muzzle = (y > 0.63) & (z < 1.0)
+        col = np.where(muzzle[:, None], np.array((0.2, 0.17, 0.15)), col)
+        chin = (y > 0.6) & (z < 0.94)
+        col = np.where(chin[:, None], np.array((0.93, 0.9, 0.86)), col)
+        ear = fs > 0.001
+        col = np.where((ear & (up < 0.5))[:, None], np.array((0.82, 0.74, 0.66)), col)
+        col = np.where((ear & (fs > 0.9))[:, None], np.array((0.1, 0.08, 0.07)), col)
+        col[part == 1] = (0.06, 0.05, 0.05)
+        col[part == 2] = (0.05, 0.04, 0.03)
+        col[part == 4] = (0.36, 0.3, 0.22)
+        return np.clip(col, 0, 1), default_ao(nrm, pos, 0), np.where((part == 1) | (part == 2), 1.0, 0.0)
+
+    def clips():
+        stand = {}
+        graze = {"neck": (-62, 0, 0), "head": (-12, 0, 0), "chest": (-6, 0, 0), "upper": (8, 0, 0), "ear": (14, 0, 0)}
+        chew = over(graze, head=(-16, 0, 4))
+        alert = {"neck": (14, 0, 0), "head": (-8, 0, 0), "ear": (-12, 0, 0), "tail0": (30, 0, 0)}
+        return {
+            "idle": (12, True, [(0, stand), (1.2, over(stand, head=(0, 0, 25), neck=(4, 0, 10))), (2.4, over(stand, head=(0, 0, 25), neck=(4, 0, 10), ear=(12, 0, 6))),
+                                (3.0, over(stand, tail0=(30, 0, 0))), (3.3, stand), (4.5, over(stand, head=(0, 0, -22), neck=(4, 0, -12))), (5.6, over(stand, head=(0, 0, -22), neck=(4, 0, -12))), (6.4, stand), (8.0, stand)]),
+            "graze": (12, True, [(0, graze), (0.4, chew), (0.8, graze), (1.2, chew), (1.6, graze), (2.4, over(graze, ear=(-10, 0, 8))), (3.0, graze), (3.4, chew), (4.0, graze)]),
+            "alert": (12, True, [(0, alert), (1.5, over(alert, head=(-8, 0, 18), ear=(-16, 0, 6))), (3.0, over(alert, head=(-8, 0, -14))), (4.0, alert)]),
+            # Walk: hind right, front right, hind left, front left (a lateral sequence).
+            "walk": (24, True, cycle(lambda ph: gait(None, ph, (0.0, 0.5, 0.25, 0.75), 0.66, 22, 30, 0.015, 0, extra=lambda ph: {"neck": (-6 + 4 * math.sin(4 * math.pi * ph), 0, 0)}), 1.0, 16)),
+            # Bounding gallop: hinds push together, the fronts reach far ahead.
+            "run": (30, True, cycle(lambda ph: gait(None, ph, (0.0, 0.06, 0.48, 0.56), 0.32, 38, 45, 0.16, 10, extra=lambda ph: {"ear": (40, 0, 0), "tail0": (35, 0, 0)}), 1.0, 16)),
+        }
+
+    q = dict(
+        res=0.012, voxel=0.01, ratio=0.22, side_tol=0.03, view=0.75, look=(0, 0.1, 0.55),
+        balls=[((0, -0.3, 0.68), 0.25, (0.82, 1.1, 1.0)), ((0, -0.02, 0.63), 0.26, (0.78, 1.55, 0.95)), ((0, 0.25, 0.64), 0.23, (0.78, 1.0, 1.1)),
+               ((0, 0.6, 1.0), 0.1, (0.82, 1.2, 0.95)), ((0, 0.69, 0.965), 0.06, (0.72, 1.25, 0.8)), ((0, -0.43, 0.72), 0.06, (0.8, 0.7, 1.0))],
+        chains=[([(0, 0.34, 0.74), (0, 0.46, 0.88), (0, 0.55, 0.98)], [0.1, 0.075])],
+        hind=[(0.1, -0.32, 0.64), (0.11, -0.2, 0.42), (0.1, -0.38, 0.24), (0.09, -0.32, 0.02)], hind_r=[0.11, 0.05, 0.03],
+        front=[(0.1, 0.26, 0.58), (0.1, 0.22, 0.4), (0.09, 0.26, 0.2), (0.09, 0.27, 0.02)], front_r=[0.08, 0.045, 0.028],
+        eye=(0.06, 0.61, 1.02), eye_r=0.018, nose=(0, 0.76, 0.965), nose_r=0.022, hoof=(0.022, 0.012, (0.9, 1.4, 0.8)),
+        ear=dict(base=(0.045, 0.555, 1.06), dir=(0.6, -0.4, 0.75), len=0.13, width=0.075, cup=0.35, round=0.9),
+        antlers=[([(0.03, 0.55, 1.07), (0.04, 0.54, 1.15), (0.045, 0.52, 1.24)], [0.012, 0.009, 0.005]), ([(0.04, 0.545, 1.14), (0.05, 0.6, 1.18)], [0.007, 0.004]),
+                 ([(0.045, 0.53, 1.2), (0.05, 0.48, 1.23)], [0.006, 0.003])],
+        bones=dict(body=((0, -0.32, 0.66), (0, 0.08, 0.66), 0.26), chest=((0, 0.08, 0.66), (0, 0.3, 0.68), 0.24), neck=((0, 0.32, 0.74), (0, 0.55, 0.98), 0.1),
+                   head=((0, 0.55, 0.99), (0, 0.76, 0.96), 0.1), tail=[((0, -0.42, 0.72), (0, -0.48, 0.7), 0.06)]),
+        stride={"walk": 0.9, "run": 2.6},
+        paint=paint, clips=clips,
+    )
+    quadruped("deer", q)
+
+
+def red_fox():
+    def paint(pos, nrm, part, fs, fc, up):
+        x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
+        fine = fine_noise(pos, 40)
+        red = np.array((0.78, 0.35, 0.1))
+        white = np.array((0.94, 0.92, 0.88))
+        black = np.array((0.08, 0.06, 0.05))
+        upn = np.clip((nrm[:, 2] + 0.5) * 1.4, 0, 1)
+        col = white * (1 - upn[:, None]) + red * upn[:, None]
+        col *= (0.94 + 0.12 * fine)[:, None]
+        throat = (y > 0.15) & (z < 0.42) & (nrm[:, 2] < 0.2) & (z > 0.2)
+        col = np.where(throat[:, None], white, col)
+        cheek = (y > 0.36) & (z < 0.47) & (nrm[:, 2] < 0.5)
+        col = np.where(cheek[:, None], white, col)
+        socks = (z < 0.15) & (part == 0)
+        col = np.where(socks[:, None], black, col)
+        tip = y < -0.62
+        col = np.where(tip[:, None], white, col)
+        ear = fs > 0.001
+        col = np.where((ear & (up > 0.5))[:, None], red * 0.8, col)
+        col = np.where((ear & (up > 0.5) & (fs > 0.55))[:, None], black, col)
+        col = np.where((ear & (up < 0.5))[:, None], white * 0.9, col)
+        col[part == 1] = (0.05, 0.04, 0.04)
+        col[part == 2] = (0.55, 0.35, 0.05)
+        return np.clip(col, 0, 1), default_ao(nrm, pos, 0), np.where((part == 1) | (part == 2), 1.0, 0.0)
+
+    def clips():
+        stand = {"tail0": (-10, 0, 0), "tail1": (-6, 0, 0)}
+        listen = over(stand, head=(-10, 18, 0), neck=(10, 0, 0), ear=(-14, 0, 0))
+        crouch = over(stand, loc=(0, -0.03, -0.08), body=(-6, 0, 0), neck=(-12, 0, 0), head=(-30, 0, 0), thigh=(20, 0, 0), shin=(-40, 0, 0), hcannon=(30, 0, 0),
+                      upper=(10, 0, 0), fore=(-10, 0, 0), fcannon=(-6, 0, 0), tail0=(-4, 0, 0))
+        leap = over(stand, loc=(0, 0.1, 0.42), body=(-24, 0, 0), neck=(-22, 0, 0), head=(-30, 0, 0), thigh=(-40, 0, 0), shin=(10, 0, 0), hcannon=(-20, 0, 0),
+                    upper=(-30, 0, 0), fore=(40, 0, 0), fcannon=(-60, 0, 0), tail0=(20, 0, 0), tail1=(10, 0, 0))
+        dive = over(stand, loc=(0, 0.25, 0.25), body=(-55, 0, 0), neck=(-20, 0, 0), head=(-20, 0, 0), thigh=(-30, 0, 0), upper=(40, 0, 0), fore=(20, 0, 0), fcannon=(0, 0, 0), tail0=(30, 0, 0), tail1=(20, 0, 0))
+        land = over(stand, loc=(0, 0.3, -0.04), body=(-30, 0, 0), neck=(-25, 0, 0), head=(-35, 0, 0), upper=(30, 0, 0), fore=(-10, 0, 0), thigh=(-20, 0, 0), tail0=(12, 0, 0))
+        return {
+            "idle": (12, True, [(0, stand), (1.5, over(stand, head=(0, 0, 20), neck=(0, 0, 10))), (2.5, listen), (3.8, listen), (4.6, over(stand, head=(0, 0, -20))), (6.0, stand)]),
+            "sniff": (12, True, [(0, over(stand, neck=(-40, 0, 0), head=(-20, 0, 0))), (0.6, over(stand, neck=(-44, 0, 8), head=(-26, 0, 6))), (1.2, over(stand, neck=(-40, 0, -6), head=(-20, 0, 0))), (2.0, over(stand, neck=(-40, 0, 0), head=(-20, 0, 0)))]),
+            # Trot: diagonal pairs (hind right with front left).
+            "trot": (24, True, cycle(lambda ph: gait(None, ph, (0.0, 0.5, 0.5, 0.0), 0.5, 26, 40, 0.025, 0, extra=lambda ph: {"tail0": (-8, 0, 0), "tail1": (-4 + 4 * math.sin(2 * math.pi * ph), 0, 0)}), 1.0, 16)),
+            "run": (30, True, cycle(lambda ph: gait(None, ph, (0.0, 0.08, 0.5, 0.58), 0.35, 40, 50, 0.08, 9, extra=lambda ph: {"tail0": (8, 0, 0), "ear": (30, 0, 0)}), 1.0, 16)),
+            # Mousing: freeze, listen, crouch, spring high and dive nose first into the grass.
+            "pounce": (24, False, [(0, stand), (0.3, listen), (0.9, over(listen, head=(-28, 22, 0))), (1.2, crouch), (1.45, crouch), (1.7, leap), (1.95, dive), (2.15, land), (2.6, over(land, head=(-45, 0, 0))), (3.2, stand)]),
+        }
+
+    q = dict(
+        res=0.007, voxel=0.006, ratio=0.22, side_tol=0.02, view=0.5, look=(0, -0.05, 0.3),
+        balls=[((0, -0.17, 0.34), 0.165, (0.8, 1.05, 1.0)), ((0, 0.0, 0.33), 0.165, (0.78, 1.3, 0.95)), ((0, 0.16, 0.34), 0.155, (0.82, 1.0, 1.1)),
+               ((0, 0.36, 0.5), 0.095, (0.95, 1.0, 0.85)), ((0, 0.44, 0.475), 0.045, (0.75, 1.3, 0.7)), ((0, 0.5, 0.465), 0.028, (0.7, 1.2, 0.7))],
+        chains=[([(0, 0.22, 0.38), (0, 0.3, 0.46), (0, 0.35, 0.5)], [0.08, 0.07]),
+                ([(0, -0.3, 0.36), (0, -0.46, 0.31), (0, -0.6, 0.26), (0, -0.7, 0.24)], [0.05, 0.085, 0.075])],
+        hind=[(0.06, -0.2, 0.3), (0.065, -0.11, 0.19), (0.06, -0.24, 0.1), (0.055, -0.2, 0.012)], hind_r=[0.075, 0.04, 0.026],
+        front=[(0.06, 0.16, 0.28), (0.06, 0.13, 0.19), (0.055, 0.17, 0.08), (0.055, 0.19, 0.012)], front_r=[0.06, 0.034, 0.024],
+        eye=(0.04, 0.41, 0.52), eye_r=0.011, nose=(0, 0.53, 0.465), nose_r=0.011, hoof=(0.016, 0.01, (1.0, 1.4, 0.7)),
+        ear=dict(base=(0.035, 0.35, 0.565), dir=(0.3, -0.05, 1.0), len=0.07, width=0.048, cup=0.3, round=0.5),
+        bones=dict(body=((0, -0.2, 0.33), (0, 0.06, 0.33), 0.16), chest=((0, 0.06, 0.33), (0, 0.2, 0.36), 0.15), neck=((0, 0.22, 0.38), (0, 0.33, 0.49), 0.08),
+                   head=((0, 0.33, 0.5), (0, 0.52, 0.465), 0.07), tail=[((0, -0.28, 0.36), (0, -0.48, 0.3), 0.08), ((0, -0.48, 0.3), (0, -0.72, 0.24), 0.08)]),
+        stride={"trot": 0.55, "run": 1.5},
+        paint=paint, clips=clips,
+    )
+    quadruped("fox", q)
+
+
+# =======================================================================================
+# Common frog: squat body, bulging eyes, long hind legs folded at its sides, webbed feet; a
+# throat that pulses as it breathes and swells as it calls.
+
+def frog():
+    reset()
+    sk = Skin(0.0012, scale=10)
+    # Squat: the belly almost on the ground, a broad flat head.
+    sk.ball((0, -0.006, 0.016), 0.034, (0.95, 1.3, 0.62))
+    sk.ball((0, 0.024, 0.017), 0.028, (1.15, 0.85, 0.55))
+    for s_ in (-1, 1):
+        m = lambda p: (s_ * p[0], p[1], p[2])
+        sk.limb([m((0.014, -0.022, 0.013)), m((0.03, 0.0, 0.009)), m((0.022, -0.028, 0.005)), m((0.033, -0.006, 0.002))], [0.011, 0.0065, 0.0045])
+        sk.limb([m((0.012, 0.016, 0.009)), m((0.015, 0.025, 0.005)), m((0.016, 0.031, 0.0015))], [0.0045, 0.0035])
+        sk.ball(m((0.0105, 0.027, 0.026)), 0.0085, (1, 1, 0.9))  # eye bumps
+    skin = sk.build(0.001, 0.3, smooth=6)
+    obs = [skin, eyes(skin, (0.012, 0.028, 0.03), 0.0042, sink=0.5)]
+    for s_ in (-1, 1):
+        # Webbed hind feet: flat fans.
+        obs.append(leaf(V((s_ * 0.032, -0.008, 0.002)), V((s_ * 0.5, 1.0, 0)), V((0, 0, 1)), 0.017, 0.015, 0.05, 0, thick=0.001, name="web", tip_round=0.3))
+        obs[-1]["bone"] = "foot"
+    rig = Rig()
+    rig.bone("body", (0, -0.02, 0.016), (0, 0.01, 0.016), None, 0.03)
+    rig.bone("head", (0, 0.01, 0.017), (0, 0.042, 0.017), "body", 0.025)
+    rig.bone("throat", (0, 0.026, 0.006), (0, 0.037, 0.005), "head", 0.009)
+    rig.bone("arm.R", (0.012, 0.016, 0.009), (0.015, 0.025, 0.005), "body", 0.0045)
+    rig.bone("hand.R", (0.015, 0.025, 0.005), (0.016, 0.034, 0.0015), "arm.R", 0.0035)
+    rig.bone("thigh.R", (0.014, -0.022, 0.013), (0.03, 0.0, 0.009), "body", 0.011)
+    rig.bone("shin.R", (0.03, 0.0, 0.009), (0.022, -0.028, 0.005), "thigh.R", 0.0065)
+    rig.bone("foot.R", (0.022, -0.028, 0.005), (0.038, 0.008, 0.002), "shin.R", 0.006)
+    allowed = {0: None, 2: ["head"]}
+
+    def paint(pos, nrm, part, fs, fc, up):
+        x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
+        blot = fine_noise(pos, 260)
+        olive = np.array((0.42, 0.38, 0.18))
+        brown = np.array((0.36, 0.25, 0.14))
+        belly = np.array((0.85, 0.8, 0.6))
+        upn = np.clip((nrm[:, 2] + 0.3) * 1.5, 0, 1)
+        base = olive * (0.5 + 0.5 * np.clip(blot[:, None] + 0.5, 0, 1)) + brown * 0.3
+        spots = np.clip((blot - 0.25) * 6, 0, 1)
+        base = base * (1 - 0.7 * spots[:, None])
+        col = belly * (1 - upn[:, None]) + base * upn[:, None]
+        # The dark mask behind the eye.
+        mask = (np.abs(x) > 0.017) & (y > 0.01) & (y < 0.022) & (z > 0.012) & (z < 0.022)
+        col = np.where(mask[:, None], np.array((0.24, 0.15, 0.08)), col)
+        col[part == 2] = (0.22, 0.16, 0.05)
+        gloss = np.full(len(pos), 0.55)
+        gloss[part == 2] = 1.0
+        return np.clip(col, 0, 1), default_ao(nrm, pos, 0), gloss
+
+    sit = {}
+    def breath(k):
+        return {"scale": {"throat": 1.0 + 0.18 * k}, "body": (1.5 * k, 0, 0)}
+    def call(k):
+        return {"scale": {"throat": (1.0 + 0.9 * k, 1.0 + 0.6 * k, 1.0 + 1.1 * k)}, "head": (6 * k, 0, 0)}
+    # Legs kicked straight out behind: the thigh swings back, knee and ankle unfold.
+    leap = {"body": (-12, 0, 0), "head": (6, 0, 0), "thigh": (0, 0, -55), "shin": (0, 0, 130), "foot": (0, 0, -70), "arm": (-30, 0, 0), "hand": (30, 0, 0), "loc": (0, 0.0, 0.015)}
+    clips = {
+        "sit": (12, True, [(0, breath(0)), (0.35, breath(1)), (0.7, breath(0)), (1.05, breath(1)), (1.4, breath(0)), (2.4, breath(0)), (2.75, breath(1)), (3.1, breath(0))]),
+        "croak": (24, True, [(0, call(0)), (0.18, call(1)), (0.35, call(0.2)), (0.5, call(1)), (0.68, call(0)), (1.6, call(0))]),
+        "hop": (30, False, [(0, sit), (0.08, {"body": (10, 0, 0), "thigh": (8, 0, 0)}), (0.2, leap), (0.42, over(leap, body=(5, 0, 0), arm=(-20, 0, 0))), (0.6, sit)]),
+        "swim": (24, True, [(0, over(leap, body=(0, 0, 0))), (0.25, {"thigh": (10, 0, -10), "shin": (-10, 0, 0), "arm": (-30, 0, 0)}), (0.6, over(leap, body=(0, 0, 0)))]),
+    }
+    finish("frog", obs, rig, allowed, 0.003, paint, clips, {"stride": {}}, 0.05, look=(0, 0.0, 0.02), views=("side", "front"))
+
+
+# =======================================================================================
+# Dragonfly: big eyes, a long slender abdomen, two pairs of glassy wings beating out of phase.
+
+def dragonfly():
+    reset()
+    sk = Skin(0.0007, scale=10)
+    sk.ball((0, 0.018, 0.0), 0.0062, (0.85, 1.25, 1.0))  # thorax
+    sk.limb([(0, 0.012, 0.0), (0, -0.005, -0.0005), (0, -0.025, -0.001), (0, -0.046, 0.0)], [0.0024, 0.0019, 0.0016])
+    sk.ball((0, 0.027, 0.0006), 0.0045, (1.2, 0.8, 0.9))  # head
+    skin = sk.build(0.0005, 0.3, smooth=4)
+    obs = [skin, eyes(skin, (0.0028, 0.028, 0.0016), 0.0034, sink=0.15, segs=(12, 8))]
+    fore = [(0.0, 0.002), (0.012, 0.0035), (0.03, 0.0035), (0.042, 0.0012), (0.04, -0.003), (0.024, -0.0045), (0.008, -0.004), (0.0, -0.002)]
+    hind = [(0.0, 0.002), (0.012, 0.003), (0.03, 0.002), (0.039, -0.001), (0.035, -0.006), (0.02, -0.008), (0.006, -0.009), (0.0, -0.004)]
+    for s_ in (-1, 1):
+        obs.append(fan_wing((s_ * 0.0015, 0.021, 0.0028), fore, 3, side=s_, name="fw", rings=8, thick=0.0002))
+        obs[-1]["bone"] = "fw"
+        obs.append(fan_wing((s_ * 0.0015, 0.0155, 0.0028), hind, 3, side=s_, hind=True, name="hw", rings=8, thick=0.0002))
+        obs[-1]["bone"] = "hw"
+    rig = Rig()
+    rig.bone("body", (0, 0.012, 0), (0, 0.024, 0), None, 0.006)
+    rig.bone("abdomen", (0, 0.012, 0), (0, -0.016, -0.001), "body", 0.003)
+    rig.bone("tip", (0, -0.016, -0.001), (0, -0.046, 0), "abdomen", 0.0025)
+    rig.bone("head", (0, 0.024, 0.0006), (0, 0.031, 0.0006), "body", 0.004)
+    rig.bone("fw.R", (0.0015, 0.021, 0.0028), (0.042, 0.022, 0.0028), "body", 0.02)
+    rig.bone("hw.R", (0.0015, 0.0155, 0.0028), (0.039, 0.014, 0.0028), "body", 0.02)
+    allowed = {0: ["body", "abdomen", "tip", "head"], 2: ["head"]}
+
+    def paint(pos, nrm, part, fs, fc, up):
+        y = pos[:, 1]
+        col = np.zeros((len(pos), 3))
+        # Body: a pale base the shader tints by species; dark rings along the abdomen.
+        ring = (np.sin(y * 900) > 0.6) & (y < 0.01)
+        col[:] = (0.75, 0.75, 0.75)
+        col[ring] = (0.15, 0.15, 0.15)
+        col[pos[:, 1] > 0.012] = (0.45, 0.42, 0.3)
+        col[part == 2] = (0.2, 0.35, 0.45)
+        col[part == 3] = (0.8, 0.85, 0.9)
+        gloss = np.where(part == 3, 0.0, 0.8)
+        return col, np.ones(len(pos)), gloss
+
+    def buzz(ph, a=34):
+        w = 2 * math.pi * ph
+        return {"fw": (a * math.cos(w), -12 * math.sin(w), 0), "hw": (a * math.cos(w + math.pi * 0.6), -12 * math.sin(w + math.pi * 0.6), 0), "abdomen": (1.5 * math.sin(w), 0, 0)}
+
+    clips = {
+        "buzz": (16, True, cycle(buzz, 1.0, 16)),
+        "perch": (6, True, [(0, {"fw": (-6, 0, 4), "hw": (-8, 0, -4), "abdomen": (4, 0, 0)}), (1.5, {"fw": (-5, 0, 4), "hw": (-7, 0, -4), "abdomen": (5, 0, 0), "head": (0, 0, 15)}), (3.0, {"fw": (-6, 0, 4), "hw": (-8, 0, -4), "abdomen": (4, 0, 0)})]),
+    }
+    finish("dragonfly", obs, rig, allowed, 0.0004, paint, clips, {"stride": {}}, 0.04, views=("side", "top"), wing_like=("fw", "hw"))
+
+
+# =======================================================================================
+# Mallard: a boat-shaped body riding the water (origin at the waterline), a curled drake's
+# tail, a flat bill. Painted as a drake; the shader turns about half of them into ducks.
+
+def mallard():
+    reset()
+    sk = Skin(0.008)
+    sk.ball((0, -0.03, 0.0), 0.24, (0.72, 1.45, 0.62))
+    sk.ball((0, 0.11, 0.03), 0.18, (0.78, 0.95, 0.85))
+    sk.ball((0, -0.24, 0.06), 0.09, (0.55, 1.2, 0.5))
+    sk.limb([(0, 0.15, 0.08), (0, 0.2, 0.15), (0, 0.23, 0.2)], [0.07, 0.06])
+    sk.ball((0, 0.25, 0.22), 0.085, (0.8, 1.15, 0.85))
+    sk.limb([(0, -0.29, 0.1), (0, -0.28, 0.14)], [0.02])
+    skin = sk.build(0.007, 0.2)
+    obs = [skin, eyes(skin, (0.04, 0.27, 0.235), 0.01, sink=0.4)]
+    bill = []
+    for i in range(7):
+        u = i / 6
+        bill.append((0, 0.3 + u * 0.075, 0.205 - u * 0.012))
+    obs.append(tube(bill, [0.02, 0.022, 0.023, 0.023, 0.022, 0.019, 0.012], 1, segs=10, name="bill"))
+    obs[-1].scale = (1.0, 1.0, 0.45)
+    obs[-1].location = (0, 0, 0.205 * 0.55)
+    obs[-1]["bone"] = "head"
+    rig = Rig()
+    rig.bone("body", (0, -0.15, 0.03), (0, 0.1, 0.03), None, 0.2)
+    rig.bone("neck", (0, 0.14, 0.08), (0, 0.22, 0.18), "body", 0.07)
+    rig.bone("head", (0, 0.22, 0.2), (0, 0.38, 0.19), "neck", 0.08)
+    rig.bone("tail", (0, -0.2, 0.05), (0, -0.3, 0.1), "body", 0.07)
+    allowed = {0: None, 2: ["head"]}
+
+    def paint(pos, nrm, part, fs, fc, up):
+        x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
+        fine = fine_noise(pos, 80)
+        grey = np.array((0.7, 0.7, 0.68)) * (0.92 + 0.08 * fine[:, None])
+        col = grey.copy()
+        green = np.array((0.04, 0.32, 0.12))
+        head = (z > 0.13) & (y > 0.16)
+        col = np.where(head[:, None], green, col)
+        collar = (z > 0.1) & (z < 0.13) & (y > 0.14)
+        col = np.where(collar[:, None], np.array((0.95, 0.95, 0.92)), col)
+        breast = (y > 0.04) & (z <= 0.1) & (z > -0.08) & ~collar & (y > 0.08)
+        col = np.where(breast[:, None], np.array((0.45, 0.22, 0.12)), col)
+        back = (nrm[:, 2] > 0.6) & (y < 0.08) & (y > -0.18)
+        col = np.where(back[:, None], np.array((0.45, 0.42, 0.38)), col)
+        spec = (np.abs(x) > 0.12) & (y > -0.12) & (y < -0.04) & (z > 0.04)
+        col = np.where(spec[:, None], np.array((0.15, 0.2, 0.75)), col)
+        tail = y < -0.22
+        col = np.where(tail[:, None], np.array((0.05, 0.05, 0.05)), col)
+        col = np.where((tail & (z < 0.04))[:, None], np.array((0.9, 0.9, 0.88)), col)
+        col[part == 1] = (0.9, 0.78, 0.2)
+        col[part == 2] = (0.05, 0.04, 0.03)
+        gloss = np.where(head, 0.8, 0.0)
+        gloss[part == 2] = 1.0
+        return np.clip(col, 0, 1), default_ao(nrm, pos, 0), gloss
+
+    float_ = {}
+    def bob(k):
+        return {"neck": (6 * k, 0, 0), "head": (-6 * k, 0, 0), "body": (1.5 * k, 0, 0)}
+    tip = {"body": (-75, 0, 0), "neck": (-20, 0, 0), "head": (-10, 0, 0), "tail": (30, 0, 0), "loc": (0, 0.05, 0.02)}
+    clips = {
+        "swim": (12, True, [(0, bob(0)), (0.3, bob(1)), (0.6, bob(0)), (0.9, bob(1)), (1.2, bob(0))]),
+        "idle": (12, True, [(0, float_), (1.0, {"head": (0, 0, 30), "neck": (0, 0, 10)}), (2.0, {"head": (0, 0, 30), "neck": (0, 0, 10)}), (2.6, float_),
+                            (3.6, {"head": (0, 0, -25)}), (4.4, {"head": (0, 0, -25)}), (5.0, float_), (5.4, {"tail": (0, 0, 20)}), (5.6, {"tail": (0, 0, -20)}), (5.8, {"tail": (0, 0, 15)}), (6.0, float_)]),
+        "dabble": (12, False, [(0, float_), (0.4, tip), (0.8, over(tip, tail=(36, 0, 12))), (1.2, over(tip, tail=(32, 0, -12))), (1.8, over(tip, body=(-80, 4, 0))), (2.3, float_), (2.6, bob(1)), (2.9, float_)]),
+        "preen": (12, False, [(0, float_), (0.5, {"neck": (-10, 0, 70), "head": (-40, 20, 80)}), (0.8, {"neck": (-12, 0, 72), "head": (-50, 20, 85)}), (1.1, {"neck": (-10, 0, 70), "head": (-40, 20, 80)}),
+                              (1.5, {"neck": (-12, 0, 72), "head": (-50, 20, 85)}), (2.0, float_)]),
+    }
+    finish("mallard", obs, rig, allowed, 0.02, paint, clips, {"stride": {}}, 0.45, look=(0, 0.0, 0.08), views=("side", "front"))
+
+
+SPECIES = {"butterfly": butterfly, "hare": hare, "deer": roe_deer, "fox": red_fox, "frog": frog, "dragonfly": dragonfly, "mallard": mallard}
 
 
 def main():

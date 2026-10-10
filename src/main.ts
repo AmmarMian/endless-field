@@ -290,7 +290,13 @@ async function main(): Promise<void> {
     const dz = at[2] - camera.position[2];
     const d = Math.hypot(dx, dz) || 1;
     return [(dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1)), d];
+  };  // The animals' little sounds and splashes.
+  fauna.frogs.onSplash = (at) => {
+    motes.splash([at[0], at[1], at[2]], 0.05);
+    audio.plink(0.6);
   };
+  fauna.frogs.onCroak = (at) => audio.frog(...heard(at));
+
   birds.onTakeoff = (at, n) => {
     const [pan, d] = heard(at);
     audio.birds(n, pan, d);

@@ -97,7 +97,11 @@ fn vs_main(@location(0) p: vec4f, @location(1) n: vec4f, @location(2) t: vec2f, 
   if (w0 < 0.999) {
     m = mixRows(bonePose(a.anim, j.y), m, w0);
   }
-  let lp = apply(m, vec4f(p.xyz, 1.0));
+  var lp = apply(m, vec4f(p.xyz, 1.0));
+  // Antlers on the bucks only (about two in five): the does' collapse to nothing.
+  if (KIND == 0u && u32(p.w + 0.5) == 4u && fract(a.anim.w * 7.31) > 0.4) {
+    lp = vec3f(0.0);
+  }
   let ln = apply(m, vec4f(n.xyz, 0.0));
   let world = a.pos.xyz + place(a, lp, false);
   var out: VOut;
@@ -248,6 +252,19 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
     let stigma = smoothstep(0.8, 0.83, s) * (1.0 - smoothstep(0.88, 0.9, s)) * (1.0 - smoothstep(0.1, 0.25, abs(c - 0.25)));
     albedo = mix(vec3f(0.75, 0.82, 0.85), vec3f(0.1, 0.1, 0.1), max(veins * 0.6 * fineK, stigma));
     alpha = 0.3 + 0.5 * max(veins * fineK, stigma);
+  } else if (KIND == 4u && frag.seed < 0.5 && frag.part <= 1u) {
+    // A mallard duck (not the drake): mottled brown all over, the blue speculum kept, an
+    // orange bill.
+    let blue = frag.albedo.b > frag.albedo.r * 2.5 && frag.albedo.b > 0.2;
+    let mottle = noise3(frag.local * vec3f(90.0, 60.0, 90.0));
+    albedo = select(mix(vec3f(0.36, 0.22, 0.1), vec3f(0.12, 0.07, 0.035), smoothstep(0.35, 0.65, mottle) * fineK), frag.albedo, blue);
+    if (frag.part == 1u) {
+      albedo = vec3f(0.6, 0.25, 0.04);
+    }
+  } else if (KIND == 2u && frag.part == 0u && frag.albedo.r > 0.3 && frag.local.y < 0.012) {
+    // Dragonflies by species: blue, scarlet or green abdomens (the dark rings kept).
+    let k = u32(frag.seed * 3.0) % 3u;
+    albedo = select(select(vec3f(0.08, 0.5, 0.15), vec3f(0.7, 0.05, 0.02), k == 1u), vec3f(0.06, 0.25, 0.85), k == 0u);
   } else if (frag.part == 0u) {
     if (KIND == 0u) {
       albedo *= mix(1.0, 0.75 + 0.5 * hair, fineK);

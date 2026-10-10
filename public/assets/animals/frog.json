@@ -1,0 +1,49 @@
+{
+ "vertexBytes": 113184,
+ "indexCount": 28092,
+ "matrixBytes": 34632,
+ "clips": {
+  "sit": {
+   "start": 0,
+   "frames": 37,
+   "fps": 12,
+   "loop": true
+  },
+  "croak": {
+   "start": 38,
+   "frames": 38,
+   "fps": 24,
+   "loop": true
+  },
+  "hop": {
+   "start": 77,
+   "frames": 18,
+   "fps": 30,
+   "loop": false
+  },
+  "swim": {
+   "start": 96,
+   "frames": 14,
+   "fps": 24,
+   "loop": true
+  }
+ },
+ "perchHeight": 0,
+ "credit": "Modeled, rigged and animated in Blender (tools/blender/model_animals.py)",
+ "bones": [
+  "body",
+  "head",
+  "throat",
+  "arm.R",
+  "arm.L",
+  "hand.R",
+  "hand.L",
+  "thigh.R",
+  "thigh.L",
+  "shin.R",
+  "shin.L",
+  "foot.R",
+  "foot.L"
+ ],
+ "stride": {}
+}

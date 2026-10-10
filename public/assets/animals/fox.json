@@ -1,0 +1,65 @@
+{
+ "vertexBytes": 162528,
+ "indexCount": 40356,
+ "matrixBytes": 111360,
+ "clips": {
+  "idle": {
+   "start": 0,
+   "frames": 72,
+   "fps": 12,
+   "loop": true
+  },
+  "sniff": {
+   "start": 73,
+   "frames": 24,
+   "fps": 12,
+   "loop": true
+  },
+  "trot": {
+   "start": 98,
+   "frames": 24,
+   "fps": 24,
+   "loop": true
+  },
+  "run": {
+   "start": 123,
+   "frames": 30,
+   "fps": 30,
+   "loop": true
+  },
+  "pounce": {
+   "start": 154,
+   "frames": 77,
+   "fps": 24,
+   "loop": false
+  }
+ },
+ "perchHeight": 0,
+ "credit": "Modeled, rigged and animated in Blender (tools/blender/model_animals.py)",
+ "bones": [
+  "body",
+  "chest",
+  "neck",
+  "head",
+  "ear.R",
+  "ear.L",
+  "tail0",
+  "tail1",
+  "thigh.R",
+  "thigh.L",
+  "shin.R",
+  "shin.L",
+  "hcannon.R",
+  "hcannon.L",
+  "upper.R",
+  "upper.L",
+  "fore.R",
+  "fore.L",
+  "fcannon.R",
+  "fcannon.L"
+ ],
+ "stride": {
+  "trot": 0.55,
+  "run": 1.5
+ }
+}

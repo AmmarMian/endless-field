@@ -53,7 +53,10 @@ still; `?lite=0|1|2` picks a level for one visit.
   over the flower beds; frogs, dragonflies and mallards at the river. Modeled, rigged and
   animated in Blender (`tools/blender/model_animals.py`: grazing, alert, walking and galloping
   gaits, a fox's mousing pounce, a frog's call, a duck up-ending), they react to the wind
-  and the grass parts around them.
+  and the grass parts around them. Rush at them and they flee; come gently (no gust, low)
+  and linger, and they trust you: hares, deer and the fox run beside you, butterflies dance
+  around you, ducks paddle in your wake, a dragonfly flies at your wingtip, the fox springs at
+  you in play, and frogs sing when you rest by the river. At night they carry a soft light.
 - **Night**: moon and stars, swarming fireflies, glowing flowers and bioluminescent grass.
 - **Rendering**: HDR + 4x MSAA, reversed-Z, bloom, ACES tone mapping, GPU timers, frame cap
   and dynamic resolution.

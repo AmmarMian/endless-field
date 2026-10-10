@@ -1,7 +1,7 @@
 {
- "vertexBytes": 129888,
- "indexCount": 32256,
- "matrixBytes": 87096,
+ "vertexBytes": 226032,
+ "indexCount": 56292,
+ "matrixBytes": 90744,
  "clips": {
   "idle": {
    "start": 0,
@@ -23,12 +23,12 @@
   },
   "hop": {
    "start": 149,
-   "frames": 16,
-   "fps": 16,
+   "frames": 24,
+   "fps": 24,
    "loop": true
   },
   "run": {
-   "start": 166,
+   "start": 174,
    "frames": 24,
    "fps": 24,
    "loop": true

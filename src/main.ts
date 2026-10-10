@@ -40,7 +40,7 @@ import { Undergrowth } from "./world/undergrowth";
 import { SUNFLOWERS, Sunflowers, gradeSunflowerField, sunflowerField } from "./world/sunflowers";
 import { Lanterns } from "./world/lanterns";
 import { Torii, toriiGates } from "./world/torii";
-import { Discoveries } from "./game/discoveries";
+import { Discoveries, NOTES } from "./game/discoveries";
 import { Kind } from "./game/motes";
 import { Rain } from "./world/rain";
 import { PATH, pathNear, pathZ } from "./world/lantern-path";
@@ -296,6 +296,14 @@ async function main(): Promise<void> {
     audio.plink(0.6);
   };
   fauna.frogs.onCroak = (at) => audio.frog(...heard(at));
+  fauna.onFriend = (kind) => {
+    if (kind === "fox-play") {
+      audio.pounce();
+      return;
+    }
+    audio.friend();
+    discoveries.find(kind);
+  };
 
   birds.onTakeoff = (at, n) => {
     const [pan, d] = heard(at);
@@ -414,6 +422,13 @@ async function main(): Promise<void> {
   // The first shower comes within a minute or so; then every few minutes.
   let weatherTimer = 40 + Math.random() * 40;
   const precipitation = new Rain(gpu, globals.uniforms);
+  // Animal hints (once each) and friendships.
+  const friendEl = document.createElement("div");
+  friendEl.id = "friend";
+  (document.getElementById("hud") ?? document.body).append(friendEl);
+  let friendTimer = 0;
+  const hinted = new Set<string>();
+  let animalHintIn = 8;
   const seasonEl = document.createElement("div");
   seasonEl.id = "season";
   (document.getElementById("hud") ?? document.body).append(seasonEl);
@@ -1078,7 +1093,27 @@ async function main(): Promise<void> {
         const lead = explore ? freecam.pos : player.pos;
         const f = player.forward;
         const v = explore ? 0 : player.speed;
-        fauna.update({ dt, wind: lead, windVel: [f[0] * v, f[1] * v, f[2] * v], windAlt: explore ? 1 : player.altitude, heading: player.yaw, night, rain, t }, globals.critters);
+        // On foot (free roam) you walk up to them slowly: always gentle.
+        fauna.update(
+          { dt, wind: lead, windVel: [f[0] * v, f[1] * v, f[2] * v], windAlt: explore ? 1 : player.altitude, heading: player.yaw, night, rain, t, gust: explore ? 0 : player.gust, speed: explore ? 2 : player.speed, perched: !explore && player.perched },
+          globals.critters,
+        );
+        // The first time each kind of animal is near, a word on how to play with it.
+        if (playing) {
+          animalHintIn -= dt;
+          const kind = animalHintIn <= 0 ? fauna.nearKind(lead) : null;
+          if (kind && !hinted.has(kind) && !discoveries.has(kind)) {
+            hinted.add(kind);
+            animalHintIn = 20;
+            const note = NOTES.find((n) => n.id === kind);
+            if (note) {
+              friendEl.innerHTML = `<b>${note.name}</b><span>${note.text}</span>`;
+              friendEl.classList.add("show");
+              window.clearTimeout(friendTimer);
+              friendTimer = window.setTimeout(() => friendEl.classList.remove("show"), 7000);
+            }
+          }
+        }
       }
       if (playing && !paused) {
         regionCheck -= dt;

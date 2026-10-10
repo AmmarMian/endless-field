@@ -236,7 +236,8 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   // Fur and skin detail, faded out where it would alias.
   let fp = frag.local * select(260.0, 2400.0, KIND == 1u || KIND == 2u);
   let fineK = 1.0 - smoothstep(0.4, 1.2, length(fwidth(fp)));
-  let hair = noise3(fp * vec3f(1.0, 1.0, 3.0));
+  // Fur: fine strands running along the body (model y), soft rather than blotchy.
+  let hair = 0.6 * noise3(fp * vec3f(2.2, 0.35, 2.2)) + 0.4 * noise3(fp * vec3f(5.0, 0.8, 5.0));
   if (KIND == 1u && thin) {
     let species = u32(frag.seed * 6.0) % 6u;
     let hind = frag.coord.y >= 1.5;
@@ -267,7 +268,7 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
     albedo = select(select(vec3f(0.08, 0.5, 0.15), vec3f(0.7, 0.05, 0.02), k == 1u), vec3f(0.06, 0.25, 0.85), k == 0u);
   } else if (frag.part == 0u) {
     if (KIND == 0u) {
-      albedo *= mix(1.0, 0.75 + 0.5 * hair, fineK);
+      albedo *= mix(1.0, 0.82 + 0.34 * hair, fineK);
     } else {
       albedo *= mix(1.0, 0.88 + 0.24 * hair, fineK);
     }
@@ -291,13 +292,18 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   }
   if (frag.glow > 0.0) {
     let rim = pow(1.0 - abs(dot(n, v)), 2.0);
-    col += (albedo * 0.6 + vec3f(1.0, 0.85, 0.55) * rim * 0.5) * frag.glow;
+    // Lit softly from within (the form still reads), a warm rim like the swallow's.
+    col += (albedo * 0.3 + vec3f(1.0, 0.85, 0.55) * rim * 0.35) * frag.glow;
   }
   col = applyFog(col, frag.world, G.camPos, G.fogDensity, sky, vec4f(G.mist, G.mistBase, G.canopy, G.time));
   return vec4f(col, alpha);
 }
 
-// ---- Halo: night butterflies glow softly (additive) ----
+// ---- Halo: at night every animal carries the swallow's soft warm light (additive) ----
+
+/** Height of the body's centre above the model origin, and the light's radius (life size m). */
+override HALO_Y: f32 = 0.2;
+override HALO_R: f32 = 0.3;
 
 struct HOut {
   @builtin(position) pos: vec4f,
@@ -310,21 +316,26 @@ fn vs_halo(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
   let a = animals[ii];
   let corners = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
   let c = corners[vi];
-  let toCam = G.camPos - a.pos.xyz;
-  let view = toCam / length(toCam);
+  let centre = a.pos.xyz + vec3f(0.0, HALO_Y * a.pose.z, 0.0);
+  let toCam = G.camPos - centre;
+  let d = length(toCam);
+  let view = toCam / d;
   let right = normalize(cross(vec3f(0.0, 1.0, 0.0), view));
   let up = cross(view, right);
-  let size = 0.35 + length(toCam) * 0.004;
+  // Grows a little with distance, so the light still reads from far off.
+  let size = HALO_R * a.pose.z * 1.8 + d * 0.006;
   var out: HOut;
-  out.pos = G.viewProj * vec4f(a.pos.xyz + (right * c.x + up * c.y) * size, 1.0);
+  // Drawn toward the camera a little so the body does not cut it in half.
+  out.pos = G.viewProj * vec4f(centre + view * HALO_R * a.pose.z * 0.6 + (right * c.x + up * c.y) * size, 1.0);
   out.uv = c;
-  out.k = a.pose.w * (0.8 + 0.2 * sin(G.time * 2.0 + a.anim.w * 30.0));
+  out.k = a.pose.w * (0.85 + 0.15 * sin(G.time * 2.2 + a.anim.w * 30.0));
   return out;
 }
 
 @fragment
 fn fs_halo(frag: HOut) -> @location(0) vec4f {
   let r2 = dot(frag.uv, frag.uv);
-  let light = exp(-r2 * 6.0) * 0.6 + exp(-r2 * 30.0);
-  return vec4f(vec3f(0.85, 0.95, 1.0) * light * frag.k * 0.35, 0.0);
+  let light = exp(-r2 * 5.0) * 0.9 + exp(-r2 * 28.0) * 1.2;
+  let col = mix(vec3f(1.0, 0.75, 0.35), vec3f(1.0, 0.86, 0.6), exp(-r2 * 6.0));
+  return vec4f(col * light * frag.k * mix(0.25, 0.4, G.night), 0.0);
 }

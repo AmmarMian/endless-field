@@ -433,6 +433,97 @@ def author(rig_ob, clips, L):
     return actions
 
 
+def keyed_cycle(keys, samples=24, period=1.0):
+    """A smooth loop through key poses at phases (0..1): every channel follows a periodic
+    Catmull-Rom spline through its keys (no holds, no corners). Returns cycle keys."""
+    keys = sorted(keys, key=lambda k: k[0])
+    chans = set()
+    for _, p in keys:
+        chans |= set(p)
+    def val(p, ch):
+        v = p.get(ch)
+        if v is None:
+            return (1.0, 1.0, 1.0) if ch == "scale" else (0.0, 0.0, 0.0)
+        return v
+    n = len(keys)
+    out = []
+    for i in range(samples + 1):
+        ph = (i / samples) % 1.0 if i < samples else 0.0
+        # Find the segment.
+        k = max(j for j in range(n) if keys[j][0] <= ph) if ph >= keys[0][0] else n - 1
+        k1 = (k + 1) % n
+        t0 = keys[k][0]
+        t1 = keys[k1][0] + (1.0 if k1 <= k else 0.0)
+        phx = ph + (1.0 if ph < t0 else 0.0)
+        t = (phx - t0) / max(t1 - t0, 1e-6)
+        pose = {}
+        for ch in chans:
+            if ch == "scale":
+                continue
+            P = [np.array(val(keys[(k + d) % n][1], ch), float) for d in (-1, 0, 1, 2)]
+            v = 0.5 * ((2 * P[1]) + (-P[0] + P[2]) * t + (2 * P[0] - 5 * P[1] + 4 * P[2] - P[3]) * t * t + (-P[0] + 3 * P[1] - 3 * P[2] + P[3]) * t ** 3)
+            pose[ch] = tuple(float(x) for x in v)
+        out.append((i / samples * period, pose))
+    return out
+
+
+def scale_keys(keys, k, loc_k=None):
+    """The same key poses, smaller (a slower gait from a faster one)."""
+    lk = k if loc_k is None else loc_k
+    out = []
+    for ph, p in keys:
+        q = {}
+        for ch, v in p.items():
+            q[ch] = tuple(x * (lk if ch == "loc" else k) for x in v)
+        out.append((ph, q))
+    return out
+
+
+def quad_bound(a=1.0, flight=0.2, extra=None):
+    """Key poses for a quadruped's bounding gallop (legs: thigh / shin / hcannon behind,
+    upper / fore / fcannon in front; positive turns a leg's foot forward)."""
+    e = extra or {}
+    def k(**kw):
+        d = {n: tuple(x * a for x in v) for n, v in kw.items() if n != "loc"}
+        d["loc"] = kw.get("loc", (0, 0, 0))
+        d.update(e)
+        return d
+    return [
+        # Gathered: the hind feet planted far forward under the belly, the back arched.
+        (0.0, k(body=(-10, 0, 0), chest=(-6, 0, 0), neck=(10, 0, 0), head=(6, 0, 0), thigh=(34, 0, 0), shin=(-24, 0, 0), hcannon=(14, 0, 0),
+                upper=(-42, 0, 0), fore=(-14, 0, 0), fcannon=(36, 0, 0), loc=(0, 0, flight * 0.1))),
+        # Push off: hind legs drive back, the fronts fold and swing forward.
+        (0.2, k(body=(8, 0, 0), chest=(4, 0, 0), neck=(-2, 0, 0), head=(-2, 0, 0), thigh=(-12, 0, 0), shin=(14, 0, 0), hcannon=(-24, 0, 0),
+                upper=(18, 0, 0), fore=(30, 0, 0), fcannon=(-95, 0, 0), loc=(0, 0, flight * 0.45))),
+        # Stretched out in the air.
+        (0.42, k(body=(2, 0, 0), chest=(6, 0, 0), neck=(-8, 0, 0), head=(-4, 0, 0), thigh=(-46, 0, 0), shin=(32, 0, 0), hcannon=(-40, 0, 0),
+                 upper=(52, 0, 0), fore=(12, 0, 0), fcannon=(-14, 0, 0), loc=(0, 0, flight))),
+        # Front feet land; the hinds fold and swing forward.
+        (0.62, k(body=(-6, 0, 0), chest=(-4, 0, 0), neck=(4, 0, 0), head=(2, 0, 0), thigh=(4, 0, 0), shin=(-55, 0, 0), hcannon=(62, 0, 0),
+                 upper=(16, 0, 0), fore=(0, 0, 0), fcannon=(0, 0, 0), loc=(0, 0, flight * 0.3))),
+        # The fronts sweep back under the chest as the hinds reach forward.
+        (0.8, k(body=(-13, 0, 0), chest=(-8, 0, 0), neck=(10, 0, 0), head=(6, 0, 0), thigh=(30, 0, 0), shin=(-38, 0, 0), hcannon=(34, 0, 0),
+                upper=(-22, 0, 0), fore=(-6, 0, 0), fcannon=(14, 0, 0), loc=(0, 0, flight * 0.12))),
+    ]
+
+
+def alive(fps, keys, breathe=0.006, chest="chest"):
+    """A loop made organic: a smooth periodic spline through its key poses (nothing freezes
+    between keys) with breathing on top (the body rising a little, the chest swelling)."""
+    period = keys[-1][0]
+    phased = [(t / period, p) for t, p in keys[:-1]]
+    samples = max(8, round(period * fps))
+    out = keyed_cycle(phased, samples, period)
+    n = max(1, round(period / 3.2))  # a breath every ~3 s, a whole number per loop
+    for t, p in out:
+        b = math.sin(2 * math.pi * n * t / period)
+        loc = p.get("loc", (0.0, 0.0, 0.0))
+        p["loc"] = (loc[0], loc[1], loc[2] + breathe * b)
+        c = p.get(chest, (0.0, 0.0, 0.0))
+        p[chest] = (c[0] + 1.2 * b, c[1], c[2])
+    return (fps, True, out)
+
+
 def cycle(fn, period, samples):
     """Keys for a loop: `fn(phase 0..1)` sampled `samples` times (and once more at the end)."""
     return [(i / samples * period, fn(i / samples)) for i in range(samples + 1)]
@@ -700,7 +791,7 @@ def hare():
         # Front leg: slim, a little forward of the chest.
         sk.limb([(s_ * 0.05, 0.12, 0.14), (s_ * 0.048, 0.125, 0.075), (s_ * 0.045, 0.15, 0.02)], [0.04, 0.024], 2.0)
         sk.capsule((s_ * 0.045, 0.15, 0.018), (s_ * 0.043, 0.185, 0.016), 0.02)
-    skin = sk.build(0.005, 0.22)
+    skin = sk.build(0.005, 0.4)
     obs = [skin, eyes(skin, (0.05, 0.255, 0.315), 0.015, sink=0.35)]
     nose_co, _ = surface(skin, (0, 0.36, 0.28))
     obs.append(sphere(nose_co + V((0, -0.004, 0)), 0.009, 1, (1.2, 0.8, 0.8)))
@@ -726,8 +817,8 @@ def hare():
         x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
         n = len(pos)
         fine = fine_noise(pos, 60)
-        agouti = np.array((0.5, 0.36, 0.22))
-        dark = np.array((0.24, 0.17, 0.11))
+        agouti = np.array((0.47, 0.37, 0.27))
+        dark = np.array((0.22, 0.16, 0.11))
         belly = np.array((0.88, 0.84, 0.76))
         upn = np.clip((nrm[:, 2] + 0.2) * 1.6, 0, 1)
         col = belly * (1 - upn[:, None]) + agouti * upn[:, None]
@@ -772,15 +863,30 @@ def hare():
     graze = pose(body=(-6, 0, 0), chest=(-12, 0, 0), neck=(-35, 0, 0), head=(-20, 0, 0), ear=(16, 0, 10), arm=(14, 0, 0), fore=(4, 0, 0), paw=(-18, 0, 0))
     nibble = over(graze, head=(-26, 0, 0))
     clips = {
-        "idle": (12, True, [
+        "idle": alive(12, [
             (0, stand), (0.6, over(stand, ear=(6, 0, 4))), (1.4, over(stand, head=(4, 0, 22), ear=(10, 8, 12))), (2.6, over(stand, head=(4, 0, 22))),
             (3.0, over(stand, ear=(30, 0, 4))), (3.6, stand), (4.4, over(stand, head=(0, 0, -18), ear=(0, -6, -4))), (5.4, over(stand, head=(0, 0, -18))), (6.0, stand),
         ]),
-        "graze": (12, True, [(0, graze), (0.25, nibble), (0.5, graze), (0.75, nibble), (1.0, graze), (1.6, over(graze, ear=(10, 0, 18))), (2.2, graze), (2.45, nibble), (2.7, graze), (3.2, graze)]),
-        "alert": (12, True, [(0, alert), (1.0, over(alert, head=(-22, 0, 18), ear=(-16, 0, 4))), (2.0, over(alert, head=(-22, 0, -16))), (3.0, alert)]),
-        "hop": (16, True, cycle(lambda ph: lope(ph, 0.55), 1.0, 16)),
-        "run": (24, True, cycle(lambda ph: lope(ph, 1.0), 1.0, 16)),
+        "graze": alive(12, [(0, graze), (0.25, nibble), (0.5, graze), (0.75, nibble), (1.0, graze), (1.6, over(graze, ear=(10, 0, 18))), (2.2, graze), (2.45, nibble), (2.7, graze), (3.2, graze)]),
+        "alert": alive(12, [(0, alert), (1.0, over(alert, head=(-22, 0, 18), ear=(-16, 0, 4))), (2.0, over(alert, head=(-22, 0, -16))), (3.0, alert)]),
+        "hop": None,
+        # The bound: hind feet land ahead of the front ones (back arched), push off, the body
+        # stretches out in the air, the front feet land and the back flexes again.
+        "run": (24, True, keyed_cycle([
+            (0.0, dict(body=(-14, 0, 0), chest=(-10, 0, 0), neck=(8, 0, 0), head=(10, 0, 0), ear=(70, 0, 6), tail=(25, 0, 0),
+                       thigh=(38, 0, 0), shin=(-10, 0, 0), foot=(-12, 0, 0), arm=(-55, 0, 0), fore=(-30, 0, 0), paw=(40, 0, 0), loc=(0, 0, 0.0))),
+            (0.22, dict(body=(10, 0, 0), chest=(4, 0, 0), neck=(-4, 0, 0), head=(-2, 0, 0), ear=(75, 0, 6), tail=(20, 0, 0),
+                        thigh=(-20, 0, 0), shin=(18, 0, 0), foot=(-30, 0, 0), arm=(-10, 0, 0), fore=(-50, 0, 0), paw=(60, 0, 0), loc=(0, 0, 0.05))),
+            (0.45, dict(body=(4, 0, 0), chest=(8, 0, 0), neck=(-8, 0, 0), head=(-4, 0, 0), ear=(80, 0, 6), tail=(18, 0, 0),
+                        thigh=(-62, 0, 0), shin=(40, 0, 0), foot=(-55, 0, 0), arm=(55, 0, 0), fore=(10, 0, 0), paw=(-20, 0, 0), loc=(0, 0, 0.13))),
+            (0.68, dict(body=(-6, 0, 0), chest=(-2, 0, 0), neck=(0, 0, 0), head=(4, 0, 0), ear=(75, 0, 6), tail=(22, 0, 0),
+                        thigh=(-20, 0, 0), shin=(-20, 0, 0), foot=(10, 0, 0), arm=(25, 0, 0), fore=(-4, 0, 0), paw=(-6, 0, 0), loc=(0, 0, 0.06))),
+            (0.84, dict(body=(-16, 0, 0), chest=(-12, 0, 0), neck=(8, 0, 0), head=(10, 0, 0), ear=(72, 0, 6), tail=(25, 0, 0),
+                        thigh=(20, 0, 0), shin=(-40, 0, 0), foot=(20, 0, 0), arm=(-25, 0, 0), fore=(-10, 0, 0), paw=(20, 0, 0), loc=(0, 0, 0.02))),
+        ], 24)),
     }
+    # The slow lope: the bound, smaller and lower.
+    clips["hop"] = (24, True, scale_keys(clips["run"][2], 0.5, 0.35))
     # Strides: ground covered per cycle (m, life size), to match the clip to the speed.
     finish("hare", obs, rig, allowed, 0.02, paint, clips, {"stride": {"hop": 0.45, "run": 1.4}, "standHeight": 0.0}, 0.35, look=(0, 0.05, 0.2), views=("side", "front"))
 
@@ -885,7 +991,7 @@ def roe_deer():
     def paint(pos, nrm, part, fs, fc, up):
         x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
         fine = fine_noise(pos, 25)
-        coat = np.array((0.56, 0.3, 0.14))
+        coat = np.array((0.53, 0.31, 0.16))
         belly = np.array((0.78, 0.62, 0.45))
         upn = np.clip((nrm[:, 2] + 0.4) * 1.4, 0, 1)
         col = belly * (1 - upn[:, None]) + coat * upn[:, None]
@@ -912,18 +1018,19 @@ def roe_deer():
         chew = over(graze, head=(-16, 0, 4))
         alert = {"neck": (14, 0, 0), "head": (-8, 0, 0), "ear": (-12, 0, 0), "tail0": (30, 0, 0)}
         return {
-            "idle": (12, True, [(0, stand), (1.2, over(stand, head=(0, 0, 25), neck=(4, 0, 10))), (2.4, over(stand, head=(0, 0, 25), neck=(4, 0, 10), ear=(12, 0, 6))),
+            "idle": alive(12, [(0, stand), (1.2, over(stand, head=(0, 0, 25), neck=(4, 0, 10))), (2.4, over(stand, head=(0, 0, 25), neck=(4, 0, 10), ear=(12, 0, 6))),
                                 (3.0, over(stand, tail0=(30, 0, 0))), (3.3, stand), (4.5, over(stand, head=(0, 0, -22), neck=(4, 0, -12))), (5.6, over(stand, head=(0, 0, -22), neck=(4, 0, -12))), (6.4, stand), (8.0, stand)]),
-            "graze": (12, True, [(0, graze), (0.4, chew), (0.8, graze), (1.2, chew), (1.6, graze), (2.4, over(graze, ear=(-10, 0, 8))), (3.0, graze), (3.4, chew), (4.0, graze)]),
-            "alert": (12, True, [(0, alert), (1.5, over(alert, head=(-8, 0, 18), ear=(-16, 0, 6))), (3.0, over(alert, head=(-8, 0, -14))), (4.0, alert)]),
+            "graze": alive(12, [(0, graze), (0.4, chew), (0.8, graze), (1.2, chew), (1.6, graze), (2.4, over(graze, ear=(-10, 0, 8))), (3.0, graze), (3.4, chew), (4.0, graze)]),
+            "alert": alive(12, [(0, alert), (1.5, over(alert, head=(-8, 0, 18), ear=(-16, 0, 6))), (3.0, over(alert, head=(-8, 0, -14))), (4.0, alert)]),
             # Walk: hind right, front right, hind left, front left (a lateral sequence).
             "walk": (24, True, cycle(lambda ph: gait(None, ph, (0.0, 0.5, 0.25, 0.75), 0.66, 22, 30, 0.015, 0, extra=lambda ph: {"neck": (-6 + 4 * math.sin(4 * math.pi * ph), 0, 0)}), 1.0, 16)),
             # Bounding gallop: hinds push together, the fronts reach far ahead.
-            "run": (30, True, cycle(lambda ph: gait(None, ph, (0.0, 0.06, 0.48, 0.56), 0.32, 38, 45, 0.16, 10, extra=lambda ph: {"ear": (40, 0, 0), "tail0": (35, 0, 0)}), 1.0, 16)),
+            # Bounding: gathered, push, stretched in the air, front feet down (white rump flared).
+            "run": (30, True, keyed_cycle(quad_bound(1.0, 0.24, {"ear": (40, 0, 0), "tail0": (40, 0, 0)}), 24)),
         }
 
     q = dict(
-        res=0.012, voxel=0.01, ratio=0.22, side_tol=0.03, view=0.75, look=(0, 0.1, 0.55),
+        res=0.012, voxel=0.009, ratio=0.38, side_tol=0.03, view=0.75, look=(0, 0.1, 0.55),
         balls=[((0, -0.3, 0.68), 0.25, (0.82, 1.1, 1.0)), ((0, -0.02, 0.63), 0.26, (0.78, 1.55, 0.95)), ((0, 0.25, 0.64), 0.23, (0.78, 1.0, 1.1)),
                ((0, 0.6, 1.0), 0.1, (0.82, 1.2, 0.95)), ((0, 0.69, 0.965), 0.06, (0.72, 1.25, 0.8)), ((0, -0.43, 0.72), 0.06, (0.8, 0.7, 1.0))],
         chains=[([(0, 0.34, 0.74), (0, 0.46, 0.88), (0, 0.55, 0.98)], [0.1, 0.075])],
@@ -945,7 +1052,7 @@ def red_fox():
     def paint(pos, nrm, part, fs, fc, up):
         x, y, z = pos[:, 0], pos[:, 1], pos[:, 2]
         fine = fine_noise(pos, 40)
-        red = np.array((0.78, 0.35, 0.1))
+        red = np.array((0.7, 0.32, 0.11))
         white = np.array((0.94, 0.92, 0.88))
         black = np.array((0.08, 0.06, 0.05))
         upn = np.clip((nrm[:, 2] + 0.5) * 1.4, 0, 1)
@@ -977,17 +1084,17 @@ def red_fox():
         dive = over(stand, loc=(0, 0.25, 0.25), body=(-55, 0, 0), neck=(-20, 0, 0), head=(-20, 0, 0), thigh=(-30, 0, 0), upper=(40, 0, 0), fore=(20, 0, 0), fcannon=(0, 0, 0), tail0=(30, 0, 0), tail1=(20, 0, 0))
         land = over(stand, loc=(0, 0.3, -0.04), body=(-30, 0, 0), neck=(-25, 0, 0), head=(-35, 0, 0), upper=(30, 0, 0), fore=(-10, 0, 0), thigh=(-20, 0, 0), tail0=(12, 0, 0))
         return {
-            "idle": (12, True, [(0, stand), (1.5, over(stand, head=(0, 0, 20), neck=(0, 0, 10))), (2.5, listen), (3.8, listen), (4.6, over(stand, head=(0, 0, -20))), (6.0, stand)]),
-            "sniff": (12, True, [(0, over(stand, neck=(-40, 0, 0), head=(-20, 0, 0))), (0.6, over(stand, neck=(-44, 0, 8), head=(-26, 0, 6))), (1.2, over(stand, neck=(-40, 0, -6), head=(-20, 0, 0))), (2.0, over(stand, neck=(-40, 0, 0), head=(-20, 0, 0)))]),
+            "idle": alive(12, [(0, stand), (1.5, over(stand, head=(0, 0, 20), neck=(0, 0, 10))), (2.5, listen), (3.8, listen), (4.6, over(stand, head=(0, 0, -20))), (6.0, stand)]),
+            "sniff": alive(12, [(0, over(stand, neck=(-40, 0, 0), head=(-20, 0, 0))), (0.6, over(stand, neck=(-44, 0, 8), head=(-26, 0, 6))), (1.2, over(stand, neck=(-40, 0, -6), head=(-20, 0, 0))), (2.0, over(stand, neck=(-40, 0, 0), head=(-20, 0, 0)))]),
             # Trot: diagonal pairs (hind right with front left).
             "trot": (24, True, cycle(lambda ph: gait(None, ph, (0.0, 0.5, 0.5, 0.0), 0.5, 26, 40, 0.025, 0, extra=lambda ph: {"tail0": (-8, 0, 0), "tail1": (-4 + 4 * math.sin(2 * math.pi * ph), 0, 0)}), 1.0, 16)),
-            "run": (30, True, cycle(lambda ph: gait(None, ph, (0.0, 0.08, 0.5, 0.58), 0.35, 40, 50, 0.08, 9, extra=lambda ph: {"tail0": (8, 0, 0), "ear": (30, 0, 0)}), 1.0, 16)),
+            "run": (30, True, keyed_cycle(quad_bound(0.9, 0.12, {"tail0": (8, 0, 0), "tail1": (4, 0, 0), "ear": (30, 0, 0)}), 24)),
             # Mousing: freeze, listen, crouch, spring high and dive nose first into the grass.
             "pounce": (24, False, [(0, stand), (0.3, listen), (0.9, over(listen, head=(-28, 22, 0))), (1.2, crouch), (1.45, crouch), (1.7, leap), (1.95, dive), (2.15, land), (2.6, over(land, head=(-45, 0, 0))), (3.2, stand)]),
         }
 
     q = dict(
-        res=0.007, voxel=0.006, ratio=0.22, side_tol=0.02, view=0.5, look=(0, -0.05, 0.3),
+        res=0.007, voxel=0.0055, ratio=0.36, side_tol=0.02, view=0.5, look=(0, -0.05, 0.3),
         balls=[((0, -0.17, 0.34), 0.165, (0.8, 1.05, 1.0)), ((0, 0.0, 0.33), 0.165, (0.78, 1.3, 0.95)), ((0, 0.16, 0.34), 0.155, (0.82, 1.0, 1.1)),
                ((0, 0.36, 0.5), 0.095, (0.95, 1.0, 0.85)), ((0, 0.44, 0.475), 0.045, (0.75, 1.3, 0.7)), ((0, 0.5, 0.465), 0.028, (0.7, 1.2, 0.7))],
         chains=[([(0, 0.22, 0.38), (0, 0.3, 0.46), (0, 0.35, 0.5)], [0.08, 0.07]),

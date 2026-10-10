@@ -20,6 +20,13 @@ export const NOTES: Note[] = [
   { id: "spray", name: "River spray", text: "Skimming the river lifts a fine mist." },
   { id: "fireflies", name: "Fireflies", text: "Small lanterns of their own; the wind carries a few along." },
   { id: "snow", name: "Snow", text: "In winter, the wind lifts the powder." },
+  { id: "hare", name: "Brown hares", text: "Come gently, without a gust, and linger: a hare will run with you." },
+  { id: "deer", name: "Roe deer", text: "Shy at the edge of the woods; approached softly they bound along beside you." },
+  { id: "fox", name: "The red fox", text: "Skim low past it and it springs at you in play; linger and it trots along." },
+  { id: "butterflies", name: "Butterflies", text: "Drift through them slowly and they dance around you for a while." },
+  { id: "ducks", name: "Mallards", text: "Glide low over the river beside them and they paddle in your wake." },
+  { id: "dragonflies", name: "Dragonflies", text: "Hang near one over the water and it flies at your wingtip." },
+  { id: "frogs", name: "Frogs", text: "Rest by the river and they sing to you, one after another." },
 ];
 
 const KEY = "endless-field-notes";

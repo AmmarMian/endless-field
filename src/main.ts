@@ -6,7 +6,7 @@ import { WorldMap } from "./ui/map";
 import { Camera, type Vec3 } from "./engine/camera";
 import { GOLDEN_HOUR, Globals, dayAtmosphere, seasonWeights as seasonWeightsTs, weatherAtmosphere } from "./engine/globals";
 import { Renderer } from "./engine/renderer";
-import { loadTexture, setTextureMaxSize } from "./engine/textures";
+import { loadTexture, setTextureMaxSize, usePhoneTextures } from "./engine/textures";
 import { Audio } from "./game/audio";
 import { Input } from "./game/input";
 import { Motes } from "./game/motes";
@@ -89,11 +89,51 @@ function showError(message: string): void {
 window.addEventListener("error", (e) => notice(`Error: ${e.message}`));
 window.addEventListener("unhandledrejection", (e) => notice(`Error: ${String((e.reason as Error)?.message ?? e.reason)}`));
 
+/**
+ * Crash-safe starts: a start is marked pending until the world has run for a few seconds. A
+ * page that finds the previous start still pending (a phone killed it while loading) starts a
+ * tier lighter; ?lite=N forces a tier. Returns 0 (normal) .. 2 (lightest).
+ */
+function bootTier(): number {
+  const forced = Number(params.get("lite"));
+  let state = { tier: 0, pending: false };
+  try {
+    state = { ...state, ...JSON.parse(localStorage.getItem("ef-boot") ?? "{}") };
+  } catch {
+    // Private mode or blocked storage: no memory of past starts.
+  }
+  const tier = state.pending ? Math.min(2, state.tier + 1) : state.tier;
+  // A tier asked for in the address is for this visit only.
+  if (Number.isFinite(forced) && params.has("lite")) return Math.max(0, Math.min(2, forced));
+  try {
+    localStorage.setItem("ef-boot", JSON.stringify({ tier, pending: true }));
+  } catch {
+    // Ignored (see above).
+  }
+  return tier;
+}
+
+/** The world has been running a while: this start worked (keep its tier for next time). */
+function bootDone(tier: number): void {
+  if (params.has("lite")) return;
+  try {
+    localStorage.setItem("ef-boot", JSON.stringify({ tier, pending: false }));
+  } catch {
+    // Ignored.
+  }
+}
+
 async function main(): Promise<void> {
   if (!navigator.gpu) {
-    showError("Endless Field needs WebGPU.\nTry a recent Chrome, Edge or Safari.");
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    showError(
+      ios
+        ? "Endless Field needs WebGPU, which this iPhone or iPad does not offer yet.\nUpdate to iOS 26 (Safari 26 has WebGPU on by default), or on iOS 18 turn it on in Settings → Apps → Safari → Advanced → Feature Flags → WebGPU."
+        : "Endless Field needs WebGPU.\nTry a recent Chrome (Android 12 or later), Edge or Safari.",
+    );
     return;
   }
+  const tier = bootTier();
   // GPU timings for the frame counter when the adapter supports timestamp queries.
   // Loading screen: progress follows real work (each texture, model and pipeline).
   const loadingEl = document.getElementById("loading");
@@ -128,10 +168,19 @@ async function main(): Promise<void> {
   const canTime = adapter?.features.has("timestamp-query") ?? false;
   const gpu = await init({ requiredFeatures: canTime ? ["timestamp-query"] : [] });
   const settings: Settings = loadSettings();
-  // Phones: smaller textures and a sparser sunflower field, to fit their graphics memory.
-  if (TOUCH) {
-    setTextureMaxSize(1024);
-    Sunflowers.thin = 2;
+  // Phones: small textures decoded a few at a time, lighter near trees and a sparser
+  // sunflower field, to fit their memory. After a start that never finished (the page was
+  // killed while loading), lighter still.
+  if (TOUCH || tier > 0) {
+    await usePhoneTextures(TOUCH ? 2 : 4);
+    setTextureMaxSize(tier >= 1 ? 256 : 512);
+    Sunflowers.thin = tier >= 1 ? 4 : 2;
+    Trees.lite = true;
+  }
+  if (tier > 0) {
+    settings.grass = "low";
+    settings.renderScale = Math.min(settings.renderScale, tier >= 2 ? 0.45 : 0.55);
+    notice(`Started in a lighter mode (${tier}) because the last start did not finish.`);
   }
   // ?seed=N opens a specific world (shareable links).
   const urlSeed = new URLSearchParams(location.search).get("seed");
@@ -635,6 +684,7 @@ async function main(): Promise<void> {
   // Pause: the world holds still (time, wind, creatures, sound); the view can still be admired.
   let paused = false;
   let simTime = 0;
+  let bootOk = false;
   const pauseEl = document.createElement("div");
   pauseEl.id = "pause";
   pauseEl.hidden = true;
@@ -679,6 +729,11 @@ async function main(): Promise<void> {
     if (input.wasPressed("p") && playing) setPaused(!paused);
     const rawDt = paused ? 0 : Math.min(time.deltaTime, 1 / 15);
     simTime += rawDt;
+    // Running for 8 s: this start worked.
+    if (!bootOk && simTime > 8) {
+      bootOk = true;
+      bootDone(tier);
+    }
     const t = debug.fixedTime ?? simTime;
     if (!paused) dtSmooth += (rawDt - dtSmooth) * 0.2;
     const dt = paused ? 0 : dtSmooth;

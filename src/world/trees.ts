@@ -119,6 +119,9 @@ export class Trees {
   private loadedCell = "";
   private instances: TreeInstance[] = [];
 
+  /** Phones: near trees drawn with the lighter mesh (the dense one is never downloaded). */
+  static lite = false;
+
   static async load(gpu: Gpu, globals: SharedUniforms, base = "assets/trees"): Promise<Trees> {
     const linear = sampler(gpu, {
       minFilter: "linear",
@@ -140,7 +143,9 @@ export class Trees {
         const dir = `${base}/${spec.name}`;
         const manifest = (await (await fetch(`${dir}/tree.json`)).json()) as TreeManifest;
         const tex = async (key: string, srgb: boolean): Promise<Texture> => loadTexture(gpu, `${dir}/${manifest.textures[key]}`, { srgb });
-        const [trunkDiff, trunkNor, branchesDiff, branchesNor, leaves, impAlbedo, impNormal, ...bins] = await Promise.all([
+        const bins = new Map<string, Promise<ArrayBuffer>>();
+        const lods = Trees.lite ? manifest.lods.map(() => manifest.lods[manifest.lods.length - 1]) : manifest.lods;
+        const [trunkDiff, trunkNor, branchesDiff, branchesNor, leaves, impAlbedo, impNormal, ...lodBins] = await Promise.all([
           tex("trunk_diff", true),
           tex("trunk_nor", false),
           tex("branches_diff", true),
@@ -148,12 +153,16 @@ export class Trees {
           tex("leaves", true),
           loadTexture(gpu, `${dir}/impostor_albedo.png`, { srgb: true }),
           loadTexture(gpu, `${dir}/impostor_normal.png`, { srgb: false }),
-          ...manifest.lods.map(async (l) => (await fetch(`${dir}/${l.file}`)).arrayBuffer()),
+          // Lite (phones): the near trees use the lighter mesh too; the dense one is not loaded.
+          ...lods.map((l) => {
+            if (!bins.has(l.file)) bins.set(l.file, fetch(`${dir}/${l.file}`).then((r) => r.arrayBuffer()));
+            return bins.get(l.file)!;
+          }),
         ]);
         const buffers = [0, 1, 2].map(() => storage(gpu, MAX_INSTANCES * STRIDE * 4, "read"));
         const leafTint = spec.name === "jacaranda" ? 1.0 : 1.05;
-        const meshDraws = manifest.lods.map((lod, li) => {
-          const bin = bins[li] as ArrayBuffer;
+        const meshDraws = lods.map((lod, li) => {
+          const bin = lodBins[li] as ArrayBuffer;
           const geo = geometry(gpu, {
             label: `${spec.name}-lod${li}`,
             buffers: [
@@ -220,7 +229,7 @@ export class Trees {
           buffers,
           data: [0, 1, 2].map(() => new Float32Array(MAX_INSTANCES * STRIDE)),
           counts: [0, 0, 0],
-          tris: manifest.lods.slice(0, 2).map((l) => (l.groups.bark.indexCount + l.groups.leaves.indexCount) / 3),
+          tris: lods.slice(0, 2).map((l) => (l.groups.bark.indexCount + l.groups.leaves.indexCount) / 3),
           meshDraws,
           impostor,
           scale: spec.scale,

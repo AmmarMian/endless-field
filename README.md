@@ -13,7 +13,12 @@ npm run build      # typecheck + production build
 ./tools/check.sh   # validate every WGSL entry shader against a real WebGPU device
 ```
 
-Needs a WebGPU browser (recent Chrome / Edge / Safari).
+Needs a WebGPU browser (recent Chrome / Edge / Safari; on iPhone, iOS 26).
+
+On phones the game loads small texture copies (`tools/phone-textures.py`, regenerate after
+changing a texture) a couple at a time and draws near trees with their lighter mesh. A start
+that never finished (a phone killed the page while loading) makes the next one start lighter
+still; `?lite=0|1|2` picks a level for one visit.
 
 ## Controls
 

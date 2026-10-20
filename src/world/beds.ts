@@ -94,7 +94,7 @@ export class FlowerBeds {
             geometry: geo.slice({ firstIndex: v.firstIndex, indexCount: v.indexCount }),
             depth: { compare: "greater" },
             multisample: { alphaToCoverage: true },
-            set: { G: globals, plants: buffer, samp, albedoTex, life, P: { dryTint: 1, nightGlow: 1, pad0: 0, pad1: 0 } },
+            set: { G: globals, plants: buffer, samp, albedoTex, life, P: { dryTint: 1, nightGlow: 1, wet: 0, stiff: 0 } },
           }),
         );
         return { name, variants, draws, buffer, data: new Float32Array(MAX_PLANTS * STRIDE), counts: variants.map(() => 0), firsts: variants.map(() => 0) };

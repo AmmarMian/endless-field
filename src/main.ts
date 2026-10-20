@@ -30,7 +30,10 @@ import { LifeMap } from "./world/life";
 import { Terrain } from "./world/terrain";
 import { Fireflies } from "./world/fireflies";
 import { Water } from "./world/water";
-import { setWorldSeed, mountainZone, riverCenter, riverInfo, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
+import { Sea } from "./world/sea";
+import { Crabs } from "./world/crabs";
+import { Gulls } from "./world/gulls";
+import { MOUTH_X, SEA_Y, coastInfo, coastLine, duneAmount, inland, sandEdge, setWorldSeed, mountainZone, riverCenter, riverInfo, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
 import { biome } from "./world/biome";
 import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
@@ -211,14 +214,16 @@ async function main(): Promise<void> {
   });
   const life = new LifeMap(gpu);
   stage("shaping the hills…");
-  const [pebbles, rock, scree, forestFloor, mountains] = await Promise.all([
+  const [pebbles, rock, scree, forestFloor, sandDiff, sandNor, mountains] = await Promise.all([
     track(loadTexture(gpu, "assets/textures/pebbles.jpg", { srgb: true }), "pebbles"),
     track(loadTexture(gpu, "assets/textures/rock_diff.jpg", { srgb: true }), "rock_diff"),
     track(loadTexture(gpu, "assets/textures/scree_diff.jpg", { srgb: true }), "scree_diff"),
     track(loadTexture(gpu, "assets/textures/forest_floor.jpg", { srgb: true }), "forest_floor"),
+    track(loadTexture(gpu, "assets/textures/sand_diff.jpg", { srgb: true }), "sand_diff"),
+    track(loadTexture(gpu, "assets/textures/sand_nor.jpg", { srgb: false }), "sand_nor"),
     track(loadMountains(gpu), "mountains"),
   ]);
-  const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree, forestFloor);
+  const terrain = new Terrain(gpu, globals.uniforms, life.buffer, pebbles, mountains, rock, scree, forestFloor, sandDiff, sandNor);
   const grass = new Grass(gpu, globals.uniforms, life.buffer, mountains, settings.grass);
   if (params.get("grass") === "direct") grass.useDirect();
   const flowers = new Flowers(gpu, globals.uniforms);
@@ -285,6 +290,8 @@ async function main(): Promise<void> {
     track(PlayerBird.load(gpu, globals.uniforms), "swallow"),
   ]);
   const nest = new Nest(gpu, globals.uniforms);
+  const sea = new Sea(gpu, globals.uniforms);
+  const [crabs, gulls] = await Promise.all([track(Crabs.load(gpu, globals.uniforms), "crabs"), track(Gulls.load(gpu, globals.uniforms), "gulls")]);
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
   const heard = (at: readonly number[]): [number, number] => {
     const fx = camera.target[0] - camera.position[0];
@@ -293,6 +300,10 @@ async function main(): Promise<void> {
     const dz = at[2] - camera.position[2];
     const d = Math.hypot(dx, dz) || 1;
     return [(dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1)), d];
+  };
+  gulls.onCall = (kind, at) => {
+    const [pan, d] = heard(at);
+    audio.gull(kind, pan, Math.hypot(d, at[1] - camera.position[1]));
   };
   birds.onTakeoff = (at, n) => {
     const [pan, d] = heard(at);
@@ -418,7 +429,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw, sea.draw, crabs.draw, gulls.draw].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -547,6 +558,8 @@ async function main(): Promise<void> {
       { label: "forest edge", x: 520, z: 120, yaw: Math.PI / 2, at: [470, 260] },
       { label: "autumn forest", x: 900, z: 120, yaw: Math.PI / 2 },
       { label: "deep forest", x: 1650, z: 150, yaw: Math.PI / 2 },
+      { label: "beach", x: 120, z: coastLine(120) - 70, yaw: Math.PI, at: [120, coastLine(120)] },
+      { label: "estuary", x: MOUTH_X + 60, z: riverCenter(MOUTH_X) + 40, yaw: Math.PI * 0.85, at: [MOUTH_X - 40, riverCenter(MOUTH_X) + 250] },
     ],
     (x, z, yaw) => {
       start();
@@ -589,7 +602,10 @@ async function main(): Promise<void> {
     fixedTime: null as null | number,
     /** Seconds left alone before the swallow comes down to rest. */
     landAfter: 40,
-    hide: { fireflies: false, grass: false, terrain: false, trees: false, water: false, beds: false, sunflowers: false },
+    hide: { fireflies: false, grass: false, terrain: false, trees: false, water: false, sea: false, beds: false, sunflowers: false },
+    sea,
+    crabs,
+    gulls,
     start,
     player,
     trees,
@@ -620,6 +636,9 @@ async function main(): Promise<void> {
     sunflowers,
     beds,
     height: terrainHeight,
+    coast: coastInfo,
+    dune: duneAmount,
+    sandEdge,
     mountainZone,
     biome,
     river: { center: riverCenter, water: riverWater, halfWidth: riverHalfWidth },
@@ -739,8 +758,11 @@ async function main(): Promise<void> {
     const rawDt = paused ? 0 : Math.min(time.deltaTime, 1 / 15);
     simTime += rawDt;
     // Grass check: some phones run the compute grass yet draw no blade. Ask the GPU how many
-    // it drew, twice; if none, draw the grass the simple way.
-    if (!grass.direct && grassChecks < 2 && simTime > 3 + grassChecks * 3 && !grassChecking) {
+    // it drew, twice; if none, draw the grass the simple way. Only asked over the meadow:
+    // on the beach, over the sea or high in the air no blades is the right answer.
+    const [gcx, gcy, gcz] = camera.position;
+    const overMeadow = inland(gcx, gcz, 40) && gcy - terrainHeight(gcx, gcz) < 40 && riverInfo(gcx, gcz)[0] > 40;
+    if (!grass.direct && grassChecks < 2 && simTime > 3 + grassChecks * 3 && !grassChecking && overMeadow) {
       grassChecking = true;
       grass
         .counts()
@@ -1169,8 +1191,9 @@ async function main(): Promise<void> {
     {
       const [cx, cy, cz] = camera.position;
       const [d, wy, hw] = riverInfo(cx, cz);
-      waterY = wy;
-      const target = d < hw * 1.6 && cy < wy - 0.02 && terrainHeight(cx, cz) < wy ? 1 : 0;
+      const atSea = coastInfo(cx, cz)[0] < 0;
+      waterY = atSea ? SEA_Y : wy;
+      const target = (atSea ? cy < SEA_Y - 0.3 : d < hw * 1.6 && cy < wy - 0.02 && terrainHeight(cx, cz) < wy) ? 1 : 0;
       underwater += (target - underwater) * Math.min(1, rawDt * 10);
       if (Math.abs(target - underwater) < 0.01) underwater = target;
       renderer.setUnderwater(underwater);
@@ -1202,6 +1225,15 @@ async function main(): Promise<void> {
     grass.update(camera.position[0], camera.position[2]);
     fireflies.update(camera.position[0], camera.position[2]);
     water.update(camera.position[0], camera.position[2]);
+    sea.step(rawDt, camera.position[0], camera.position[2], night);
+    crabs.update(dt, camera.position, explore ? freecam.pos : player.pos, explore ? 4 : player.speed);
+    gulls.update(dt, camera.position, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, night);
+    {
+      // The sea's voice: loud on the beach, fading inland (and a little with height).
+      const [cs] = coastInfo(camera.position[0], camera.position[2]);
+      const alt = camera.position[1] - Math.max(terrainHeight(camera.position[0], camera.position[2]), SEA_Y);
+      audio.setShore(Math.exp(-Math.max(cs, -cs * 0.4, 0) / 110) * (1 - Math.min(alt / 220, 0.6)));
+    }
     trees.update(camera.position, camera.frustum, current.drawDistance);
     beds.update(camera.position, camera.frustum, 140 * current.drawDistance);
     undergrowth.update(camera.position, camera.frustum, current.drawDistance);
@@ -1264,12 +1296,15 @@ async function main(): Promise<void> {
       race.glow = darkGlow;
       swallow.encode(pass);
       birds.encode(pass);
+      crabs.encode(pass);
+      gulls.encode(pass);
       secrets.encode(pass);
       race.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);
       fish.encode(pass);
       // The water blends over what lies beneath it, so it comes after the bed and the fish.
       if (!debug.hide.water) water.encode(pass);
+      if (!debug.hide.sea) sea.encode(pass);
       flowers.encodeGlow(pass);
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
       // Transparent, depth-tested but not depth-writing: after everything opaque.

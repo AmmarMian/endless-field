@@ -46,7 +46,7 @@ def opt(name, default=None):
     return argv[argv.index(name) + 1] if name in argv else default
 
 
-ONLY = opt("--species", "swallow,sparrow,kingfisher,hawk").split(",")
+ONLY = opt("--species", "swallow,sparrow,kingfisher,hawk,gull").split(",")
 PREVIEW = opt("--preview")
 BLEND = opt("--blend")
 CLIPS_ONLY = opt("--clips", "").split(",") if opt("--clips") else None
@@ -116,6 +116,21 @@ SPECIES = {
         tail=dict(len=0.55, w0=0.1, w1=0.3, fork=-0.12, streamers=0.0, spot=False),
         leg=0.2, toe=0.12, legw=0.03,
         perchPitch=20, clips="hawk",
+    ),
+    # Herring gull: long, narrow, pointed wings with a crooked wrist; stout yellow bill.
+    "gull": dict(
+        L=0.3,
+        girth=1.05, head=0.92, headPos=(0.4, 0.09), neck=0.03,
+        bill=dict(len=0.2, w=0.06, d=0.075, hook=0.25),
+        shoulder=(0.12, 0.13, 0.07),
+        upperarm=0.26, forearm=0.62,
+        wing=[(-0.1, 0.03, 0.42, 0.1), (0.0, 0.03, 0.42, 0.08), (0.24, 0.03, 0.42, 0.065), (0.7, 0.02, 0.38, 0.05),
+              (1.05, -0.04, 0.32, 0.034), (1.4, -0.16, 0.24, 0.022), (1.66, -0.32, 0.14, 0.014), (1.8, -0.44, 0.04, 0.008)],
+        scallop=(10, 0.05), fingers=0,
+        tail=dict(len=0.42, w0=0.1, w1=0.26, fork=-0.04, streamers=0.0, spot=False),
+        leg=0.24, toe=0.15, legw=0.03,
+        perchPitch=8, clips="gull",
+        fold=dict(upperarm=(-46, 0, -84), forearm=(0, 0, 36), hand=(-6, 0, -44), arm_loc=(0, -0.02, 0.04)),
     ),
 }
 
@@ -589,6 +604,19 @@ def paint(name, sp, L, pos, nrm, part, fs, fc, upf):
         tailc = BLUE * 0.9
         legc, billc = c3(0.85, 0.3, 0.15), c3(0.04, 0.04, 0.05)
         gl_body, gl_wing = upn, upper * 1.0
+    elif name == "gull":
+        WHITE, GREY, BLACK = c3(0.94, 0.94, 0.92), c3(0.6, 0.64, 0.68), c3(0.05, 0.05, 0.06)
+        body = np.where((upn > 0.55)[:, None] & (y < hy - 0.15)[:, None] & (np.abs(x) > 0.05)[:, None], GREY, WHITE[None].repeat(n, 0))
+        tipz = fs > 0.82
+        mirror = tipz & (fs > 0.9) & (fc > 0.3) & (fc < 0.6)
+        wup = np.where(tipz[:, None], BLACK, GREY * (0.95 + 0.1 * fine[:, None]))
+        wup = np.where(mirror[:, None], WHITE, wup)
+        trailing = (fc > 0.85) & ~tipz
+        wup = np.where(trailing[:, None], WHITE * 0.95, wup)
+        wingc = np.where(upper[:, None], wup, np.where(tipz[:, None], BLACK * 2, WHITE * 0.92))
+        tailc = WHITE
+        legc, billc = c3(0.86, 0.6, 0.55), c3(0.95, 0.78, 0.18)
+        gl_body, gl_wing = upn * 0, upper * 0.0
     else:  # hawk (a common buzzard)
         BROWN, PALE, DARK = c3(0.32, 0.2, 0.11), c3(0.85, 0.78, 0.66), c3(0.1, 0.07, 0.05)
         barred = 0.5 + 0.5 * np.sin(y * 40 + fine * 2)
@@ -760,6 +788,21 @@ def clip_defs(name, sp):
         (2.0, perch), (2.2, over(fluff, head=(-pp * 0.5, 0, 25))), (2.3, over(fluff, head=(-pp * 0.5, 0, -25))),
         (2.4, over(fluff, head=(-pp * 0.5, 0, 20))), (2.5, over(fluff, head=(-pp * 0.5, 0, -15))), (2.8, perch),
     ])
+    if name == "gull":
+        # On the sand: a deliberate walk (one leg, then the other, the head bobbing), a peck at
+        # the strand line, and the long call (head down, then thrown back).
+        step = lambda s: over(perch, leg=(-pp * 0.9 + 22 * s, 0, 2), body=(pp + 3 * abs(s), 0, 4 * s), head=(-pp * 0.5 - 6 * abs(s), 0, 0),
+                              body_loc=(0, 0, -0.01 * abs(s)))
+        clips["walk"] = (24, True, [
+            (0.0, over(step(1), **{"leg.L": (-pp * 0.9 - 20, 0, -2)})), (0.25, step(0)),
+            (0.5, over(step(-1), **{"leg.L": (-pp * 0.9 + 22, 0, -2)})), (0.75, step(0)),
+            (1.0, over(step(1), **{"leg.L": (-pp * 0.9 - 20, 0, -2)})),
+        ])
+        peck = over(perch, body=(-22, 0, 0), neck=(-40, 0, 0), head=(-30, 0, 0), tail=(14, 0, 0))
+        clips["peck"] = (30, False, [(0.0, perch), (0.2, over(peck, head=(-12, 0, 0))), (0.3, peck), (0.45, over(peck, head=(-14, 0, 0))), (0.55, peck), (0.85, perch)])
+        down = over(perch, body=(-10, 0, 0), neck=(-50, 0, 0), head=(-40, 0, 0))
+        back = over(perch, body=(20, 0, 0), neck=(35, 0, 0), head=(40, 0, 0), upperarm=(-10, 0, -70))
+        clips["call"] = (30, False, [(0.0, perch), (0.3, down), (0.55, back), (0.75, over(back, head=(30, 0, 0))), (0.95, back), (1.15, over(back, head=(32, 0, 0))), (1.6, perch)])
     if name in ("sparrow",):
         # On the ground: a two-footed hop and a peck.
         clips["hop"] = (30, False, [

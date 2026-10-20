@@ -1,0 +1,75 @@
+{
+ "vertexBytes": 72216,
+ "indexCount": 17538,
+ "matrixBytes": 117936,
+ "clips": {
+  "idle": {
+   "start": 0,
+   "frames": 72,
+   "fps": 30,
+   "loop": true
+  },
+  "walk": {
+   "start": 73,
+   "frames": 13,
+   "fps": 30,
+   "loop": true
+  },
+  "run": {
+   "start": 87,
+   "frames": 8,
+   "fps": 30,
+   "loop": true
+  },
+  "threat": {
+   "start": 96,
+   "frames": 30,
+   "fps": 30,
+   "loop": true
+  },
+  "burrow": {
+   "start": 127,
+   "frames": 30,
+   "fps": 30,
+   "loop": false
+  },
+  "emerge": {
+   "start": 158,
+   "frames": 30,
+   "fps": 30,
+   "loop": false
+  }
+ },
+ "perchHeight": 0,
+ "credit": "Modeled, rigged and animated in Blender (tools/blender/model_crab.py)",
+ "bones": [
+  "body",
+  "eyes",
+  "thigh0.R",
+  "thigh0.L",
+  "shin0.R",
+  "shin0.L",
+  "thigh1.R",
+  "thigh1.L",
+  "shin1.R",
+  "shin1.L",
+  "thigh2.R",
+  "thigh2.L",
+  "shin2.R",
+  "shin2.L",
+  "thigh3.R",
+  "thigh3.L",
+  "shin3.R",
+  "shin3.L",
+  "arm.R",
+  "arm.L",
+  "fore.R",
+  "fore.L",
+  "hand.R",
+  "hand.L",
+  "finger.R",
+  "finger.L"
+ ],
+ "size": 0.068,
+ "stride": 0.03
+}

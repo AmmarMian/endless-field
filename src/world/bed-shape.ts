@@ -1,5 +1,5 @@
 // CPU mirror of src/shaders/lib/beds.wgsl. Keep the two in sync.
-import { gnoise, hash2i, mountainZone } from "./height";
+import { coastInfo, gnoise, hash2i, mountainZone } from "./height";
 import { biome } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
 import { pathDistance } from "./lantern-path";
@@ -24,6 +24,7 @@ export function bedInCell(cx: number, cz: number): BedInfo | null {
   if (mountainZone((cx + 0.5) * BED_CELL, (cz + 0.5) * BED_CELL) > 0.05) return null;
   if (sunflowerNear((cx + 0.5) * BED_CELL, (cz + 0.5) * BED_CELL, 46)) return null;
   if (pathDistance((cx + 0.5) * BED_CELL, (cz + 0.5) * BED_CELL) <= 46) return null;
+  if (coastInfo((cx + 0.5) * BED_CELL, (cz + 0.5) * BED_CELL)[0] <= 200) return null;
   const u = ((h >>> 16) & 0xff) / 255;
   const v = ((h >>> 24) & 0xff) / 255;
   return {

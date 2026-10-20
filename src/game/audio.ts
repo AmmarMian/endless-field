@@ -783,6 +783,150 @@ export class Audio {
     void (on ? this.ctx.suspend() : this.ctx.resume());
   }
 
+  // ---- The shore -------------------------------------------------------------------------
+  private shore: { roar: GainNode; level: number } | null = null;
+
+  /**
+   * The sea (0 out of earshot .. 1 on the beach): a low roar of distant surf all along the
+   * coast, and breakers: every few seconds a wave spills (a rumbling crash) and its wash
+   * hisses up the sand and drains back.
+   */
+  setShore(level: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    if (!this.shore) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.noiseBuffer(6);
+      src.loop = true;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 420;
+      const roar = ctx.createGain();
+      roar.gain.value = 0;
+      src.connect(lp).connect(roar).connect(this.master);
+      src.start();
+      this.shore = { roar, level: 0 };
+      const wave = () => {
+        const s = this.shore!;
+        if (s.level > 0.02) this.breaker(s.level);
+        setTimeout(wave, (7 + Math.random() * 3.5) * 1000);
+      };
+      setTimeout(wave, 1500);
+    }
+    this.shore.level = level;
+    this.shore.roar.gain.setTargetAtTime(level * 0.13, ctx.currentTime, 0.8);
+  }
+
+  private breaker(level: number): void {
+    const ctx = this.ctx!;
+    const t = ctx.currentTime + 0.05;
+    const size = 0.6 + Math.random() * 0.5;
+    const buf = this.noiseBuffer(6);
+    // The crash: broadband, then darkening as the bore rolls in.
+    const crash = ctx.createBufferSource();
+    crash.buffer = buf;
+    const cf = ctx.createBiquadFilter();
+    cf.type = "lowpass";
+    cf.frequency.setValueAtTime(500, t);
+    cf.frequency.linearRampToValueAtTime(2600 * size, t + 0.5);
+    cf.frequency.exponentialRampToValueAtTime(380, t + 3.2);
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0, t);
+    cg.gain.linearRampToValueAtTime(0.32 * level * size, t + 0.45);
+    cg.gain.exponentialRampToValueAtTime(0.0001, t + 3.6);
+    crash.connect(cf).connect(cg).connect(this.master);
+    cg.connect(this.reverb);
+    crash.start(t);
+    crash.stop(t + 3.8);
+    // The wash: a fizzing hiss running up the sand, then draining back with a fine rattle.
+    const wash = ctx.createBufferSource();
+    wash.buffer = buf;
+    const wf = ctx.createBiquadFilter();
+    wf.type = "bandpass";
+    wf.frequency.setValueAtTime(2200, t + 1.2);
+    wf.frequency.linearRampToValueAtTime(4200, t + 3.0);
+    wf.frequency.linearRampToValueAtTime(3000, t + 5.5);
+    wf.Q.value = 0.6;
+    const wg = ctx.createGain();
+    wg.gain.setValueAtTime(0, t + 1.0);
+    wg.gain.linearRampToValueAtTime(0.11 * level, t + 2.2);
+    wg.gain.linearRampToValueAtTime(0.05 * level, t + 3.8);
+    wg.gain.exponentialRampToValueAtTime(0.0001, t + 6.0);
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.random() * 0.8 - 0.4;
+    wash.connect(wf).connect(wg).connect(pan).connect(this.master);
+    wash.start(t + 1.0, 1.5);
+    wash.stop(t + 6.2);
+  }
+
+  /**
+   * A herring gull, panned and distanced. "long": the long call (kyow-kyow, then a run of
+   * laughing ha-ha-ha), "mew": one long plaintive note, "alarm": sharp kek-kek as it takes off.
+   */
+  gull(kind: "long" | "mew" | "alarm", pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const near = Math.max(0, Math.min(1, 25 / Math.max(distance, 1))) ** 0.7;
+    if (near < 0.03) return;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.85;
+    // Distance dulls it; the air and the beach give it room.
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 2500 + near * 7000;
+    p.connect(lp).connect(this.master);
+    lp.connect(this.reverb);
+    const base = 620 + Math.random() * 160;
+    let t = ctx.currentTime + 0.02 + Math.random() * 0.15;
+    const notes: [number, number, number][] = [];
+    if (kind === "long") {
+      for (let i = 0; i < 2 + Math.floor(Math.random() * 2); i++) notes.push([0.34, 1.0, 1.0]);
+      const n = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) notes.push([0.15 - i * 0.004, 1.12 - i * 0.02, 0.8 - i * 0.05]);
+    } else if (kind === "mew") {
+      notes.push([0.7, 0.95, 0.8]);
+    } else {
+      for (let i = 0; i < 3 + Math.floor(Math.random() * 3); i++) notes.push([0.09, 1.25, 0.9]);
+    }
+    for (const [len, pitch, amp] of notes) {
+      const f = base * pitch;
+      // A nasal, harsh voice: sawtooth through two formants, with a rasp (fast AM).
+      const o = ctx.createOscillator();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(f * 0.78, t);
+      o.frequency.linearRampToValueAtTime(f * 1.12, t + len * 0.25);
+      o.frequency.exponentialRampToValueAtTime(f * (kind === "mew" ? 0.62 : 0.72), t + len);
+      const f1 = ctx.createBiquadFilter();
+      f1.type = "bandpass";
+      f1.frequency.value = 1350;
+      f1.Q.value = 3;
+      const f2 = ctx.createBiquadFilter();
+      f2.type = "bandpass";
+      f2.frequency.value = 2900;
+      f2.Q.value = 4;
+      const rasp = ctx.createGain();
+      rasp.gain.value = 0.7;
+      const am = ctx.createOscillator();
+      am.frequency.value = 55 + Math.random() * 25;
+      const amAmt = ctx.createGain();
+      amAmt.gain.value = 0.3;
+      am.connect(amAmt).connect(rasp.gain);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.11 * near * amp, t + Math.min(0.03, len * 0.2));
+      g.gain.setValueAtTime(0.11 * near * amp, t + len * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(f1).connect(rasp);
+      o.connect(f2).connect(rasp);
+      rasp.connect(g).connect(p);
+      o.start(t);
+      am.start(t);
+      o.stop(t + len + 0.02);
+      am.stop(t + len + 0.02);
+      t += len + (kind === "long" ? 0.07 + Math.random() * 0.04 : 0.06);
+    }
+  }
+
   /** Called each frame with speed in [0, 1]. */
   update(speed: number, altitude: number): void {
     if (!this.ctx) return;

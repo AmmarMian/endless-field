@@ -3,6 +3,7 @@ import { Globals } from "./lib/globals.wgsl";
 import { LANTERN_COLOR, lanternFirst, lanternTerm } from "./lib/path.wgsl";
 import { SkyParams, applyFogPre, morningFog, ambientSky, underwaterFog, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { LifeCell, lifeIndex, lifeKey } from "./lib/field.wgsl";
+import { SEA_Y } from "./lib/terrain.wgsl";
 
 struct Plant {
   // xyz = root, w = scale
@@ -24,8 +25,10 @@ struct PlantParams {
   dryTint: f32,
   // Night glow of non-leaf texels (petals, mushroom caps).
   nightGlow: f32,
-  pad0: f32,
-  pad1: f32,
+  // Shore props: 1 darkens and glosses what the swash wets (below the high-water mark).
+  wet: f32,
+  // 1 = rigid (rocks, wood, shells): no wind sway.
+  stiff: f32,
 }
 @group(0) @binding(5) var<uniform> P: PlantParams;
 
@@ -77,7 +80,7 @@ fn vs_main(
   let h = e.x;
   let phase = inst.rot.z * 40.0;
   let sway = sin(G.time * 1.9 + phase + world.x * 0.3) * 0.5 + sin(G.time * 3.3 + phase * 1.7) * 0.25;
-  let windOff = (G.windDir * (0.5 + sway) * G.windStrength) * h * h * 0.08 * inst.root.w;
+  let windOff = (G.windDir * (0.5 + sway) * G.windStrength) * h * h * 0.08 * inst.root.w * (1.0 - P.stiff);
   world = world + vec3f(windOff.x, 0.0, windOff.y);
   var out: VOut;
   out.pos = G.viewProj * vec4f(world, 1.0);
@@ -121,6 +124,12 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let petal = 1.0 - leafness;
   col = col + texel.rgb * petal * G.night * 0.9 * P.nightGlow * (0.7 + 0.3 * sin(G.time * 1.1 + frag.world.x * 0.7 + frag.world.z));
   col = col + base * frag.lamp;
+  if (P.wet > 0.0) {
+    // Below the high-water mark: darker, with a wet sheen.
+    let wetK = (1.0 - smoothstep(0.35, 1.0, frag.world.y - SEA_Y)) * P.wet;
+    let r = reflect(-v, n);
+    col = col * mix(1.0, 0.55, wetK) + (G.sunColor * pow(max(dot(r, l), 0.0), 60.0) * 1.5 + G.horizonColor * 0.12 * pow(1.0 - max(dot(n, v), 0.0), 3.0)) * wetK;
+  }
   col = applyFogPre(col, frag.world, G.camPos, G.fogDensity, s, frag.fog);
   col = underwaterFog(col, frag.world, G.camPos, G.underwater, G.sunColor, G.zenithColor);
   return vec4f(col, a);

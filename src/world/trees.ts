@@ -13,7 +13,7 @@ import {
 import treeShader from "../shaders/tree.wgsl";
 import impostorShader from "../shaders/tree-impostor.wgsl";
 import { loadTexture } from "../engine/textures";
-import { riverInfo, terrainHeightM as terrainHeight, worldConstants } from "./height";
+import { inland, riverInfo, terrainHeightM as terrainHeight, worldConstants } from "./height";
 import { ecology, treeDensity, treeSuitability, type Eco } from "./ecology";
 import { biome, canopyLight } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
@@ -270,7 +270,7 @@ export class Trees {
     };
     const tree = (x: number, z: number, eco: Eco): TreeInstance | null => {
       const [d, , hw] = riverInfo(x, z);
-      if (d < hw * 1.8) return null;
+      if (d < hw * 1.8 || !inland(x, z, 25)) return null;
       const species = pick(eco);
       if (species < 0) return null;
       const [s0, s1] = SPECIES[species].scale;

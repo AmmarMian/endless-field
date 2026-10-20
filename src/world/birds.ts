@@ -2,7 +2,7 @@ import { storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type
 import { BIRD_STRIDE, BirdAnimator, BirdSpecies } from "./bird-model";
 import type { Vec3 } from "../engine/camera";
 import { ecology } from "./ecology";
-import { riverInfo, terrainHeightM as terrainHeight } from "./height";
+import { inland, riverInfo, terrainHeightM as terrainHeight } from "./height";
 import { pathNear } from "./lantern-path";
 import { sunflowerNear } from "./sunflower-field";
 
@@ -60,7 +60,7 @@ function goodGround(x: number, z: number): boolean {
   const eco = ecology(x, z);
   if (eco.forest > 0.25 || eco.slope > 0.3) return false;
   const [d, , hw] = riverInfo(x, z);
-  if (d < hw + 6) return false;
+  if (d < hw + 6 || !inland(x, z, 6)) return false;
   return !pathNear(x, z, 4) && !sunflowerNear(x, z, 4);
 }
 

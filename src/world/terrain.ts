@@ -9,7 +9,7 @@ const SNAP = 4;
 export class Terrain {
   private readonly drawCall: Draw;
 
-  constructor(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, pebbles: Texture, mountains: MountainSet, rock: Texture, scree: Texture, forestFloor: Texture, resolution = 384, private readonly radius = 3200) {
+  constructor(gpu: Gpu, globals: SharedUniforms, life: StorageBuffer, pebbles: Texture, mountains: MountainSet, rock: Texture, scree: Texture, forestFloor: Texture, sandDiff: Texture, sandNor: Texture, resolution = 384, private readonly radius = 3200) {
     const n = resolution;
     const verts = new Float32Array((n + 1) * (n + 1) * 2);
     let o = 0;
@@ -48,6 +48,8 @@ export class Terrain {
         rockTex: rock,
         screeTex: scree,
         floorTex: forestFloor,
+        sandTex: sandDiff,
+        sandNor,
       },
     });
   }

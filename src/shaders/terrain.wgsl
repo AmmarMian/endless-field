@@ -2,7 +2,8 @@
 // snapped to world steps; heights come from the shared terrain field.
 import { SNOW, seasonGrass, seasonWeights } from "./lib/season.wgsl";
 import { Globals } from "./lib/globals.wgsl";
-import { mountainCorridor, mountainHeight, riverInfo, riverInfoAt, riverValley, terrainBroad, terrainHeightR } from "./lib/terrain.wgsl";
+import { SEA_Y, coastInfo, duneAmount, mountainCorridor, mountainHeight, riverInfo, riverInfoAt, riverValley, terrainBroad, terrainHeightR } from "./lib/terrain.wgsl";
+import { sandEdge, sandColor, swashReach } from "./lib/shore.wgsl";
 import { LifeCell, fieldColor, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl";
 import { SkyParams, applyFog, ambientSky, caustics, underwaterFog, wrapDiffuse } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
@@ -31,6 +32,9 @@ struct GridParams {
 @group(0) @binding(7) var rockTex: texture_2d<f32>;
 @group(0) @binding(8) var screeTex: texture_2d<f32>;
 @group(0) @binding(9) var floorTex: texture_2d<f32>;
+// Beach sand (Poly Haven coast_sand_01, CC0): colour and normal detail.
+@group(0) @binding(10) var sandTex: texture_2d<f32>;
+@group(0) @binding(11) var sandNor: texture_2d<f32>;
 
 // Warm light from the lit path lanterns at night (see lib/path.wgsl).
 fn lampLight(p: vec3f) -> vec3f {
@@ -59,6 +63,8 @@ struct VOut {
   // x = meadow patch, y = bed amount, z = snowline noise, w = forest canopy
   @location(5) misc: vec4f,
   @location(6) @interpolate(flat) bedSpecies: u32,
+  // x = signed distance inland from the sea's edge, y = dunes amount, z = exposure to the open sea
+  @location(7) coast: vec3f,
 }
 
 fn sky() -> SkyParams {
@@ -122,6 +128,8 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   out.kind = fieldKind(xz, kindN + bio.y * 0.35 - bio.x * 0.3 - bio.z * 0.6, hueN + bio.x * 0.35 + bio.z * 0.5);
   out.misc = vec4f(simplex2d(xz * 0.018) * 0.5 + 0.5, bed.x, simplex2d(xz * 0.004), bio.z);
   out.bedSpecies = u32(bed.y + 0.5);
+  let c = coastInfo(xz);
+  out.coast = vec3f(c.x, duneAmount(xz), c.y);
   return out;
 }
 
@@ -130,7 +138,12 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let s = sky();
   let xz = frag.world.xz;
   let dist = length(G.camPos - frag.world);
-  let n = normalize(frag.normal);
+  var n = normalize(frag.normal);
+  // Sand detail, sampled in uniform control flow: two scales of the photo texture (the
+  // broad one hides the fine one's tiling), and its normal map.
+  let sandFine = textureSample(sandTex, samp, frag.world.xz * 0.42).rgb;
+  let sandBroad = textureSample(sandTex, samp, frag.world.xz * 0.061 + vec2f(0.37, 0.71)).rgb;
+  let sandN = textureSample(sandNor, samp, frag.world.xz * 0.42).xyz * 2.0 - 1.0;
 
   let meadow = frag.misc.x;
   let lifeV = sampleLife(xz);
@@ -230,16 +243,40 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   let shoreAlbedo = mix(peb, peb * 0.5, wet);
   albedo = mix(albedo, vec3f(0.085, 0.065, 0.04) * mix(0.8, 1.15, grain), mud * (1.0 - farMix * 0.5));
   albedo = mix(albedo, shoreAlbedo, shore);
+  // The shore: sand from under the sea up the beach and into the dunes (marram grass grows
+  // there, see grass-cull), wet where the swash reaches, then the field takes over.
+  let coastS = frag.coast.x;
+  var sandAmt = 0.0;
+  var wetSand = 0.0;
+  if (coastS < 260.0) {
+    let edge = sandEdge(xz, frag.coast.y);
+    sandAmt = 1.0 - smoothstep(edge - 18.0, edge + 6.0, coastS);
+    let above = frag.world.y - SEA_Y;
+    let reach = swashReach(xz, G.time, frag.coast.z);
+    // Freshly wet below the swash's reach; damp sand dries over a band above it.
+    wetSand = max(1.0 - smoothstep(reach - 0.05, reach + 0.08, above), (1.0 - smoothstep(reach, reach + 0.3, above)) * 0.45) * sandAmt;
+    var sandC = sandColor(xz, frag.world.y, coastS, wetSand, dist);
+    // The photo's grain and pebbles, as relative variation around our tone.
+    // (Brightness only: the photo's own hue is warmer than this beach.)
+    let fineRel = dot(sandFine, vec3f(0.33)) / 0.172;
+    let broadRel = dot(sandBroad, vec3f(0.33)) / 0.172;
+    sandC = sandC * mix(1.0, fineRel, 0.6 * (1.0 - smoothstep(30.0, 90.0, dist))) * mix(1.0, broadRel, 0.3);
+    albedo = mix(albedo, sandC, sandAmt);
+    // Its relief: grains and footprints of wind; smoothed where the water has been.
+    let bump = sandAmt * (1.0 - wetSand * 0.7) * (1.0 - smoothstep(10.0, 45.0, dist)) * 0.8;
+    n = normalize(n + vec3f(sandN.x, 0.0, -sandN.y) * bump);
+  }
   // Winter: snow settles on the flatter ground (and on the path), patchy where wind scours it.
   let snowCover = sw.z * smoothstep(0.62, 0.9, n.y) * smoothstep(0.2, 0.55, simplex2d(xz * 0.05) * 0.35 + 0.65 + sw.z * 0.25 - 0.6);
   albedo = mix(albedo, SNOW * mix(0.92, 1.0, grain), clamp(snowCover * 1.4, 0.0, 1.0) * (1.0 - shore * 0.7));
-  let ao = mix(0.45, 1.0, farMix);
+  // (Bare sand is not shaded by a canopy.)
+  let ao = mix(mix(0.45, 1.0, farMix), 1.0, sandAmt);
 
   let l = G.sunDir;
   // Far away the ground stands in for the grass canopy, which is lit like the blades are: its
   // normal leans up (blades stand up on slopes) and it never goes as dark as bare soil on a
   // slope turned from the sun.
-  let grassyLight = farMix * (1.0 - smoothstep(0.15, 0.6, frag.misc.w)) * (1.0 - smoothstep(1.0, 20.0, frag.mtn));
+  let grassyLight = farMix * (1.0 - smoothstep(0.15, 0.6, frag.misc.w)) * (1.0 - smoothstep(1.0, 20.0, frag.mtn)) * (1.0 - sandAmt);
   let nC = normalize(mix(n, vec3f(0.0, 1.0, 0.0), 0.55 * grassyLight));
   let diff = mix(wrapDiffuse(n, l, 0.4), wrapDiffuse(nC, l, 0.6), grassyLight);
   let shade = canopyLight(xz.x, frag.misc.w);
@@ -247,17 +284,25 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // not wet: winter keeps its cover.)
   let wetness = G.wet * (1.0 - snowCover) * (1.0 - sw.z * 0.7);
   albedo = albedo * mix(1.0, 0.62, wetness * (1.0 - shore * 0.5));
-  var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.5, 1.0, shade) + G.sunColor * diff * mix(0.55, 1.0, farMix) * shade * shade);
+  var col = albedo * (ambientSky(n, s) * 0.6 * ao * mix(0.5, 1.0, shade) + G.sunColor * diff * mix(mix(0.55, 1.0, farMix), 1.0, sandAmt) * shade * shade);
   // A wet sheen: wet ground mirrors a little of the sky at grazing angles.
   if (wetness > 0.01) {
     let vw = normalize(G.camPos - frag.world);
     let fres = 0.03 + 0.97 * pow(1.0 - max(dot(n, vw), 0.0), 5.0);
     col = mix(col, (G.horizonColor * 0.8 + G.zenithColor * 0.4), clamp(fres * 0.18 * wetness, 0.0, 0.3));
   }
+  // Wet sand mirrors the sky (a glassy film right after a wave has drained back).
+  if (wetSand > 0.01) {
+    let vw = normalize(G.camPos - frag.world);
+    let fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, vw), 0.0), 5.0);
+    let r = reflect(-vw, vec3f(0.0, 1.0, 0.0));
+    let sheen = (G.horizonColor * 0.9 + G.zenithColor * 0.3) * fres + G.sunColor * pow(max(dot(r, l), 0.0), 220.0) * 6.0;
+    col = mix(col, sheen, clamp(wetSand * (0.25 + 0.6 * fres), 0.0, 0.85));
+  }
   // Grass canopy seen from afar (where blades thin out or stop): the ground carries the
   // field's look. Weighted off on beds, forest floor, shores and fields of other crops.
   let v = normalize(G.camPos - frag.world);
-  let grassy = farMix * (1.0 - smoothstep(0.15, 0.6, canopy)) * (1.0 - shore) * (1.0 - mud * 0.7) * (1.0 - sf) * (1.0 - pathAmt);
+  let grassy = farMix * (1.0 - smoothstep(0.15, 0.6, canopy)) * (1.0 - shore) * (1.0 - mud * 0.7) * (1.0 - sf) * (1.0 - pathAmt) * (1.0 - sandAmt);
   // Clumps at three scales, each fading out once it is smaller than a pixel.
   let fp = length(fwidth(xz));
   let c0 = simplex2d(xz * 1.6 + vec2f(3.0, 1.0)) * (1.0 - smoothstep(0.15, 0.6, fp));
@@ -280,16 +325,19 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   col = col * mix(1.0, clumps * wave * canopyView, grassy);
   // Backlit sheen: blades glow when the sun is behind them, strongest at grazing angles.
   let back = pow(clamp(dot(-v, l), 0.0, 1.0), 3.0) * mix(1.0, 0.5, ndv);
-  col = col + G.sunColor * albedo * back * 0.9 * farMix * mix(1.0, wave, grassy);
+  col = col + G.sunColor * albedo * back * 0.9 * farMix * mix(1.0, wave, grassy) * (1.0 - sandAmt);
   col = col + albedo * lampLight(frag.world);
   // Under the river: wet and dark, with caustics dancing on the bed (fading with depth).
-  let submerged = frag.river.y - frag.world.y;
-  if (frag.river.x < frag.river.z * 1.8 && submerged > 0.0) {
+  let inRiver = frag.river.x < frag.river.z * 1.8;
+  let submerged = select(SEA_Y - frag.world.y, frag.river.y - frag.world.y, inRiver);
+  if ((inRiver || coastS < 0.0) && submerged > 0.0) {
     let xz = frag.world.xz;
     let c1 = simplex2d(xz * 1.1 + vec2f(G.time * 0.55, G.time * 0.2));
     let c2 = simplex2d(xz * 1.7 - vec2f(G.time * 0.4, -G.time * 0.3));
-    let caust = caustics(xz, G.time, c1, c2) * exp(-submerged * 0.5) * max(G.sunDir.y, 0.05);
-    col = col * mix(1.0, 0.55, smoothstep(0.0, 0.4, submerged)) + albedo * G.sunColor * caust * 1.6;
+    // (In the sea the swell's caustics are broader and softer, and fade out from afar.)
+    let seaK = select(0.3 * (1.0 - smoothstep(15.0, 60.0, dist)), 1.0, inRiver);
+    let caust = caustics(xz, G.time, c1, c2) * exp(-submerged * 0.5) * max(G.sunDir.y, 0.05) * seaK;
+    col = col * mix(1.0, select(0.8, 0.55, inRiver), smoothstep(0.0, 0.4, submerged)) + albedo * G.sunColor * caust * 1.6;
   }
   // The swallow's light on the grass around it (a small warm pool that moves with it).
   if (G.playerGlow > 0.0) {

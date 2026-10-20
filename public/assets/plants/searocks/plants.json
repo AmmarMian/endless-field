@@ -1,0 +1,34 @@
+{
+  "name": "searocks",
+  "source": "Coastal boulders: Poly Haven coast_rocks_05 / coast_land_rocks scans (CC0), decimated in Blender",
+  "vertexBytes": 113160,
+  "indexCount": 21597,
+  "variants": [
+    {
+      "name": "searocks_0",
+      "firstIndex": 0,
+      "indexCount": 7200,
+      "height": 1.123,
+      "radius": 2.258
+    },
+    {
+      "name": "searocks_1",
+      "firstIndex": 7200,
+      "indexCount": 7200,
+      "height": 1.054,
+      "radius": 5.233
+    },
+    {
+      "name": "searocks_2",
+      "firstIndex": 14400,
+      "indexCount": 7197,
+      "height": 0.591,
+      "radius": 6.482
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

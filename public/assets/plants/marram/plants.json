@@ -1,0 +1,41 @@
+{
+  "name": "marram",
+  "source": "Modeled in Blender (tools/blender/model_beach.py)",
+  "vertexBytes": 192000,
+  "indexCount": 24000,
+  "variants": [
+    {
+      "name": "marram_0",
+      "firstIndex": 0,
+      "indexCount": 6600,
+      "height": 0.868,
+      "radius": 0.71
+    },
+    {
+      "name": "marram_1",
+      "firstIndex": 6600,
+      "indexCount": 4500,
+      "height": 0.69,
+      "radius": 0.545
+    },
+    {
+      "name": "marram_2",
+      "firstIndex": 11100,
+      "indexCount": 9600,
+      "height": 1.109,
+      "radius": 0.931
+    },
+    {
+      "name": "marram_3",
+      "firstIndex": 20700,
+      "indexCount": 3300,
+      "height": 0.5,
+      "radius": 0.448
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

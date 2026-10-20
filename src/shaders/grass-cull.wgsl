@@ -1,7 +1,7 @@
 // Grass placement + culling + animation. One thread per world-anchored grid cell around the
 // camera; surviving blades are appended to `blades` and counted into indirect draw `args`.
 import { Globals, TRAIL_LEN } from "./lib/globals.wgsl";
-import { mountainCorridor, mountainHeight, riverInfo, riverUpper, riverValley, terrainBroad, terrainHeightR, terrainNormalM } from "./lib/terrain.wgsl";
+import { coastInfo, duneAmount, mountainCorridor, mountainHeight, riverInfo, riverUpper, riverValley, terrainBroad, terrainHeightR, terrainNormalM } from "./lib/terrain.wgsl";
 import { bedMask } from "./lib/beds.wgsl";
 import { Blade, LifeCell, fieldKind, lifeIndex, lifeKey } from "./lib/field.wgsl";
 import { pcg2d, unitFloat } from "@vgpu/wgsl-std/hash";
@@ -11,6 +11,7 @@ import { sunflowerField } from "./lib/sunflowers.wgsl";
 import { seasonWeights } from "./lib/season.wgsl";
 import { GrassEnv, GrassOut, bladeVertex, shadeBlade } from "./lib/grass-blade.wgsl";
 import { LANTERN_COLOR, PATH_WIDTH, lanternFirst, lanternTerm, pathDistance } from "./lib/path.wgsl";
+import { sandEdge } from "./lib/shore.wgsl";
 
 struct CullParams {
   // Integer cell of the grid center (camera snapped to the cell size).
@@ -168,6 +169,26 @@ fn makeBlade(id: vec2u) -> Blade {
   }
   height = select(height * mix(0.55, 1.0, shoreKeep), height * 1.6, reed >= 0.4);
 
+  // The coast: bare sand down the beach; over the dunes marram grass grows in tussocks
+  // (tall, stiff, pale grey-green), and the field returns ragged behind them.
+  var isMarram = false;
+  let coast = coastInfo(xz);
+  if (coast.x < 320.0) {
+    let dune = duneAmount(xz);
+    let edge = sandEdge(xz, dune);
+    let fieldKeep = smoothstep(edge + 2.0, edge + 30.0, coast.x);
+    let tussock = smoothstep(0.1, 0.55, simplex2d(xz * 0.23 + vec2f(-13.0, 4.0))) * smoothstep(0.0, 0.4, simplex2d(xz * 0.05 + vec2f(3.0, 21.0)) + 0.3);
+    let marramP = tussock * smoothstep(14.0, 40.0, coast.x) * (1.0 - smoothstep(edge + 10.0, edge + 60.0, coast.x)) * 0.0;
+    if (unitFloat(h.y ^ 0x632be5abu) < marramP) {
+      isMarram = true;
+      height = mix(0.6, 1.15, r1) * mix(0.75, 1.1, tussock) * P.heightScale * heightMul * fade;
+    } else if (unitFloat(h.x ^ 0x85ebca6bu) > fieldKeep) {
+      return none;
+    } else {
+      height = height * mix(0.5, 1.0, fieldKeep);
+    }
+  }
+
   // Shade under the forest canopy: only sparse, shorter tufts survive.
   if (bio.z > 0.05 && unitFloat(h.y ^ 0x9e3779b9u) < bio.z * 1.2) {
     return none;
@@ -180,7 +201,7 @@ fn makeBlade(id: vec2u) -> Blade {
     return none;
   }
   height = height * mix(1.0, 0.55, bed);
-  let seedKind = ((kind.x > 0.3 && unitFloat(h.y ^ 0x5bd1e995u) < 0.35 * kind.x) || (reed >= 0.4 && unitFloat(h.y ^ 0x1b873593u) < 0.25));
+  let seedKind = !isMarram && ((kind.x > 0.3 && unitFloat(h.y ^ 0x5bd1e995u) < 0.35 * kind.x) || (reed >= 0.4 && unitFloat(h.y ^ 0x1b873593u) < 0.25));
 
   let baseY = terrainHeightR(xz, river);
   let mRaw = mountainHeight(xz, mtnTex, mtnSamp, 0.0);
@@ -220,7 +241,8 @@ fn makeBlade(id: vec2u) -> Blade {
   }
   let alpineGreen = alpine * 0.55;
   let isSeed = seedKind && alpine < 0.3;
-  let hueQ = round(clamp(select(mix(kind.z, 0.7, alpine), 0.8, reed >= 0.4), -1.0, 1.0) * 7.0) + 7.0;
+  // Hue variants 0..14; 15 marks marram grass (its own palette, see grass-blade).
+  let hueQ = select(round(clamp(select(mix(kind.z, 0.7, alpine), 0.8, reed >= 0.4), -1.0, 1.0) * 7.0) + 7.0, 15.0, isMarram);
 
   // Wind: ripple waves (~8 m/s, ~12 m wavelength) riding on slow broad gusts, plus flutter.
   let wdir = G.windDir;
@@ -269,9 +291,13 @@ fn makeBlade(id: vec2u) -> Blade {
 
   let angle = unitFloat(h.x ^ h2.y) * 6.2831853;
   var width = mix(0.035, 0.06, unitFloat(h2.x ^ h.y)) * P.widthScale * widthMul;
-  width = width * mix(1.0, 0.7, kind.x) * select(1.0, 0.75, isReed);
+  width = width * mix(1.0, 0.7, kind.x) * select(1.0, 0.75, isReed) * select(1.0, 0.6, isMarram);
+  // Marram is stiff: it leans less in the wind.
+  if (isMarram) {
+    bend = bend * 0.55;
+  }
   // Waterside plants stay green even before the land is restored.
-  let lifeV = max(max(sampleLife(xz), select(0.0, 0.4, isReed)), alpineGreen);
+  let lifeV = select(max(max(sampleLife(xz), select(0.0, 0.4, isReed)), alpineGreen), 0.5, isMarram);
 
   var b: Blade;
   b.root = vec4f(root, height);

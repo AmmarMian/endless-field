@@ -2,7 +2,7 @@ import { draw, geometry, storage, type Draw, type FramePass, type Gpu, type Shar
 import shader from "../shaders/secrets.wgsl";
 import type { Vec3 } from "../engine/camera";
 import { ecology } from "./ecology";
-import { riverInfo, terrainHeightM as terrainHeight } from "./height";
+import { inland, riverInfo, terrainHeightM as terrainHeight } from "./height";
 import { pathNear } from "./lantern-path";
 import { sunflowerNear } from "./sunflower-field";
 import { loadBin } from "../engine/assets";
@@ -69,7 +69,7 @@ export function placeSecrets(): Secret[] {
         if (Math.hypot(x, z - 30) < 40) continue; // not right at the spawn
         const eco = ecology(x, z);
         const [d, , hw] = riverInfo(x, z);
-        if (d < hw + 10 || pathNear(x, z, 12) || sunflowerNear(x, z, 10) || eco.slope > 0.35) continue;
+        if (d < hw + 10 || !inland(x, z, 20) || pathNear(x, z, 12) || sunflowerNear(x, z, 10) || eco.slope > 0.35) continue;
         const edge = eco.forest > 0.15 && eco.forest < 0.5;
         const open = eco.forest < 0.1;
         if (!edge && !open) continue;

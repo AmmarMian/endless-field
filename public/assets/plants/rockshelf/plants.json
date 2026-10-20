@@ -1,0 +1,34 @@
+{
+  "name": "rockshelf",
+  "source": "Wave-cut rock platforms: Poly Haven coast_rocks scans (CC0), decimated and atlased in Blender",
+  "vertexBytes": 216980,
+  "indexCount": 45000,
+  "variants": [
+    {
+      "name": "rockshelf_0",
+      "firstIndex": 0,
+      "indexCount": 15000,
+      "height": 2.616,
+      "radius": 36.051
+    },
+    {
+      "name": "rockshelf_1",
+      "firstIndex": 15000,
+      "indexCount": 15000,
+      "height": 2.38,
+      "radius": 32.994
+    },
+    {
+      "name": "rockshelf_2",
+      "firstIndex": 30000,
+      "indexCount": 15000,
+      "height": 2.618,
+      "radius": 16.467
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

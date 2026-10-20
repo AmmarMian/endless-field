@@ -1,0 +1,9 @@
+{
+  "src": "assets-src/props/rockshelf/rockshelf.gltf",
+  "scale": 1.0,
+  "target_tris": 6000,
+  "credit": "Wave-cut rock platforms: Poly Haven coast_rocks scans (CC0), decimated and atlased in Blender",
+  "name": "rockshelf",
+  "out": "public/assets/plants/rockshelf",
+  "error": 0.01
+}

@@ -149,6 +149,11 @@ export fn bladeVertex(b: Blade, vi: u32, NSEG: u32, G: GrassEnv) -> GrassOut {
   if (isSeed && t > 0.6) {
     color = mix(color, vec3f(0.46, 0.33, 0.15) * mix(1.0, 0.8, life), 0.45);
   }
+  if (hueQ > 14.5) {
+    // Marram grass: grey-green rolled leaves, straw-coloured dead tips.
+    let base = mix(vec3f(0.06, 0.07, 0.045), vec3f(0.2, 0.26, 0.16), smoothstep(0.0, 0.6, t));
+    color = mix(base, vec3f(0.55, 0.48, 0.3), smoothstep(0.5, 1.0, t) * (0.4 + 0.6 * fract(rnd * 3.7))) * mix(0.85, 1.15, rnd);
+  }
   out.color = color;
   out.groundN = b.ground.xyz;
   return out;

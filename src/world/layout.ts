@@ -1,5 +1,5 @@
 import { ecology } from "./ecology";
-import { RIVER, riverCenter, riverInfo } from "./height";
+import { MOUTH_X, RIVER, inland, riverCenter, riverInfo } from "./height";
 import { PATH, pathDistance, pathZ } from "./lantern-path";
 import { SUNFLOWERS, sunflowerNear } from "./sunflower-field";
 
@@ -55,7 +55,7 @@ export function placeLandmarks(seed: number): void {
       const px = x + Math.cos(b) * 95;
       const pz = z + Math.sin(b) * 95;
       const [rd, , hw] = riverInfo(px, pz);
-      if (rd < hw + 18 || ecology(px, pz).forest > 0.3) ok = false;
+      if (rd < hw + 18 || ecology(px, pz).forest > 0.3 || !inland(px, pz, 30)) ok = false;
     }
     if (!ok) continue;
     const t = r() * Math.PI * 2;
@@ -81,7 +81,7 @@ export function placeLandmarks(seed: number): void {
     for (let x = x0 - 10; ok && x <= PATH.x1 + 10; x += 15) {
       const z = pathZ(x);
       const [rd, , hw] = riverInfo(x, z);
-      if (rd < hw + 25 || sunflowerNear(x, z, 30)) ok = false;
+      if (rd < hw + 25 || sunflowerNear(x, z, 30) || !inland(x, z, 30)) ok = false;
       forest += ecology(x, z).forest > 0.5 ? 1 : 0;
     }
     if (ok && forest < 6) break;
@@ -91,7 +91,8 @@ export function placeLandmarks(seed: number): void {
   // The kingfisher's course: a reach of river clear of the path and the field.
   for (let k = 0; k < 80; k++) {
     const sx = rand(-900, 1100);
-    let ok = inWorld(sx, riverCenter(sx), 40) && inWorld(sx + RACE.length, riverCenter(sx + RACE.length), 40);
+    // (The river ends in the estuary at MOUTH_X.)
+    let ok = sx > MOUTH_X + 150 && inWorld(sx, riverCenter(sx), 40) && inWorld(sx + RACE.length, riverCenter(sx + RACE.length), 40);
     for (let x = sx; ok && x <= sx + RACE.length; x += 12) {
       const z = riverCenter(x);
       if (pathDistance(x, z) < 25 || sunflowerNear(x, z, 25)) ok = false;

@@ -1,0 +1,41 @@
+{
+  "name": "seaweed",
+  "source": "Modeled in Blender (tools/blender/model_beach.py)",
+  "vertexBytes": 114080,
+  "indexCount": 25650,
+  "variants": [
+    {
+      "name": "seaweed_heap",
+      "firstIndex": 0,
+      "indexCount": 960,
+      "height": 0.263,
+      "radius": 0.794
+    },
+    {
+      "name": "seaweed_kelp",
+      "firstIndex": 960,
+      "indexCount": 372,
+      "height": 0.049,
+      "radius": 1.608
+    },
+    {
+      "name": "seaweed_wrack0",
+      "firstIndex": 1332,
+      "indexCount": 10422,
+      "height": 0.026,
+      "radius": 0.593
+    },
+    {
+      "name": "seaweed_wrack1",
+      "firstIndex": 11754,
+      "indexCount": 13896,
+      "height": 0.026,
+      "radius": 0.589
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "src": "assets-src/props/searocks/searocks.gltf",
+  "scale": 1.0,
+  "target_tris": 3000,
+  "credit": "Coastal boulders: Poly Haven coast_rocks_05 / coast_land_rocks scans (CC0), decimated in Blender",
+  "name": "searocks",
+  "out": "public/assets/plants/searocks",
+  "error": 0.01
+}

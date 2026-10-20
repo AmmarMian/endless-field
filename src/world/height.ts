@@ -44,6 +44,7 @@ export function worldConstants(shader?: { wgsl: string } | string): Record<strin
     SEED_X: seedX,
     SEED_Z: seedZ,
     RIVER_DZ: RIVER.dz,
+    MOUTH_Z: riverCenter(MOUTH_X),
     SF_LEVEL: SUNFLOWERS.level,
     SF_CX: SUNFLOWERS.x,
     SF_CZ: SUNFLOWERS.z,
@@ -141,7 +142,8 @@ export function riverHalfWidth(x: number): number {
 }
 
 export function riverWater(x: number): number {
-  return terrainBroad(x, riverCenter(x)) * 0.6 - 3 + riverRise(x);
+  const raw = terrainBroad(x, riverCenter(x)) * 0.6 - 3 + riverRise(x);
+  return SEA_Y + (raw - SEA_Y) * smoothstep(MOUTH_X + 30, MOUTH_X + 600, x);
 }
 
 /** Depth of the main channel at its centre (m); the upper streams are shallower. */
@@ -167,13 +169,17 @@ export function riverInfo(x: number, z: number): [number, number, number, number
     px += Math.max(-60, Math.min(60, t));
     c = riverCenter(px);
   }
-  px = Math.max(px, SOURCE_X);
+  px = Math.max(px, SOURCE_X, MOUTH_X);
   c = riverCenter(px);
   return [Math.hypot(x - px, z - c), riverWater(px), riverHalfWidth(px), px];
 }
 
 export function terrainHeight(x: number, z: number): number {
-  const [d, water, hw, px] = riverInfo(x, z);
+  const r = riverInfo(x, z);
+  return coastal(x, z, r[0], r[2], inlandHeight(x, z, r));
+}
+
+function inlandHeight(x: number, z: number, [d, water, hw, px]: [number, number, number, number]): number {
   const flat = sunflowerFlat(x, z);
   const base = terrainBase(x, z);
   const h = base + (SUNFLOWERS.level - base) * flat + riverRise(px) * (1 - smoothstep(hw * 2, 700, d));
@@ -183,6 +189,81 @@ export function terrainHeight(x: number, z: number): number {
   const profile = d < hw ? bed : beach;
   const w = 1 - smoothstep(hw * 2, hw * 7, d);
   return h + (profile - h) * w;
+}
+
+// ---- Sea (mirror of the WGSL coast functions): a southern coast, the river's estuary.
+export const SEA_Y = -6;
+export const MOUTH_X = -760;
+
+export function coastLine(x: number): number {
+  return 470 + 0.16 * Math.min(2500, Math.max(-1500, x)) + 55 * gnoise(x / 600, 13.7) + 16 * gnoise(x / 150, -4.2);
+}
+
+function smin(a: number, b: number, k: number): number {
+  const h = Math.min(1, Math.max(0, 0.5 + (0.5 * (b - a)) / k));
+  return b + (a - b) * h - k * h * (1 - h);
+}
+
+/** [signed distance inland from the waterline (negative at sea), exposure to the open sea (0..1)] */
+export function coastInfo(x: number, z: number): [number, number] {
+  const zc = coastLine(x);
+  const mouthZ = riverCenter(MOUTH_X);
+  const inEstuary = Math.abs(x - MOUTH_X + 60) < 420 && z > mouthZ - 300;
+  if (zc - z > 450 && !inEstuary) return [zc - z, 0];
+  if (z - zc > 450) return [zc - z, 1];
+  const slope = (coastLine(x + 2) - coastLine(x - 2)) * 0.25;
+  const open = (zc - z) / Math.sqrt(1 + slope * slope);
+  let est = 1e4;
+  if (inEstuary) {
+    const zEnd = coastLine(MOUTH_X - 50) + 60;
+    const len = zEnd - mouthZ;
+    const t = Math.min(1, Math.max(0, (z - mouthZ) / len));
+    const cx = MOUTH_X - 75 * Math.sin(t * 2.4);
+    const dcx = (-75 * 2.4 * Math.cos(t * 2.4)) / len;
+    const w = 10 + (140 - 10) * Math.pow(t, 1.6) + 9 * gnoise(x * 0.018 + 5, z * 0.018 + 1) * t;
+    est = Math.hypot((x - cx) / Math.sqrt(1 + dcx * dcx), Math.max(mouthZ - z, 0)) - w;
+  }
+  return [smin(open, est, 45), 1 - smoothstep(0, 160, open)];
+}
+
+export function duneAmount(x: number, z: number): number {
+  return smoothstep(-0.15, 0.25, gnoise(x / 420 - 3.3, z / 420 + 8.8));
+}
+
+export function coastProfile(s: number, x: number, z: number, open: number): number {
+  if (s < 0) {
+    const d = -s;
+    const b = (d - 55) / 14;
+    return SEA_Y - (2 * (1 - Math.exp(-d / 40)) + d * 0.012) + 0.5 * Math.exp(-b * b) * open;
+  }
+  let h = SEA_Y + Math.min(s, 60) * 0.045 + Math.max(s - 60, 0) * 0.015;
+  const ridge = smoothstep(30, 65, s) * (1 - smoothstep(105, 200, s));
+  const hum = gnoise(x / 17 + 1.7, z / 17 - 4.4) * 0.5 + 0.5;
+  const big = gnoise(x / 55 - 6.1, z / 55 + 2.3) * 0.5 + 0.5;
+  h += ridge * (1.2 + 3.2 * big + 4.5 * hum * hum) * duneAmount(x, z);
+  return h;
+}
+
+function coastal(x: number, z: number, d: number, hw: number, h: number): number {
+  const [s, open] = coastInfo(x, z);
+  if (s > 330) return h;
+  const p = coastProfile(s, x, z, open);
+  const w = s < 0 ? 1 : 1 - smoothstep(90, 330, s);
+  const shaped = h + (p - h) * w;
+  const channel = Math.min(h, p + Math.max(s, 0) * 0.2);
+  return channel + (shaped - channel) * smoothstep(hw * 1.5, hw * 5, d);
+}
+
+/** Mirror of sandEdge() in shore.wgsl: how far inland the sand reaches (m from the waterline). */
+export function sandEdge(x: number, z: number): number {
+  const dune = duneAmount(x, z);
+  return 32 + (165 - 32) * dune + gnoise(x / 23 + 9, z / 23 + 3) * 16 + gnoise(x / 70, z / 70) * 22;
+}
+
+/** Off the sand and the sea by `margin` m (where land plants, props and landmarks may go). */
+export function inland(x: number, z: number, margin = 0): boolean {
+  const s = coastInfo(x, z)[0];
+  return s > 330 + margin || s > sandEdge(x, z) + margin;
 }
 
 export function terrainNormal(x: number, z: number, e = 0.75): [number, number, number] {
@@ -296,6 +377,7 @@ export function terrainHeightM(x: number, z: number): number {
 /** What the wind skims: the ground, or the water's surface over the river. */
 export function surfaceHeight(x: number, z: number): number {
   const h = terrainHeightM(x, z);
+  if (h < SEA_Y && coastInfo(x, z)[0] < 4) return SEA_Y;
   const [d, water, hw] = riverInfo(x, z);
   return d < hw * 1.6 && h < water ? water : h;
 }

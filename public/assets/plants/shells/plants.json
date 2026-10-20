@@ -1,0 +1,55 @@
+{
+  "name": "shells",
+  "source": "Modeled in Blender (tools/blender/model_beach.py)",
+  "vertexBytes": 25640,
+  "indexCount": 6600,
+  "variants": [
+    {
+      "name": "shell_0",
+      "firstIndex": 0,
+      "indexCount": 1080,
+      "height": 0.017,
+      "radius": 0.03
+    },
+    {
+      "name": "shell_1",
+      "firstIndex": 1080,
+      "indexCount": 1056,
+      "height": 0.009,
+      "radius": 0.034
+    },
+    {
+      "name": "shell_2",
+      "firstIndex": 2136,
+      "indexCount": 840,
+      "height": 0.01,
+      "radius": 0.028
+    },
+    {
+      "name": "shell_3",
+      "firstIndex": 2976,
+      "indexCount": 2160,
+      "height": 0.042,
+      "radius": 0.042
+    },
+    {
+      "name": "shell_4",
+      "firstIndex": 5136,
+      "indexCount": 504,
+      "height": 0.004,
+      "radius": 0.061
+    },
+    {
+      "name": "shell_5",
+      "firstIndex": 5640,
+      "indexCount": 960,
+      "height": 0.016,
+      "radius": 0.024
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

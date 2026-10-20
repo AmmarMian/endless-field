@@ -1,0 +1,55 @@
+{
+  "name": "driftwood",
+  "source": "Modeled and texture-baked in Blender (tools/blender/model_beach.py)",
+  "vertexBytes": 72880,
+  "indexCount": 9708,
+  "variants": [
+    {
+      "name": "driftwood_chunk",
+      "firstIndex": 0,
+      "indexCount": 348,
+      "height": 0.235,
+      "radius": 0.529
+    },
+    {
+      "name": "driftwood_fence",
+      "firstIndex": 348,
+      "indexCount": 2880,
+      "height": 1.073,
+      "radius": 2.05
+    },
+    {
+      "name": "driftwood_fork",
+      "firstIndex": 3228,
+      "indexCount": 1344,
+      "height": 0.137,
+      "radius": 1.266
+    },
+    {
+      "name": "driftwood_log",
+      "firstIndex": 4572,
+      "indexCount": 1344,
+      "height": 0.453,
+      "radius": 1.829
+    },
+    {
+      "name": "driftwood_sticks",
+      "firstIndex": 5916,
+      "indexCount": 1008,
+      "height": 0.116,
+      "radius": 0.666
+    },
+    {
+      "name": "driftwood_stump",
+      "firstIndex": 6924,
+      "indexCount": 2784,
+      "height": 0.635,
+      "radius": 1.403
+    }
+  ],
+  "bloomColor": [
+    1,
+    1,
+    1
+  ]
+}

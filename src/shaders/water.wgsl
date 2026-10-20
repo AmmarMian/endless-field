@@ -5,7 +5,7 @@
 // show through it). From below (swimming) the surface is opaque: Snell's window shows the sky
 // bent through the surface, and outside it total internal reflection mirrors the deep water.
 import { Globals } from "./lib/globals.wgsl";
-import { riverCenter, riverHalfWidth, riverInfo, riverSpeed, riverWater, terrainHeight } from "./lib/terrain.wgsl";
+import { coastInfo, riverCenter, riverHalfWidth, riverInfo, riverSpeed, riverWater, terrainHeight } from "./lib/terrain.wgsl";
 import { SkyParams, applyFog, skyColor, underwaterFog } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
@@ -33,6 +33,8 @@ struct VOut {
   @location(5) dist: f32,
   // White water boiling in the plunge pool just below a drop.
   @location(6) plunge: f32,
+  // Signed distance inland from the sea (the sea surface takes over below 0).
+  @location(7) coast: f32,
 }
 
 fn sky() -> SkyParams {
@@ -52,8 +54,9 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   let slope = (riverCenter(px + 0.75) - riverCenter(px - 0.75)) / 1.5;
   let tangent = normalize(vec2f(1.0, slope));
   // One direction for the whole river (its level wanders up and down a little along the
-  // procedural valley; following the local slope flipped the flow and left seams).
-  let downhill = 1.0;
+  // procedural valley; following the local slope flipped the flow and left seams): west,
+  // to the sea.
+  let downhill = -1.0;
   // Signed distance across the channel in half-widths (negative on the left bank).
   let toPoint = xz - vec2f(px, riverCenter(px));
   let sideSign = select(-1.0, 1.0, dot(toPoint, vec2f(-tangent.y, tangent.x)) >= 0.0);
@@ -62,6 +65,7 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   out.pos = G.viewProj * vec4f(out.world, 1.0);
   out.flow = tangent * downhill;
   out.across = sideSign * min(r.x / r.z, 4.0);
+  out.coast = coastInfo(xz).x;
   // Steep stretches (cascades between the pools of the mountain stream) become white water.
   let drop = (riverWater(px - 3.0) - riverWater(px + 3.0)) / 6.0;
   out.rapids = smoothstep(0.12, 0.45, abs(drop));
@@ -95,7 +99,7 @@ fn waveHeight(p: vec2f, s: f32, t: f32, detail: f32) -> f32 {
 @fragment
 fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f {
   // Only the channel holds water: beyond its edge (low ground beside a bend) there is none.
-  if (frag.dist > 1.2) {
+  if (frag.dist > 1.2 || frag.coast < 40.0) {
     discard;
   }
   let s = sky();
@@ -282,7 +286,9 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let inside = 1.0 - smoothstep(0.95, 1.2, frag.dist);
   col *= inside;
   through = mix(1.0, through, inside);
-  return vec4f(col, clamp(through, 0.0, 1.0));
+  // Toward the estuary the sea's surface takes over (sea.wgsl fades in over the same band).
+  let k = smoothstep(40.0, 80.0, frag.coast);
+  return vec4f(col * k, mix(1.0, clamp(through, 0.0, 1.0), k));
 }
 
 // The surface from below. Rays within ~48.6 deg of straight up leave the water bent toward the

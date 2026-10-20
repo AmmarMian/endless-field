@@ -2,7 +2,7 @@ import { draw, storage, type Draw, type FramePass, type Gpu, type SharedUniforms
 import shader from "../shaders/insects.wgsl";
 import type { Vec3 } from "../engine/camera";
 import { ecology } from "./ecology";
-import { riverInfo, terrainHeightM as terrainHeight } from "./height";
+import { inland, riverInfo, terrainHeightM as terrainHeight } from "./height";
 
 const COUNT = 4;
 const SPECKS = 160;
@@ -56,7 +56,7 @@ export class Thermals {
       const eco = ecology(x, z);
       const [d, , hw] = riverInfo(x, z);
       // Sun-facing open slopes heat best.
-      if (eco.forest > 0.2 || d < hw + 10 || eco.exposure < 0.1 || eco.slope < 0.03) continue;
+      if (eco.forest > 0.2 || d < hw + 10 || !inland(x, z, 10) || eco.exposure < 0.1 || eco.slope < 0.03) continue;
       return { x, z, ground: terrainHeight(x, z), radius: rand(7, 10), seeds: Array.from({ length: SPECKS }, () => Math.random()) };
     }
     return null;

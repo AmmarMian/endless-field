@@ -5,7 +5,12 @@ import { ecology } from "./ecology";
 import { biome, canopyLight } from "./biome";
 import { sunflowerNear } from "./sunflower-field";
 import { pathNear } from "./lantern-path";
-import { riverBed, riverInfo, riverUpper, terrainHeightM, worldConstants } from "./height";
+import { SEA_Y, coastInfo, duneAmount, gnoise, inland, riverBed, riverInfo, riverUpper, sandEdge, terrainHeightM, worldConstants } from "./height";
+
+function smooth(a: number, b: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
 import { loadBin } from "../engine/assets";
 
 /** Per-species shading: dry tint before restoration, and night glow of non-leaf texels. */
@@ -15,16 +20,26 @@ interface SpeciesDef {
   nightGlow: number;
   /** Max draw distance (m). */
   range: number;
+  /** Rigid (no wind sway), and darkened by the swash below the high-water mark. */
+  stiff?: boolean;
+  wet?: boolean;
 }
 
 const DEFS: SpeciesDef[] = [
   { name: "fern", dryTint: 0.9, nightGlow: 0, range: 110 },
   { name: "mushrooms", dryTint: 0, nightGlow: 1.6, range: 60 },
-  { name: "logs", dryTint: 0, nightGlow: 0, range: 220 },
-  { name: "rocks", dryTint: 0, nightGlow: 0, range: 260 },
+  { name: "logs", dryTint: 0, nightGlow: 0, range: 220, stiff: true },
+  { name: "rocks", dryTint: 0, nightGlow: 0, range: 260, stiff: true },
   { name: "lilies", dryTint: 0, nightGlow: 0.9, range: 120 },
   { name: "irises", dryTint: 0.4, nightGlow: 0.6, range: 110 },
-  { name: "riverrocks", dryTint: 0, nightGlow: 0, range: 220 },
+  { name: "riverrocks", dryTint: 0, nightGlow: 0, range: 220, stiff: true },
+  // The shore (tools/blender/model_beach.py).
+  { name: "rockshelf", dryTint: 0, nightGlow: 0, range: 900, stiff: true, wet: true },
+  { name: "searocks", dryTint: 0, nightGlow: 0, range: 420, stiff: true, wet: true },
+  { name: "driftwood", dryTint: 0, nightGlow: 0, range: 200, stiff: true, wet: true },
+  { name: "shells", dryTint: 0, nightGlow: 0, range: 55, stiff: true, wet: true },
+  { name: "seaweed", dryTint: 0, nightGlow: 0, range: 90, stiff: true, wet: true },
+  { name: "marram", dryTint: 0, nightGlow: 0, range: 170 },
 ];
 const FERN = 0;
 const MUSHROOMS = 1;
@@ -33,6 +48,14 @@ const ROCKS = 3;
 const LILIES = 4;
 const IRISES = 5;
 const RIVERROCKS = 6;
+const ROCKSHELF = 7;
+const SEAROCKS = 8;
+const DRIFTWOOD = 9;
+const SHELLS = 10;
+const SEAWEED = 11;
+const MARRAM = 12;
+/** Driftwood variants (model_beach.py order): the last is a run of sand fence. */
+const FENCE = 5;
 
 const CELL = 24;
 const LOAD_RADIUS = 280;
@@ -116,7 +139,7 @@ export class Undergrowth {
             geometry: geo.slice({ firstIndex: v.firstIndex, indexCount: v.indexCount }),
             depth: { compare: "greater" },
             multisample: { alphaToCoverage: true },
-            set: { G: globals, plants: buffer, samp, albedoTex, life, P: { dryTint: def.dryTint, nightGlow: def.nightGlow, pad0: 0, pad1: 0 } },
+            set: { G: globals, plants: buffer, samp, albedoTex, life, P: { dryTint: def.dryTint, nightGlow: def.nightGlow, wet: def.wet ? 1 : 0, stiff: def.stiff ? 1 : 0 } },
           }),
         );
         return { def, variants, draws, buffer, data: new Float32Array(MAX * STRIDE), counts: variants.map(() => 0), firsts: variants.map(() => 0) };
@@ -144,7 +167,7 @@ export class Undergrowth {
         const [d, , hw] = riverInfo(x, z);
         if (d < hw * 1.3) return;
       }
-      if (sunflowerNear(x, z, 2) || pathNear(x, z, 2.2)) return;
+      if (sunflowerNear(x, z, 2) || pathNear(x, z, 2.2) || !inland(x, z, 4)) return;
       out.push({
         shade: canopyLight(x, biome(x, z)[2]),
         species,
@@ -158,6 +181,7 @@ export class Undergrowth {
       });
     };
     this.riverLife(x0, z0, r, place);
+    this.shoreLife(x0, z0, r, out);
     if (eco.temperature < 0.25) return out;
     const shade = eco.forest + Math.max(0, eco.moisture - 0.55) * 1.2;
 
@@ -218,6 +242,88 @@ export class Undergrowth {
         place(RIVERROCKS, x, z, 0.6 + r() * (upper > 0.05 ? 1.1 : 0.6), 0.35, -1, bed + 0.2);
       } else if (k > 1.0 && k < 1.8 && r() < 0.08) {
         place(RIVERROCKS, x, z, 0.4 + r() * 0.5, 0.3, -1, terrainHeightM(x, z));
+      }
+    }
+  }
+
+  /**
+   * The shore: rock platforms and boulders on the rocky stretches (half in the surf), shells,
+   * seaweed and driftwood along the tide line, sand fences at the dune foot and marram
+   * tussocks over the dunes.
+   */
+  private shoreLife(x0: number, z0: number, r: () => number, out: Item[]): void {
+    const [sc] = coastInfo(x0 + CELL / 2, z0 + CELL / 2);
+    if (sc > 320 || sc < -90) return;
+    // Along the shore (for things the sea lays parallel to it): the coast's tangent.
+    const [sx] = coastInfo(x0 + CELL / 2 + 2, z0 + CELL / 2);
+    const [sz] = coastInfo(x0 + CELL / 2, z0 + CELL / 2 + 2);
+    const along = Math.atan2(sx - sc, sz - sc);
+    const add = (species: number, x: number, z: number, scale: number, opts: { sink?: number; variant?: number; y?: number; yaw?: number } = {}) => {
+      const variants = this.variantCount(species);
+      out.push({
+        shade: 1,
+        species,
+        variant: opts.variant ?? Math.floor(r() * variants),
+        x,
+        y: (opts.y ?? terrainHeightM(x, z)) - (opts.sink ?? 0) * scale,
+        z,
+        scale,
+        yaw: opts.yaw ?? r() * Math.PI * 2,
+        seed: r(),
+      });
+    };
+    const dune = duneAmount(x0 + CELL / 2, z0 + CELL / 2);
+    const rocky = 1 - smooth(0.15, 0.45, dune);
+    // Wave-cut platforms reaching into the sea: rare, and only on the rocky stretches.
+    if (sc > -30 && sc < 20 && r() < 0.05 * rocky) {
+      add(ROCKSHELF, x0 + r() * CELL, z0 + r() * CELL, 0.5 + r() * 0.4, { y: SEA_Y - 1.4 - r() * 0.6, yaw: along + Math.PI / 2 + (r() - 0.5) * 0.8 });
+    }
+    for (let i = 0; i < 60; i++) {
+      const x = x0 + r() * CELL;
+      const z = z0 + r() * CELL;
+      const [s] = coastInfo(x, z);
+      const h = terrainHeightM(x, z);
+      const above = h - SEA_Y;
+      const roll = r();
+      if (s > -40 && s < 45 && roll < 0.05 * rocky + 0.004) {
+        // Boulders and ledges, half sunk in the sand or standing in the surf.
+        add(SEAROCKS, x, z, 0.12 + r() * (0.25 + 0.3 * rocky), { sink: 0.15 });
+      } else if (above > 0.45 && above < 1.8 && s > 0 && roll < 0.04) {
+        add(DRIFTWOOD, x, z, 0.7 + r() * 0.6, { sink: 0.04, variant: Math.floor(r() * FENCE), yaw: along + (r() - 0.5) * 1.2 });
+      } else if (above > 0.45 && above < 1.15 && s > 0 && roll < 0.45) {
+        // The wrack line: weed thrown up by the last high tide, in drifts along the shore.
+        add(SEAWEED, x, z, 0.6 + r() * 0.9, { sink: 0.01, yaw: along + (r() - 0.5) * 2 });
+      } else if (s > 25 && s < 60 && roll < 0.12 + 0.3 * rocky) {
+        // Cobbles and pebbles at the top of the beach (small copies of the boulder scans).
+        add(SEAROCKS, x, z, 0.02 + r() * r() * 0.07, { sink: 0.2 });
+      } else if (above > -0.3 && above < 1.4 && roll < 0.7) {
+        // Shells gather along the wrack line and lie scattered over the wet sand.
+        const cl = 1 + Math.floor(r() * 4);
+        for (let k = 0; k < cl; k++) add(SHELLS, x + (r() - 0.5) * 1.5, z + (r() - 0.5) * 1.5, 0.8 + r() * 0.7, { sink: 0.003 });
+      }
+    }
+    // Sand fence: runs of chestnut paling along the dune foot, tilted, half buried in places.
+    const edge = sandEdge(x0 + CELL / 2, z0 + CELL / 2);
+    if (dune > 0.6 && sc > edge * 0.35 + 18 && sc < edge * 0.35 + 34) {
+      const n = 5;
+      for (let k = 0; k < n; k++) {
+        if (r() < 0.15) continue;
+        const t = (k - (n - 1) / 2) * 4.05;
+        const x = x0 + CELL / 2 + Math.cos(along) * t;
+        const z = z0 + CELL / 2 - Math.sin(along) * t;
+        add(DRIFTWOOD, x, z, 1, { variant: FENCE, sink: 0.12 + r() * 0.2, yaw: along + (r() - 0.5) * 0.08 });
+      }
+    }
+    // Marram tussocks: crowded on the dune crests, thinning into the back dunes.
+    if (sc > 22 && sc < edge + 30 && dune > 0.05) {
+      const n = Math.round(dune * 55 * (0.6 + r() * 0.6));
+      for (let i = 0; i < n; i++) {
+        const x = x0 + r() * CELL;
+        const z = z0 + r() * CELL;
+        const [s] = coastInfo(x, z);
+        const clump = gnoise(x / 9 + 3.1, z / 9 - 1.7);
+        if (s < 22 || s > edge + 30 || clump < -0.15) continue;
+        add(MARRAM, x, z, 1.0 + r() * 0.6 + clump * 0.4, { sink: 0.03 });
       }
     }
   }

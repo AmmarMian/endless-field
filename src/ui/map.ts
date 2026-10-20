@@ -1,5 +1,5 @@
 import { biome } from "../world/biome";
-import { mountainHeight, riverInfo, riverUpper, terrainHeightM } from "../world/height";
+import { coastInfo, mountainHeight, riverInfo, riverUpper, sandEdge, terrainHeightM } from "../world/height";
 import { BED_CELL, bedInCell } from "../world/bed-shape";
 import { SUNFLOWERS, sunflowerField, sunflowerLocal } from "../world/sunflower-field";
 
@@ -144,10 +144,18 @@ export class WorldMap {
       }
       const [d, water, hw] = riverInfo(x, z);
       if (d < hw * 1.1 || (d < hw * 2 && h < water)) c = riverUpper(x) > 0.3 ? [120, 170, 200] : [70, 120, 160];
+      // The coast: pale sand, then the sea, turquoise in the shallows deepening to blue.
+      const [s] = coastInfo(x, z);
+      let sh = shade;
+      if (s < 0) {
+        const deep = Math.min(1, -s / 260);
+        c = mix([96, 168, 170], [44, 92, 128], deep);
+        sh = 1;
+      } else if (s < sandEdge(x, z)) c = mix(c, [226, 210, 168], 0.85);
       const o = (j * RES_X + i) * 4;
-      img[o] = c[0] * shade;
-      img[o + 1] = c[1] * shade;
-      img[o + 2] = c[2] * shade;
+      img[o] = c[0] * sh;
+      img[o + 1] = c[1] * sh;
+      img[o + 2] = c[2] * sh;
       img[o + 3] = 255;
     }
   }

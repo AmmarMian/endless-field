@@ -7,6 +7,7 @@
 import { Globals } from "./lib/globals.wgsl";
 import { SEA_Y, coastInfo, terrainHeight } from "./lib/terrain.wgsl";
 import { surf } from "./lib/shore.wgsl";
+import { swell, swellGrad } from "./lib/swell.wgsl";
 import { SkyParams, applyFog, skyColor, underwaterFog } from "./lib/atmosphere.wgsl";
 import { simplex2d } from "@vgpu/wgsl-std/noise/simplex";
 
@@ -19,6 +20,10 @@ struct SeaParams {
   // Night glow of breaking water (bioluminescence), 0..1.
   glow: f32,
   pad: f32,
+  // Whales at the surface: x, z, heading, wash (0 none .. 1 lying in the water); and their
+  // footprints: x, z of the dive, its strength (fading), and swimming (1 cruising: a wake).
+  whales: array<vec4f, 4>,
+  prints: array<vec4f, 4>,
 }
 
 @group(0) @binding(0) var<uniform> G: Globals;
@@ -40,6 +45,8 @@ struct VOut {
   @location(5) surfGrad: vec2f,
   // Position on the FFT patch (undisplaced), for per-pixel normals.
   @location(6) uv: vec2f,
+  // How much of the long swell rides here.
+  @location(7) swellAmt: f32,
 }
 
 fn sky() -> SkyParams {
@@ -77,8 +84,12 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   // The swell dies in the shallows (it has become surf) and up the sheltered estuary, and
   // eases far out where its tiling would show.
   let dist = distance(G.camPos.xz, xz);
-  let swellK = smoothstep(0.3, 5.0, still) * mix(0.2, 1.0, c.y) * mix(1.0, 0.4, smoothstep(600.0, 2500.0, dist));
-  let d = swellAt(out.uv).xyz * swellK;
+  // The wind raises the chop: stronger gusts, steeper and taller little waves.
+  let chop = 0.6 + 0.9 * G.windStrength;
+  let swellK = smoothstep(0.15, 1.6, still) * mix(0.2, 1.0, c.y) * mix(1.0, 0.4, smoothstep(600.0, 2500.0, dist)) * chop;
+  // The long swell rolling in (lib/swell.wgsl), dying into surf in the shallows.
+  let swAmt = smoothstep(0.5, 2.8, still) * mix(0.15, 1.0, c.y);
+  let d = swellAt(out.uv).xyz * swellK + swell(xz, G.time, swAmt);
   // Slope of the surf, by differences across the shore (only where there is surf).
   var grad = vec2f(0.0);
   if (c.x > -160.0 && c.y > 0.01) {
@@ -95,10 +106,20 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   // ground, so neither the ground's mesh nor this grid's density (which changes as the camera
   // moves) decides where the water ends. The per-pixel waterline in fs_main does.
   var drawY = y;
+  var drawP = vec3f(out.world.x, y, out.world.z);
+  let camD = distance(G.camPos, drawP);
   if (c.x > -60.0) {
-    drawY = max(y, ground + 0.06 + 0.02 * min(distance(G.camPos.xz, xz) * 0.05, 4.0));
+    // (Near the eye the ground mesh is fine and exact: barely lifted, so small things on the
+    // sand, crabs and shells, are not hidden under a raised film.)
+    drawY = max(y, ground + 0.004 + min(camD * 0.0025, 0.14));
+    drawP.y = drawY;
+    // And pulled toward the eye by more than the ground mesh's error at that distance (its
+    // coarse far triangles change as the camera moves): the ground never pokes through it.
+    // The water only shows where the per-pixel waterline says there is water.
+    drawP += normalize(G.camPos - drawP) * camD * 0.005 * smoothstep(3.0, 15.0, camD) * (1.0 - smoothstep(-60.0, -30.0, -c.x));
   }
-  out.pos = G.viewProj * vec4f(out.world.x, drawY, out.world.z, 1.0);
+  out.pos = G.viewProj * vec4f(drawP, 1.0);
+  out.swellAmt = swAmt;
   out.ground = ground;
   out.still = still;
   out.coast = vec3f(c, swellK);
@@ -168,11 +189,14 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let swellK = frag.coast.z;
   let open = frag.coast.y;
   let xz0 = frag.uv * S.patchSize;
-  let sw = surf(frag.coast.x, frag.still, xz0, t, open);
+  var sw = surf(frag.coast.x, frag.still, xz0, t, open);
   var depth = SEA_Y + sw.x + frag.swellY - frag.ground;
-  // Near the waterline, the true ground (the vertex grid is too coarse for a clean edge).
-  if (abs(depth) < 1.2 && frag.coast.x > -80.0 && frag.coast.x < 80.0) {
-    depth = SEA_Y + sw.x + frag.swellY - terrainHeight(xz0);
+  // Near the waterline, the true ground and the surf over it (the vertex grid is too coarse
+  // for a clean edge, and its spacing changes as the camera moves).
+  if (abs(depth) < 1.5 && frag.coast.x > -80.0 && frag.coast.x < 80.0) {
+    let g = terrainHeight(xz0);
+    sw = surf(frag.coast.x, SEA_Y - g, xz0, t, open);
+    depth = SEA_Y + sw.x + frag.swellY - g;
   }
   if (depth < 0.0 || frag.coast.x > 80.0) {
     discard;
@@ -197,8 +221,12 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let fineAA = 1.0 / (1.0 + uvFoot * uvFoot * 20.0);
   let fineGrad = vec2f(fx, fz) / (cell / 4.7) * 0.35 * fineAA;
   // Ripples ride everywhere, even on the swash; the swell only where it lives.
-  let swellGrad = vec2f(-nSwell.x, -nSwell.z) / max(nSwell.y, 0.2) * swellK * swellAA;
-  var grad = swellGrad + fineGrad + frag.surfGrad * aa;
+  // Gusts sweep downwind over the water as dark, rougher patches (cat's paws).
+  let wd = G.windDir;
+  let gustN = simplex2d(xz0 * 0.006 - wd * t * 0.045) * 0.65 + simplex2d(xz0 * 0.021 - wd * t * 0.09 + vec2f(3.0, 7.0)) * 0.35;
+  let gust = smoothstep(-0.25, 0.55, gustN) * G.windStrength;
+  let chopGrad = vec2f(-nSwell.x, -nSwell.z) / max(nSwell.y, 0.2) * swellK * swellAA;
+  var grad = chopGrad * mix(0.75, 1.35, gust) + fineGrad * mix(0.5, 1.9, gust) + frag.surfGrad * aa + swellGrad(xz0, t, frag.swellAmt);
   // A wingtip cutting the water leaves a thin furrow and a spreading V (as on the river).
   var wakeFoam = 0.0;
   if (G.dip > 0.01 && camDist < 90.0) {
@@ -229,6 +257,42 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
       }
     }
   }
+  // Whales: water washing round a body lying awash, the V of a cruising whale's wake, and the
+  // glassy-smooth footprint a diving whale's tail leaves on the surface.
+  var whaleFoam = 0.0;
+  var calm = 0.0;
+  for (var i = 0u; i < 4u; i = i + 1u) {
+    let W = S.whales[i];
+    let P = S.prints[i];
+    if (P.z > 0.0) {
+      calm = max(calm, (1.0 - smoothstep(5.0, 11.0 + 2.0 * simplex2d(xz0 * 0.2), distance(xz0, P.xy))) * P.z);
+    }
+    if (W.w <= 0.0) {
+      continue;
+    }
+    let d = xz0 - W.xy;
+    if (dot(d, d) > 1600.0) {
+      continue;
+    }
+    let fwd = vec2f(sin(W.z), cos(W.z));
+    let along = dot(d, fwd);
+    let across = dot(d, vec2f(fwd.y, -fwd.x));
+    let a = clamp(along, -6.0, 3.6);
+    let r = 1.35 * sqrt(max(0.0, 1.0 - pow((a + 1.0) / 5.4, 2.0)));
+    let sd = length(vec2f(along - a, across)) - r;
+    whaleFoam = max(whaleFoam, W.w * exp(-max(sd, 0.0) / 0.45) * (0.6 + 0.4 * simplex2d(xz0 * 1.3 + vec2f(t * 0.7, 0.0))));
+    if (P.w > 0.0) {
+      // Wake: a V spreading back from the tail, with a turbulent band along the track.
+      let back = -along - 5.5;
+      if (back > 0.0) {
+        let arm = abs(abs(across) - back * 0.36);
+        whaleFoam = max(whaleFoam, P.w * exp(-arm * arm * 3.0) * exp(-back * 0.06) * 0.7);
+        whaleFoam = max(whaleFoam, P.w * exp(-across * across * 0.6) * exp(-back * 0.1) * 0.5);
+        grad += fwd * exp(-arm * arm * 3.0) * exp(-back * 0.06) * 0.3 * P.w * cos(arm * 8.0);
+      }
+    }
+  }
+  grad = grad * (1.0 - 0.85 * calm);
   let n = normalize(vec3f(-grad.x, 1.0, -grad.y));
   let v = normalize(G.camPos - p);
   if (G.camPos.y < p.y) {
@@ -253,8 +317,11 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let deep = smoothstep(1.0, 9.0, depth);
   let body = mix(vec3f(0.03, 0.16, 0.14), vec3f(0.006, 0.035, 0.055), deep);
   var scatter = body * (G.sunColor * 0.55 + s.zenith * 0.7);
-  let crest = clamp(sw.x * 1.5 + c0.y * 0.25 + 0.3, 0.0, 1.0);
-  scatter += vec3f(0.05, 0.22, 0.17) * G.sunColor * pow(max(dot(v, -G.sunDir) * 0.5 + 0.5, 0.0), 3.0) * crest * 0.35;
+  // Light through the crests: wave tops (swell and chop) glow green-turquoise, troughs stay
+  // dark, most when looking toward the sun.
+  let crest = clamp((p.y - SEA_Y) * 0.6 + 0.45, 0.0, 1.0);
+  scatter = scatter * mix(0.7, 1.25, crest);
+  scatter += vec3f(0.04, 0.24, 0.2) * G.sunColor * (0.25 + pow(max(dot(v, -G.sunDir) * 0.5 + 0.5, 0.0), 3.0)) * crest * crest * 0.45;
   var through = dot(absorb, vec3f(0.25, 0.45, 0.3));
   let tint = scatter * (vec3f(1.0) - absorb);
   fresnel = fresnel * smoothstep(0.0, 0.25, depth);
@@ -265,7 +332,12 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   // the bore's churned water fading behind it, and lace at the swash's edge.
   let ft = foamTex(p.xz, t, aa);
   let jac = mix(1.0, c0.w, swellK);
-  let whitecap = smoothstep(0.42, 0.12, jac) * 0.6;
+  let whitecap = smoothstep(0.78 + 0.1 * gust, 0.5, jac) * mix(0.3, 0.7, gust);
+  // Wind streaks: lines of old foam drawn out downwind from broken crests.
+  let along = dot(xz0, wd);
+  let across = dot(xz0, vec2f(-wd.y, wd.x));
+  let streakN = simplex2d(vec2f(along * 0.02 - t * 0.05, across * 0.35)) * 0.6 + simplex2d(vec2f(along * 0.05, across * 0.9) + vec2f(4.0, 1.0)) * 0.4;
+  let streaks = smoothstep(0.45, 0.8, streakN) * gust * 0.35 * swellK * aa;
   let u = sw.z;
   // The spilling crest: a bright band riding the wave's face just as it passes.
   let crestBand = max(smoothstep(0.93, 1.0, u), 1.0 - smoothstep(0.0, 0.05, u));
@@ -273,7 +345,7 @@ fn fs_main(frag: VOut, @builtin(front_facing) front: bool) -> @location(0) vec4f
   let edge = (1.0 - smoothstep(0.0, 0.05 + 0.05 * open, depth)) * open;
   // Old foam lingers as a faint lacy sheet over the surf zone.
   let sheet = (1.0 - smoothstep(10.0, 70.0, -frag.coast.x)) * open * smoothstep(0.1, 0.6, ft) * 0.14;
-  let amount = clamp(whitecap * 0.7 + spill + sw.w * 0.9 + edge * 0.8 + sheet, 0.0, 1.0);
+  let amount = clamp((whitecap * 0.85 + streaks) * (1.0 - calm) + spill + sw.w * 0.9 + edge * 0.8 + sheet + whaleFoam, 0.0, 1.0);
   let foamK = clamp(foamLace(frag.uv * S.patchSize, amount, t, aa, ft) + wakeFoam * 1.6, 0.0, 1.0);
   let foamCol = (G.sunColor * 0.8 + s.zenith * 0.6) * mix(0.85, 1.0, ft * 0.5 + 0.5);
   col = mix(col, foamCol, foamK);

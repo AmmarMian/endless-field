@@ -1,13 +1,14 @@
 import { storage, type Draw, type FramePass, type Gpu, type SharedUniforms, type StorageBuffer } from "vgpu";
 import { BIRD_STRIDE, BirdAnimator, BirdSpecies } from "./bird-model";
 import { SEA_Y, coastInfo, terrainHeightM } from "./height";
+import { swellHeight } from "./swell";
 import type { Vec3 } from "../engine/camera";
 
 const MAX = 40;
 const SOARERS = 7;
 const GROUND = 14;
 
-type State = "soar" | "stand" | "walk" | "peck" | "call" | "takeoff" | "fly" | "approach" | "land";
+type State = "soar" | "stand" | "walk" | "peck" | "call" | "float" | "takeoff" | "fly" | "approach" | "land";
 
 interface Gull {
   pos: Vec3;
@@ -117,7 +118,8 @@ export class Gulls {
       timer: Math.random() * 4,
       centre: [pos[0], pos[2]],
       radius: 18 + Math.random() * 30,
-      height: 10 + Math.random() * 22,
+      // Mostly low over the waves and the beach (where the wind flies), some higher.
+      height: 4 + Math.random() * Math.random() * 12,
       turn: Math.random() < 0.5 ? 1 : -1,
       angle: Math.random() * Math.PI * 2,
       target: null,
@@ -128,11 +130,28 @@ export class Gulls {
     return g;
   }
 
-  update(dt: number, cam: Vec3, threat: Vec3, threatSpeed: number, night: number): void {
+  private time = 0;
+  private flyby = 15;
+
+  update(dt: number, cam: Vec3, threat: Vec3, threatSpeed: number, night: number, t: number): void {
     this.quiet -= dt;
     this.alarmQuiet -= dt;
+    this.time = t;
     const [sc] = coastInfo(cam[0], cam[2]);
     const nearCoast = sc < 450;
+    const atSea = sc < -20;
+    // Now and then a gull wheels past close by (on its own business: it circles on).
+    this.flyby -= dt;
+    if (nearCoast && this.flyby <= 0 && night < 0.6) {
+      this.flyby = 20 + Math.random() * 30;
+      const g = this.gulls.find((v) => v.state === "soar" && Math.hypot(v.pos[0] - cam[0], v.pos[2] - cam[2]) > 60);
+      if (g) {
+        const a = Math.random() * Math.PI * 2;
+        g.centre = [threat[0] + Math.cos(a) * 25, threat[2] + Math.sin(a) * 25];
+        g.radius = 14 + Math.random() * 12;
+        g.height = 3 + Math.random() * 5;
+      }
+    }
     // Keep the coast populated around the camera (none far inland; fewer about at night).
     this.refill -= dt;
     if (nearCoast && this.refill <= 0) {
@@ -141,13 +160,28 @@ export class Gulls {
       const soaring = this.gulls.filter((g) => g.state === "soar" || g.state === "fly").length;
       const standing = this.gulls.length - soaring;
       if (soaring < SOARERS * (1 - night * 0.8)) {
+        // Around the camera (over the sea as much as the beach), out of the way.
         const a = Math.random() * Math.PI * 2;
-        const r = 120 + Math.random() * 120;
-        const x = wx + Math.cos(a) * r;
-        const z = wz + Math.sin(a) * r * 0.4;
+        const r = 90 + Math.random() * 140;
+        const x = (atSea ? cam[0] : wx) + Math.cos(a) * r;
+        const z = (atSea ? cam[2] : wz) + Math.sin(a) * r * (atSea ? 1 : 0.4);
         const g = this.make("soar", [x, SEA_Y + 20, z]);
         g.centre = [x, z];
         g.pos[1] = Math.max(terrainHeightM(x, z), SEA_Y) + g.height;
+      } else if (atSea && standing < GROUND) {
+        // A raft of gulls sitting on the swell, somewhere ahead.
+        const a = Math.random() * Math.PI * 2;
+        const r = 90 + Math.random() * 90;
+        const cx = cam[0] + Math.cos(a) * r;
+        const cz = cam[2] + Math.sin(a) * r;
+        const n = 4 + Math.floor(Math.random() * 6);
+        for (let i = 0; i < n && standing + i < GROUND; i++) {
+          const x = cx + (Math.random() - 0.5) * 12;
+          const z = cz + (Math.random() - 0.5) * 12;
+          if (coastInfo(x, z)[0] > -15) continue;
+          const g = this.make("float", [x, SEA_Y, z]);
+          g.anim.play("perch", 0, 1, true, Math.random() * 5);
+        }
       } else if (standing < GROUND) {
         // A small group lands out of sight along the beach, ahead or behind.
         const side = Math.random() < 0.5 ? -1 : 1;
@@ -162,7 +196,7 @@ export class Gulls {
     for (let i = this.gulls.length - 1; i >= 0; i--) {
       const g = this.gulls[i];
       const d = Math.hypot(g.pos[0] - cam[0], g.pos[2] - cam[2]);
-      if (d > 420 || !nearCoast) {
+      if (d > 380 || !nearCoast) {
         this.gulls.splice(i, 1);
         continue;
       }
@@ -176,7 +210,8 @@ export class Gulls {
       const o = this.count++ * BIRD_STRIDE;
       const grounded = g.state === "stand" || g.state === "walk" || g.state === "peck" || g.state === "call";
       this.data[o] = g.pos[0];
-      this.data[o + 1] = g.pos[1] + (grounded ? perch * g.size : 0);
+      // (Floating, the body sits low in the water.)
+      this.data[o + 1] = g.pos[1] + (grounded ? perch * g.size : g.state === "float" ? perch * g.size * 0.25 : 0);
       this.data[o + 2] = g.pos[2];
       this.data[o + 3] = g.heading;
       this.data[o + 4] = g.pitch;
@@ -195,6 +230,20 @@ export class Gulls {
     const dx = g.pos[0] - threat[0];
     const dz = g.pos[2] - threat[2];
     const near = Math.hypot(dx, dz);
+    if (g.state === "float") {
+      // Riding the swell, drifting, turning slowly into the wind.
+      g.pos[1] = SEA_Y + swellHeight(g.pos[0], g.pos[2], this.time);
+      g.heading += Math.sin(g.seed * 40 + this.time * 0.2) * 0.1 * dt;
+      g.pos[0] += Math.sin(g.heading) * 0.15 * dt;
+      g.pos[2] += Math.cos(g.heading) * 0.15 * dt;
+      if (near < 8 || (near < 22 && threatSpeed > 4)) {
+        g.state = "takeoff";
+        g.heading = Math.atan2(dx, dz) + (Math.random() - 0.5) * 0.8;
+        g.anim.play("takeoff", 0.08, 1, true);
+        this.call("alarm", g.pos);
+      }
+      return;
+    }
     const grounded = g.state === "stand" || g.state === "walk" || g.state === "peck" || g.state === "call";
     if (grounded) {
       // Flushed: something rushing in (or simply too close).
@@ -254,7 +303,7 @@ export class Gulls {
         g.timer = 15 + Math.random() * 25;
         g.anim.play("flap", 0.1, 3.2);
         g.centre = [g.pos[0] + Math.sin(g.heading) * 25, g.pos[2] + Math.cos(g.heading) * 25];
-        g.height = 12 + Math.random() * 10;
+        g.height = 5 + Math.random() * 7;
       }
       return;
     }

@@ -76,7 +76,7 @@ export class Crabs {
       this.crabs.push({
         pos: [x, terrainHeightM(x, z), z],
         heading: Math.random() * Math.PI * 2,
-        size: 0.55 + Math.random() * 0.6,
+        size: 0.95 + Math.random() * Math.random() * 0.75,
         seed: Math.random(),
         state: "emerge",
         timer: 0,

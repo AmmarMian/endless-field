@@ -927,6 +927,78 @@ export class Audio {
     }
   }
 
+  /** A whale breathing out at the surface (a deep, explosive whoosh), then in. */
+  whaleBlow(pan: number, distance: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const near = Math.max(0, Math.min(1, 60 / Math.max(distance, 1))) ** 0.8;
+    if (near < 0.02) return;
+    const t = ctx.currentTime + 0.05;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan)) * 0.8;
+    p.connect(this.master);
+    p.connect(this.reverb);
+    const buf = this.noiseBuffer(3);
+    for (const [start, len, lo, hi, lvl] of [
+      [0, 1.6, 180, 1400, 0.42],
+      [1.9, 1.1, 300, 900, 0.12],
+    ] as const) {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass";
+      f.Q.value = 0.7;
+      f.frequency.setValueAtTime(hi, t + start);
+      f.frequency.exponentialRampToValueAtTime(lo, t + start + len);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t + start);
+      g.gain.linearRampToValueAtTime(lvl * near, t + start + (start === 0 ? 0.06 : 0.3));
+      g.gain.exponentialRampToValueAtTime(0.0001, t + start + len);
+      src.connect(f).connect(g).connect(p);
+      src.start(t + start, Math.random());
+      src.stop(t + start + len + 0.05);
+    }
+  }
+
+  /** Far-off whale song carried through the water: a slow, gliding moan (rare). */
+  whaleSong(pan: number): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime + 0.1;
+    const p = ctx.createStereoPanner();
+    p.pan.value = pan * 0.6;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 900;
+    p.connect(lp).connect(this.reverb);
+    lp.connect(this.master);
+    const notes = 2 + Math.floor(Math.random() * 3);
+    let s = t;
+    for (let i = 0; i < notes; i++) {
+      const len = 1.4 + Math.random() * 1.6;
+      const f0 = 140 + Math.random() * 260;
+      const o = ctx.createOscillator();
+      o.type = "sine";
+      o.frequency.setValueAtTime(f0, s);
+      o.frequency.exponentialRampToValueAtTime(f0 * (Math.random() < 0.5 ? 1.6 : 0.6), s + len);
+      const vib = ctx.createOscillator();
+      vib.frequency.value = 4 + Math.random() * 2;
+      const va = ctx.createGain();
+      va.gain.value = f0 * 0.02;
+      vib.connect(va).connect(o.frequency);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, s);
+      g.gain.linearRampToValueAtTime(0.035, s + len * 0.3);
+      g.gain.linearRampToValueAtTime(0, s + len);
+      o.connect(g).connect(p);
+      o.start(s);
+      vib.start(s);
+      o.stop(s + len + 0.05);
+      vib.stop(s + len + 0.05);
+      s += len + 0.4 + Math.random() * 0.8;
+    }
+  }
+
   /** Called each frame with speed in [0, 1]. */
   update(speed: number, altitude: number): void {
     if (!this.ctx) return;

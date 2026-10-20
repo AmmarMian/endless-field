@@ -65,6 +65,8 @@ struct VOut {
   @location(6) @interpolate(flat) bedSpecies: u32,
   // x = signed distance inland from the sea's edge, y = dunes amount, z = exposure to the open sea
   @location(7) coast: vec3f,
+  // Direction inland (the gradient of the coast distance).
+  @location(8) coastGrad: vec2f,
 }
 
 fn sky() -> SkyParams {
@@ -130,6 +132,10 @@ fn vs_main(@location(0) g: vec2f) -> VOut {
   out.bedSpecies = u32(bed.y + 0.5);
   let c = coastInfo(xz);
   out.coast = vec3f(c.x, duneAmount(xz), c.y);
+  out.coastGrad = vec2f(0.0, -1.0);
+  if (c.x < 300.0 && c.x > -100.0) {
+    out.coastGrad = normalize(vec2f(coastInfo(xz + vec2f(2.0, 0.0)).x - c.x, coastInfo(xz + vec2f(0.0, 2.0)).x - c.x) + vec2f(1e-5));
+  }
   return out;
 }
 
@@ -143,7 +149,22 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   // broad one hides the fine one's tiling), and its normal map.
   let sandFine = textureSample(sandTex, samp, frag.world.xz * 0.42).rgb;
   let sandBroad = textureSample(sandTex, samp, frag.world.xz * 0.061 + vec2f(0.37, 0.71)).rgb;
-  let sandN = textureSample(sandNor, samp, frag.world.xz * 0.42).xyz * 2.0 - 1.0;
+  let sandN = (textureSample(sandNor, samp, frag.world.xz * 0.42).xyz * 2.0 - 1.0) * 0.6 + (textureSample(sandNor, samp, frag.world.xz * 0.13 + vec2f(0.5, 0.2)).xyz * 2.0 - 1.0) * 0.5;
+  // Sand ripples, as slopes (they catch the low sun): fine wind ripples (~9 cm) across the
+  // onshore breeze on the dry sand, and broad wave ripples (~60 cm) along the shore where the
+  // swash works the beach. Each fades by its size on screen before it could shimmer.
+  let windR = normalize(vec2f(0.25, -1.0) + vec2f(simplex2d(frag.world.xz * 0.05), simplex2d(frag.world.xz * 0.05 + 7.0)) * 0.35);
+  let warp = simplex2d(frag.world.xz * 0.7) * 1.6 + simplex2d(frag.world.xz * 2.3) * 0.5;
+  let phW = dot(frag.world.xz, windR) * (6.2831853 / 0.09) + warp * 3.0;
+  let aaW = 1.0 - smoothstep(0.8, 2.2, fwidth(phW));
+  let slopeW = (cos(phW) + 0.55 * cos(2.0 * phW + 1.0)) * 0.22 * aaW;
+  let phS = frag.coast.x * (6.2831853 / 0.6) + warp * 1.2;
+  let aaS = 1.0 - smoothstep(0.8, 2.2, fwidth(phS));
+  let slopeS = cos(phS) * 0.14 * aaS;
+  // Quartz grains glinting up close (each 4 mm cell its own facet, flashing as the eye moves).
+  let gcell = floor(frag.world.xz * 250.0);
+  let gh = fract(sin(dot(gcell, vec2f(12.9898, 78.233))) * 43758.5453);
+  let glintAA = 1.0 - smoothstep(0.5, 1.5, length(fwidth(frag.world.xz * 250.0)));
 
   let meadow = frag.misc.x;
   let lifeV = sampleLife(xz);
@@ -251,20 +272,27 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
   if (coastS < 260.0) {
     let edge = sandEdge(xz, frag.coast.y);
     sandAmt = 1.0 - smoothstep(edge - 18.0, edge + 6.0, coastS);
-    let above = frag.world.y - SEA_Y;
+    // On the open beach the height above the sea is known exactly from the shore profile
+    // (the mesh's far, coarse triangles would move the wet line as the camera moves).
+    let onBeach = coastS > -10.0 && coastS < 28.0 && frag.river.x > frag.river.z * 5.0;
+    let above = select(frag.world.y - SEA_Y, coastS * 0.045, onBeach);
     let reach = swashReach(xz, G.time, frag.coast.z);
     // Freshly wet below the swash's reach; damp sand dries over a band above it.
     wetSand = max(1.0 - smoothstep(reach - 0.05, reach + 0.08, above), (1.0 - smoothstep(reach, reach + 0.3, above)) * 0.45) * sandAmt;
-    var sandC = sandColor(xz, frag.world.y, coastS, wetSand, dist);
+    var sandC = sandColor(xz, SEA_Y + above, coastS, wetSand, dist);
     // The photo's grain and pebbles, as relative variation around our tone.
     // (Brightness only: the photo's own hue is warmer than this beach.)
     let fineRel = dot(sandFine, vec3f(0.33)) / 0.172;
     let broadRel = dot(sandBroad, vec3f(0.33)) / 0.172;
-    sandC = sandC * mix(1.0, fineRel, 0.6 * (1.0 - smoothstep(30.0, 90.0, dist))) * mix(1.0, broadRel, 0.3);
+    sandC = sandC * mix(1.0, fineRel, 0.3 * (1.0 - smoothstep(30.0, 90.0, dist))) * mix(1.0, broadRel, 0.15);
     albedo = mix(albedo, sandC, sandAmt);
     // Its relief: grains and footprints of wind; smoothed where the water has been.
     let bump = sandAmt * (1.0 - wetSand * 0.7) * (1.0 - smoothstep(10.0, 45.0, dist)) * 0.8;
     n = normalize(n + vec3f(sandN.x, 0.0, -sandN.y) * bump);
+    // Wind ripples on the dry sand above the tide; wave ripples on the lower beach.
+    let dryK = smoothstep(reach + 0.2, reach + 0.6, above) * sandAmt;
+    let lowK = (1.0 - smoothstep(reach - 0.1, reach + 0.3, above)) * sandAmt;
+    n = normalize(n - vec3f(windR.x, 0.0, windR.y) * slopeW * dryK - vec3f(frag.coastGrad.x, 0.0, frag.coastGrad.y) * slopeS * lowK);
   }
   // Winter: snow settles on the flatter ground (and on the path), patchy where wind scours it.
   let snowCover = sw.z * smoothstep(0.62, 0.9, n.y) * smoothstep(0.2, 0.55, simplex2d(xz * 0.05) * 0.35 + 0.65 + sw.z * 0.25 - 0.6);
@@ -298,6 +326,13 @@ fn fs_main(frag: VOut) -> @location(0) vec4f {
     let r = reflect(-vw, vec3f(0.0, 1.0, 0.0));
     let sheen = (G.horizonColor * 0.9 + G.zenithColor * 0.3) * fres + G.sunColor * pow(max(dot(r, l), 0.0), 220.0) * 6.0;
     col = mix(col, sheen, clamp(wetSand * (0.25 + 0.6 * fres), 0.0, 0.85));
+  }
+  // Quartz glints on the sand, up close in the sun.
+  if (sandAmt > 0.01) {
+    let vg = normalize(G.camPos - frag.world);
+    let facet = fract(gh * 7.13 + dot(vg, vec3f(3.1, 1.7, 2.3)) * 1.3 + dot(l, vec3f(1.9, 2.7, 0.7)));
+    let glint = smoothstep(0.985, 1.0, facet) * glintAA * sandAmt * (1.0 - wetSand) * max(dot(n, l), 0.0);
+    col += G.sunColor * glint * 1.8;
   }
   // Grass canopy seen from afar (where blades thin out or stop): the ground carries the
   // field's look. Weighted off on beds, forest floor, shores and fields of other crops.

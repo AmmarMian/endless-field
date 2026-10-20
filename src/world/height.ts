@@ -374,10 +374,16 @@ export function terrainHeightM(x: number, z: number): number {
   return riverValley(terrainHeight(x, z) + mountainHeight(x, z) * corridor, d, water, hw, px, x, z);
 }
 
-/** What the wind skims: the ground, or the water's surface over the river. */
+/** The sea's swell over still water (set by the host each frame: lib/swell.wgsl's CPU mirror). */
+let seaWave: (x: number, z: number) => number = () => 0;
+export function setSeaWave(fn: (x: number, z: number) => number): void {
+  seaWave = fn;
+}
+
+/** What the wind skims: the ground, or the water's surface over the river or the sea. */
 export function surfaceHeight(x: number, z: number): number {
   const h = terrainHeightM(x, z);
-  if (h < SEA_Y && coastInfo(x, z)[0] < 4) return SEA_Y;
+  if (h < SEA_Y + 1.5 && coastInfo(x, z)[0] < 4) return Math.max(h, SEA_Y + seaWave(x, z));
   const [d, water, hw] = riverInfo(x, z);
   return d < hw * 1.6 && h < water ? water : h;
 }

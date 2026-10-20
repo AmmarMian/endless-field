@@ -1,0 +1,50 @@
+{
+ "vertexBytes": 202584,
+ "indexCount": 50526,
+ "matrixBytes": 67776,
+ "clips": {
+  "finwave": {
+   "start": 0,
+   "frames": 80,
+   "fps": 8,
+   "loop": false
+  },
+  "swim": {
+   "start": 81,
+   "frames": 60,
+   "fps": 12,
+   "loop": true
+  },
+  "rest": {
+   "start": 142,
+   "frames": 64,
+   "fps": 8,
+   "loop": true
+  },
+  "dive": {
+   "start": 207,
+   "frames": 96,
+   "fps": 8,
+   "loop": false
+  },
+  "surface": {
+   "start": 304,
+   "frames": 48,
+   "fps": 8,
+   "loop": false
+  }
+ },
+ "perchHeight": 0,
+ "credit": "Modeled, rigged and animated in Blender (tools/blender/model_whale.py)",
+ "bones": [
+  "body",
+  "head",
+  "tail1",
+  "tail2",
+  "tail3",
+  "flukes",
+  "pec.R",
+  "pec.L"
+ ],
+ "length": 13.0
+}

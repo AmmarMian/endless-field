@@ -14,13 +14,14 @@ const SNAP = 4;
 
 /** The swell: a gentle onshore breeze over a long fetch (calm enough for a beach). */
 const SWELL = {
-  windSpeed: 9,
+  windSpeed: 11,
   // Toward the shore (+z is south, out to sea): the swell runs north, onto the beach.
   windAngle: -100,
   amplitude: 4,
   patchSize: 140,
-  heightScale: 2.2,
-  choppyScale: 1.6,
+  // (The FFT's raw height is ~3 cm rms: these bring the chop to ~0.3 m with sharp crests.)
+  heightScale: 28,
+  choppyScale: 32,
 };
 
 /**
@@ -35,7 +36,7 @@ export class Sea {
   private readonly row: ReturnType<typeof compute>;
   private readonly col: ReturnType<typeof compute>;
   private readonly bake: ReturnType<typeof effect>;
-  private readonly dispTarget: ReturnType<typeof target>;
+  readonly dispTarget: ReturnType<typeof target>;
   readonly draw: Draw;
 
   constructor(gpu: Gpu, globals: SharedUniforms, resolution = 320, private readonly radius = 20000) {
@@ -84,7 +85,17 @@ export class Sea {
       blend: { color: { src: "one", dst: "src-alpha" }, alpha: { src: "zero", dst: "one" } },
       set: {
         G: globals,
-        S: { center: [0, 0], radius: this.radius, power: 3, cells: n, patchSize: SWELL.patchSize, glow: 0, pad: 0 },
+        S: {
+          center: [0, 0],
+          radius: this.radius,
+          power: 3,
+          cells: n,
+          patchSize: SWELL.patchSize,
+          glow: 0,
+          pad: 0,
+          whales: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+          prints: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        },
         disp: this.dispTarget,
         dispSamp: sampler(gpu, { addressModeU: "repeat", addressModeV: "repeat", minFilter: "linear", magFilter: "linear" }),
       },
@@ -94,6 +105,11 @@ export class Sea {
   private readonly sim: (time: number) => Record<string, unknown>;
 
   /** Advances the swell and recentres the surface on the camera. */
+  /** Whales at the surface and their footprints (see SeaParams in sea.wgsl). */
+  setWhales(whales: number[][], prints: number[][]): void {
+    this.draw.set({ S: { whales, prints } });
+  }
+
   step(dt: number, camX: number, camZ: number, night: number): void {
     // The sea is out of sight only far inland (hills hide it well before its fog would).
     this.visible = coastInfo(camX, camZ)[0] < 2600;

@@ -33,7 +33,9 @@ import { Water } from "./world/water";
 import { Sea } from "./world/sea";
 import { Crabs } from "./world/crabs";
 import { Gulls } from "./world/gulls";
-import { MOUTH_X, SEA_Y, coastInfo, coastLine, duneAmount, inland, sandEdge, setWorldSeed, mountainZone, riverCenter, riverInfo, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
+import { Whales } from "./world/whales";
+import { seaSurface, swellAmount, swellHeight } from "./world/swell";
+import { MOUTH_X, SEA_Y, setSeaWave, coastInfo, coastLine, duneAmount, inland, sandEdge, setWorldSeed, mountainZone, riverCenter, riverInfo, riverHalfWidth, riverWater, terrainHeightM as terrainHeight } from "./world/height";
 import { biome } from "./world/biome";
 import { ecology } from "./world/ecology";
 import { Trees } from "./world/trees";
@@ -238,6 +240,7 @@ async function main(): Promise<void> {
   let combo = 0;
   let lastCatch = -10;
   let skimTimer = 0;
+  let sprayTimer = 0;
   let wasPerched = false;
   let restAmt = 0;
   let restNow = false;
@@ -291,7 +294,17 @@ async function main(): Promise<void> {
   ]);
   const nest = new Nest(gpu, globals.uniforms);
   const sea = new Sea(gpu, globals.uniforms);
-  const [crabs, gulls] = await Promise.all([track(Crabs.load(gpu, globals.uniforms), "crabs"), track(Gulls.load(gpu, globals.uniforms), "gulls")]);
+  const [crabs, gulls, whales] = await Promise.all([
+    track(Crabs.load(gpu, globals.uniforms), "crabs"),
+    track(Gulls.load(gpu, globals.uniforms), "gulls"),
+    track(Whales.load(gpu, globals.uniforms), "whales"),
+  ]);
+  // The swell, shared by everything riding or skimming the sea (time set each frame).
+  let seaT = 0;
+  setSeaWave((x, z) => swellHeight(x, z, seaT, swellAmount(x, z)));
+  /** A whale the swallow is resting on (or coming in to rest on), or waiting to surface. */
+  let restWhale: ReturnType<Whales["restingNear"]> = null;
+  let awaitWhale: ReturnType<Whales["restingNear"]> = null;
   /** Stereo position (-1 left .. 1 right) and distance of a point, from the camera. */
   const heard = (at: readonly number[]): [number, number] => {
     const fx = camera.target[0] - camera.position[0];
@@ -301,6 +314,11 @@ async function main(): Promise<void> {
     const d = Math.hypot(dx, dz) || 1;
     return [(dx * -fz + dz * fx) / (d * (Math.hypot(fx, fz) || 1)), d];
   };
+  whales.onBlow = (at) => {
+    const [pan, d] = heard(at);
+    audio.whaleBlow(pan, Math.hypot(d, at[1] - camera.position[1]));
+  };
+  whales.onSong = (pan) => audio.whaleSong(pan);
   gulls.onCall = (kind, at) => {
     const [pan, d] = heard(at);
     audio.gull(kind, pan, Math.hypot(d, at[1] - camera.position[1]));
@@ -429,7 +447,7 @@ async function main(): Promise<void> {
 
   stage("lighting the lanterns…");
   await Promise.all(
-    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw, sea.draw, crabs.draw, gulls.draw].map((d) =>
+    [renderer.sky, terrain.draw, ...grass.draws, ...flowers.draws, motes.draw, windTrail.draw, insects.draw, thermals.draw, skyLanterns.draw, ...birds.draws, ...race.draws, fish.draw, nest.draw, swallow.draw, swallow.haloDraw, ...secrets.draws, secrets.glintDraw, ...trees.draws, ...beds.draws, ...undergrowth.draws, ...sunflowers.draws, ...lanterns.draws, ...torii.draws, ...precipitation.draws, fireflies.draw, water.draw, sea.draw, crabs.draw, gulls.draw, ...whales.draws].map((d) =>
       track(
         d.compile(renderer.scene).catch((e: unknown) => {
           // Keep going without it; say which one (so it can be fixed for this device).
@@ -606,6 +624,7 @@ async function main(): Promise<void> {
     sea,
     crabs,
     gulls,
+    whales,
     start,
     player,
     trees,
@@ -990,6 +1009,32 @@ async function main(): Promise<void> {
       // Thermals by day: rising air the wind can circle up in.
       thermals.update(t, player.pos, player.yaw, (1 - night) * (1 - rain));
       player.thermal = thermals.lift(player.pos, (1 - night) * (1 - rain));
+      // Over the sea, low: air rides up the face of each swell rolling in, so the wind lifts
+      // and sinks over the waves, and the breakers throw spray up around it.
+      {
+        const [ps] = coastInfo(player.pos[0], player.pos[2]);
+        if (ps < -2 && player.altitude < 4.5) {
+          const fx = Math.sin(player.yaw) * 4;
+          const fz = -Math.cos(player.yaw) * 4;
+          const k = swellAmount(player.pos[0], player.pos[2]);
+          const rise = swellHeight(player.pos[0] + fx, player.pos[2] + fz, t, k) - swellHeight(player.pos[0], player.pos[2], t, k);
+          player.thermal = Math.max(player.thermal, Math.min(0.4, Math.max(0, rise * 0.5)) * (1 - player.altitude / 4.5));
+          sprayTimer -= dt;
+          if (ps > -70 && sprayTimer <= 0) {
+            sprayTimer = 0.25 + Math.random() * 0.5;
+            const a = Math.random() * Math.PI * 2;
+            const sx = player.pos[0] + Math.cos(a) * (3 + Math.random() * 8);
+            const sz = player.pos[2] + Math.sin(a) * (3 + Math.random() * 8);
+            motes.splash([sx, SEA_Y + swellHeight(sx, sz, t, k) + 0.2, sz], 0.18);
+          }
+        }
+        // Through a whale's blow: soaked in its spray.
+        if (whales.sprayAt(player.pos) > 0.25 && sprayTimer <= 0.2) {
+          sprayTimer = 0.4;
+          motes.splash(player.pos, 0.2);
+          audio.skim();
+        }
+      }
       birds.soarAt(thermals.columns);
       // Flying into a thermal: carried up it, to music.
       if (!player.riding && !player.looping && playing) {
@@ -1016,13 +1061,29 @@ async function main(): Promise<void> {
             perch = [lp[0], lp[1] + 1.45 + swallow.perchLift, lp[2]];
           }
         }
-        if (!perch) {
-          // Down on open ground a little ahead (not in the river): the grass parts around it.
+        // Out over the sea: no ground to rest on, but a whale's back. One lying at the surface
+        // nearby, or one comes up ahead (the bird waits, circling, until it has surfaced).
+        if (!perch && coastInfo(player.pos[0], player.pos[2])[0] < -8) {
+          const w = whales.restingNear(player.pos, 140);
+          if (w) {
+            const bp = whales.backPoint(w);
+            whales.hold(w);
+            restWhale = w;
+            perch = [bp[0], bp[1] + swallow.perchLift, bp[2]];
+          } else if (!awaitWhale) {
+            awaitWhale = whales.callUp(player.pos[0] + Math.sin(player.yaw) * 45, player.pos[2] - Math.cos(player.yaw) * 45, Math.random() * Math.PI * 2);
+          }
+          if (!perch) {
+            restNow = false;
+          }
+        }
+        if (!perch && !awaitWhale && coastInfo(player.pos[0], player.pos[2])[0] >= -8) {
+          // Down on open ground a little ahead (not in the river, not the sea): the grass parts around it.
           for (const ahead of [14, 20, 28, 8]) {
             const ax = player.pos[0] + Math.sin(player.yaw) * ahead;
             const az = player.pos[2] - Math.cos(player.yaw) * ahead;
             const [rd, , rhw] = riverInfo(ax, az);
-            if (rd > rhw + 1.5) {
+            if (rd > rhw + 1.5 && coastInfo(ax, az)[0] > 2) {
               perch = [ax, terrainHeight(ax, az) + swallow.perchLift, az];
               break;
             }
@@ -1066,7 +1127,8 @@ async function main(): Promise<void> {
         current.avatar === "swallow" &&
         ((player.perched && player.altitude < 0.5) || (lp !== null && player.landingLeft < 1.2 && lp[1] - terrainHeight(lp[0], lp[2]) < 0.5));
       restAmt += ((groundRest ? 1 : 0) - restAmt) * Math.min(1, dt * (groundRest ? 2 : 1.2));
-      swallow.update(dt, player, current.avatar === "swallow" && wd < whw * 0.9 ? wy : null);
+      const seaY = seaSurface(player.pos[0], player.pos[2], t);
+      swallow.update(dt, player, current.avatar !== "swallow" ? null : seaY !== null && coastInfo(player.pos[0], player.pos[2])[0] < -3 ? seaY : wd < whw * 0.9 ? wy : null);
       if (playing) {
         const a = prevWind;
         const b = player.pos;
@@ -1105,7 +1167,7 @@ async function main(): Promise<void> {
           skimTimer = 0.07;
           motes.splash([swallow.tip[0], swallow.tip[1], swallow.tip[2]], 0.06);
           if (Math.random() < 0.3) audio.skim();
-        } else if (rd < rhw * 0.95 && player.altitude < 0.95 && skimTimer <= 0) {
+        } else if ((rd < rhw * 0.95 || coastInfo(player.pos[0], player.pos[2])[0] < -3) && player.altitude < 0.95 && skimTimer <= 0) {
           skimTimer = 0.11;
           motes.splash([player.pos[0], player.pos[1] - player.altitude, player.pos[2]], 0.12);
           if (Math.random() < 0.35) audio.skim();
@@ -1227,7 +1289,29 @@ async function main(): Promise<void> {
     water.update(camera.position[0], camera.position[2]);
     sea.step(rawDt, camera.position[0], camera.position[2], night);
     crabs.update(dt, camera.position, explore ? freecam.pos : player.pos, explore ? 4 : player.speed);
-    gulls.update(dt, camera.position, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, night);
+    gulls.update(dt, camera.position, explore ? freecam.pos : player.pos, explore ? 4 : player.speed, night, t);
+    seaT = t;
+    whales.update(dt, t, camera.position, [Math.cos(windAngle), Math.sin(windAngle)]);
+    {
+      const info = whales.seaInfo();
+      sea.setWhales(info.whales, info.prints);
+    }
+    // Resting on a whale: carried on its back as it heaves on the swell.
+    player.perchView = restWhale ? { dist: 9, rise: 3.2 } : { dist: 2.1, rise: 0.85 };
+    if (restWhale && (player.perched || player.landing)) {
+      const bp = whales.backPoint(restWhale);
+      if (player.perched) player.pos.splice(0, 3, bp[0], bp[1] + swallow.perchLift, bp[2]);
+    } else if (restWhale) {
+      whales.hold(null);
+      restWhale = null;
+    }
+    if (awaitWhale && (awaitWhale.state === "rest" || awaitWhale.state === "swim") && !player.perched && !player.landing) {
+      const bp = whales.backPoint(awaitWhale);
+      whales.hold(awaitWhale);
+      restWhale = awaitWhale;
+      awaitWhale = null;
+      player.landAt([bp[0], bp[1] + swallow.perchLift, bp[2]]);
+    }
     {
       // The sea's voice: loud on the beach, fading inland (and a little with height).
       const [cs] = coastInfo(camera.position[0], camera.position[2]);
@@ -1298,6 +1382,7 @@ async function main(): Promise<void> {
       birds.encode(pass);
       crabs.encode(pass);
       gulls.encode(pass);
+      whales.encode(pass);
       secrets.encode(pass);
       race.encode(pass);
       if (!debug.hide.terrain) terrain.encode(pass);
@@ -1305,6 +1390,7 @@ async function main(): Promise<void> {
       // The water blends over what lies beneath it, so it comes after the bed and the fish.
       if (!debug.hide.water) water.encode(pass);
       if (!debug.hide.sea) sea.encode(pass);
+      whales.encodeSpouts(pass);
       flowers.encodeGlow(pass);
       if (!debug.hide.fireflies) fireflies.encode(pass, night);
       // Transparent, depth-tested but not depth-writing: after everything opaque.

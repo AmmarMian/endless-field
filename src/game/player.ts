@@ -54,6 +54,8 @@ export class Player {
   }
   /** Perched (resting on the ground, a lantern, the nest), and where it is gliding down to. */
   perched = false;
+  /** The resting camera's orbit: distance from the bird and height above it (wider on a whale). */
+  perchView = { dist: 2.1, rise: 0.85 };
   landing: Vec3 | null = null;
   /** The approach: a curve from where it started to the perch, flown in `T` seconds. */
   private approach: { p0: Vec3; m0: Vec3; m1: Vec3; t: number; T: number } | null = null;
@@ -377,7 +379,8 @@ export class Player {
     if (this.perched) {
       // Resting: the camera drifts slowly round the bird, a little above it.
       this.orbit += dt * 0.12;
-      const desired: Vec3 = [this.pos[0] + Math.sin(this.orbit) * 2.1, this.pos[1] + 0.85, this.pos[2] - Math.cos(this.orbit) * 2.1];
+      const pv = this.perchView;
+      const desired: Vec3 = [this.pos[0] + Math.sin(this.orbit) * pv.dist, this.pos[1] + pv.rise, this.pos[2] - Math.cos(this.orbit) * pv.dist];
       const g = smoothGround(desired[0], desired[2]) + 0.9;
       desired[1] = Math.max(desired[1], g);
       for (let i = 0; i < 3; i++) this.camPos[i] = damp(this.camPos[i], desired[i], 1.2, dt);
